@@ -7,11 +7,11 @@ disable-model-invocation: true
 # Sync from Cursor
 
 This repo is a Claude Code port of Cursor's Thermos plugin. Upstream lives in a 17-plugin
-monorepo (`cursor/plugins`) with Thermos under the `thermos/` subdirectory; here the plugin sits
-at the repo root and most files were transformed for Claude Code. Two facts drive the whole
-workflow:
+monorepo (`cursor/plugins`) with Thermos under the `thermos/` subdirectory; here the plugin
+lives in `plugins/thermos/` (a single-plugin marketplace). Conveniently, upstream `thermos/`
+maps **1:1** onto our `plugins/thermos/`, which keeps syncing mechanical. Two facts drive the workflow:
 
-- **The `thermos/` prefix must be stripped** so upstream paths match our root layout. `git diff --relative=thermos` does this on the fly.
+- **The `thermos/` prefix must be re-based onto `plugins/thermos/`.** `git diff --relative=thermos` strips the upstream prefix; `git apply --directory=plugins/thermos` re-roots the patch into our plugin directory.
 - **Only the two rubric skills are byte-verbatim** with upstream, so only they can be auto-applied. Everything else (`thermos` orchestrator, agents, README, manifests, LICENSE, CHANGELOG) was rewritten for Claude Code and must be reconciled by hand -- auto-applying an upstream diff to them would clobber the port.
 
 `git apply --3way` gives the safety net: verbatim files apply cleanly, and if upstream ever
@@ -35,11 +35,11 @@ edits them in a way that conflicts it leaves standard conflict markers rather th
    git log --oneline "$BASE"..cursor/main -- thermos/
    ```
 
-4. **Auto-apply the verbatim rubric skills.** These are the only files safe to apply mechanically. `--relative=thermos` rewrites `thermos/skills/...` to our root `skills/...`; `--3way` applies cleanly or leaves conflict markers:
+4. **Auto-apply the verbatim rubric skills.** These are the only files safe to apply mechanically. `--relative=thermos` rewrites `thermos/skills/...` to `skills/...`; `--directory=plugins/thermos` re-roots them under our plugin; `--3way` applies cleanly or leaves conflict markers:
    ```bash
    git diff "$BASE"..cursor/main --relative=thermos \
      -- thermos/skills/thermo-nuclear-review thermos/skills/thermo-nuclear-code-quality-review \
-     | git apply --3way
+     | git apply --3way --directory=plugins/thermos
    ```
    If there are no changes to these two skills, this is a harmless no-op. Resolve any conflict markers before continuing.
 
@@ -64,26 +64,26 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 
 | Upstream (`cursor/plugins`) | This repo |
 |:----------------------------|:----------|
-| `thermos/skills/<name>/SKILL.md` | `skills/<name>/SKILL.md` |
-| `thermos/agents/<name>.md` | `agents/<name>.md` |
-| `thermos/README.md` | `README.md` |
-| `thermos/CHANGELOG.md` | `CHANGELOG.md` |
-| `thermos/LICENSE` | `LICENSE` |
-| `thermos/.cursor-plugin/plugin.json` | `.claude-plugin/plugin.json` |
+| `thermos/skills/<name>/SKILL.md` | `plugins/thermos/skills/<name>/SKILL.md` |
+| `thermos/agents/<name>.md` | `plugins/thermos/agents/<name>.md` |
+| `thermos/README.md` | `plugins/thermos/README.md` |
+| `thermos/CHANGELOG.md` | `plugins/thermos/CHANGELOG.md` |
+| `thermos/LICENSE` | `plugins/thermos/LICENSE` |
+| `thermos/.cursor-plugin/plugin.json` | `plugins/thermos/.claude-plugin/plugin.json` (+ root `.claude-plugin/marketplace.json`) |
 
 ## File buckets
 
 **Verbatim -- auto-apply (step 4):**
-- `skills/thermo-nuclear-review/SKILL.md`
-- `skills/thermo-nuclear-code-quality-review/SKILL.md`
+- `plugins/thermos/skills/thermo-nuclear-review/SKILL.md`
+- `plugins/thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`
 
 **Transformed -- review and hand-port (step 5), never auto-apply:**
-- `skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Task`)
-- `agents/*.md` (Claude frontmatter: `model`, `color`; orchestration rewritten)
-- `README.md` (port notice + Claude Code install commands)
-- `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (Claude manifest layout)
-- `LICENSE` (combined MIT: Cursor + porter)
-- `CHANGELOG.md`
+- `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Task`)
+- `plugins/thermos/agents/*.md` (Claude frontmatter: `model`, `color`; orchestration rewritten)
+- `plugins/thermos/README.md` (port notice + Claude Code install commands)
+- `plugins/thermos/.claude-plugin/plugin.json` and root `.claude-plugin/marketplace.json` (Claude manifest layout)
+- `plugins/thermos/LICENSE` (combined MIT: Cursor + porter)
+- `plugins/thermos/CHANGELOG.md`
 
 If a brand-new file appears upstream (a new skill or agent), decide which bucket it belongs to:
 a pure rubric is usually verbatim; anything with Cursor-specific syntax needs porting.

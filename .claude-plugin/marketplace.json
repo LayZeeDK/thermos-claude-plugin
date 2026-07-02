@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "thermos",
-      "source": "./",
+      "source": "./plugins/thermos",
       "description": "Claude Code port of Cursor's Thermos: parallel thermo-nuclear branch review (deep bug/security/devex audit + strict maintainability rubric).",
       "category": "developer-tools",
       "tags": ["review", "quality", "shipping", "automation"]
