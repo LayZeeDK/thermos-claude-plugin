@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "thermos-claude-plugin",
+  "owner": {
+    "name": "Lars Gyrup Brink Nielsen",
+    "email": "larsbrinknielsen@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "thermos",
+      "source": "./",
+      "description": "Claude Code port of Cursor's Thermos: parallel thermo-nuclear branch review (deep bug/security/devex audit + strict maintainability rubric).",
+      "category": "developer-tools",
+      "tags": ["review", "quality", "shipping", "automation"]
+    }
+  ]
+}

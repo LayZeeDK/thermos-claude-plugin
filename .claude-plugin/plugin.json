@@ -1,0 +1,22 @@
+{
+  "name": "thermos",
+  "version": "1.0.0",
+  "description": "Thermo-nuclear branch review: deep correctness and security audits plus harsh code-quality rubrics, parallel subagents, and thermos orchestration.",
+  "author": {
+    "name": "Lars Gyrup Brink Nielsen",
+    "email": "larsbrinknielsen@gmail.com"
+  },
+  "homepage": "https://github.com/LayZeeDK/thermos-claude-plugin",
+  "repository": "https://github.com/LayZeeDK/thermos-claude-plugin",
+  "license": "MIT",
+  "keywords": [
+    "thermos",
+    "thermo-nuclear",
+    "code-review",
+    "deep-review",
+    "code-quality",
+    "security-review",
+    "subagents",
+    "claude-code"
+  ]
+}
