@@ -1,5 +1,5 @@
 ---
-name: thermo-nuclear-review-subagent
+name: thermo-nuclear-reviewer
 description: Thermo-nuclear branch audit (bugs, breaking changes, security, devex, feature-flag leaks) scoped to the diff. Invoked via the Task tool after a parent gathers diff and file contents. Loads rubric from the thermo-nuclear-review skill in the Thermos plugin.
 model: inherit
 color: red
@@ -27,4 +27,4 @@ Do **not** spawn nested subagents unless the user or parent explicitly asks.
 
 ## Parent orchestration
 
-Typical flow: gather the review context first — run `git diff <base>...HEAD` with the `Bash` tool and pull the full contents of the changed files with the `Explore` agent (default base `main`). Then invoke this agent with `subagent_type: "thermo-nuclear-review-subagent"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.
+Typical flow: gather the review context first — run `git diff <base>...HEAD` with the `Bash` tool and pull the full contents of the changed files with the `Explore` agent (default base `main`). Then invoke this agent with `subagent_type: "thermo-nuclear-reviewer"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.

@@ -20,8 +20,8 @@ flowchart TB
   end
 
   subgraph L1["Subagents"]
-    SNR[thermo-nuclear-review-subagent]
-    SNCQ[thermo-nuclear-code-quality-review-subagent]
+    SNR[thermo-nuclear-reviewer]
+    SNCQ[thermo-nuclear-code-quality-reviewer]
   end
 
   DIFF[git diff + file contents]
@@ -51,8 +51,8 @@ flowchart TB
 
 | Agent | Description |
 |:------|:------------|
-| `thermo-nuclear-review-subagent` | Diff-scoped subagent for the deep review rubric. |
-| `thermo-nuclear-code-quality-review-subagent` | Diff-scoped subagent for the code-quality rubric. |
+| `thermo-nuclear-reviewer` | Diff-scoped subagent for the deep review rubric. |
+| `thermo-nuclear-code-quality-reviewer` | Diff-scoped subagent for the code-quality rubric. |
 
 ## Typical usage
 

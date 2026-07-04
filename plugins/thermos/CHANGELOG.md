@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+Renamed both agents to follow Claude Code's role-based naming convention, dropping the `-subagent` suffix (a Cursor-ism; Claude Code names subagents like `code-reviewer`, `security-auditor`).
+
+- `thermo-nuclear-review-subagent` -> `thermo-nuclear-reviewer`
+- `thermo-nuclear-code-quality-review-subagent` -> `thermo-nuclear-code-quality-reviewer`
+
+Updated all references: agent frontmatter `name`, the self-documented `subagent_type` invocation examples, the `thermos` orchestrator skill's `subagent_type` targets, and the README architecture diagram and agent table. Agent files renamed to match. Colors (`red` for the deep review agent, `yellow` for the code-quality agent) were validated against Claude Code's supported set (`red, blue, green, yellow, purple, orange, pink, cyan`) and kept as-is -- both are valid, distinct within the plugin, and semantically appropriate (red = security/critical, yellow = validation/quality).
+
 ## 1.0.0
 
 Initial Claude Code port of Cursor's Thermos plugin (<https://github.com/cursor/plugins/tree/main/thermos>). The sections below summarize, at a high level, how each ported skill and agent file differs from its Cursor Thermos original.
