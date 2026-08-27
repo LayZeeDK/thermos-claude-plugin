@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.1.0
+
+Hardening pass closing six gaps between the port and Claude Code's actual primitives.
+
+### Agents
+
+- **`tools` allowlist added** to both agents: `Read, Grep, Glob, Bash, WebFetch, Skill`. Without it a subagent inherits the full tool set, so a reviewer could edit the code it is auditing.
+- **`skills` preloading added**, referencing the plugin-scoped rubric (`thermos:thermo-nuclear-review` / `thermos:thermo-nuclear-code-quality-review`). Replaces the prose "load the skill, and if it is not available fall back" with declarative injection at subagent startup. The prose fallback is kept, demoted to a recovery path.
+- **`Task` -> `Agent`.** Claude Code's subagent tool is `Agent`; `Task` was Cursor-era wording still present in both agents' `description` and body.
+- **Output contract added.** Each agent returns discrete finding blocks (`file:line`, one-sentence defect, concrete failure scenario, severity, kebab-case category) so the orchestrator can merge them mechanically and feed `ReportFindings`.
+- **PR-discussion step made host-aware.** It now checks `git remote get-url origin` and uses `gh` only for GitHub, `glab` only for GitLab, skipping the step on self-hosted Gitea, Bitbucket, or plain SSH remotes rather than retrying a CLI that cannot reach them.
+- **Diff-quality requirement stated.** The orchestration section requires the full unified diff *including context lines*, and calls out bypassing token-compressing git wrappers. Such wrappers are common in agent harnesses; they strip context lines, and the reviewers then under-report without any signal that context was missing.
+
+### Skills
+
+- `thermo-nuclear-review` and `thermo-nuclear-code-quality-review`: **dropped `disable-model-invocation: true`.** Claude Code cannot preload a skill that sets this field into a subagent's `skills` list ("You can't preload skills that set `disable-model-invocation: true`, since preloading draws from the same set of skills Claude can invoke" -- [subagents docs](https://code.claude.com/docs/en/sub-agents#preload-skills-into-subagents)), so retaining it and preloading were mutually exclusive. Bodies remain verbatim with upstream Cursor. Both skills stay user-invocable; their descriptions are narrow enough (`thermo nuclear`, `thermonuclear`) that autonomous invocation is unlikely.
+- `thermos` (orchestrator): kept `disable-model-invocation: true`, since it is never preloaded. Added the uncompressed-diff requirement, an explicit "do not fabricate a background result that has not arrived" rule, a merge/dedupe/rank step, and a final `ReportFindings` reporting step with a markdown fallback.
+
+### Maintenance
+
+- `/sync-from-cursor`: corrected the "byte-verbatim" claim for the two rubric skills -- they are now *body*-verbatim with a deliberate one-line frontmatter delta. Documented how to resolve a `--3way` conflict landing on that line, and refreshed the transformed-file bucket notes.
+
 ## 1.0.1
 
 Renamed both agents to follow Claude Code's role-based naming convention, dropping the `-subagent` suffix (a Cursor-ism; Claude Code names subagents like `code-reviewer`, `security-auditor`).

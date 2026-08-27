@@ -12,10 +12,11 @@ lives in `plugins/thermos/` (a single-plugin marketplace). Conveniently, upstrea
 maps **1:1** onto our `plugins/thermos/`, which keeps syncing mechanical. Two facts drive the workflow:
 
 - **The `thermos/` prefix must be re-based onto `plugins/thermos/`.** `git diff --relative=thermos` strips the upstream prefix; `git apply --directory=plugins/thermos` re-roots the patch into our plugin directory.
-- **Only the two rubric skills are byte-verbatim** with upstream, so only they can be auto-applied. Everything else (`thermos` orchestrator, agents, README, manifests, LICENSE, CHANGELOG) was rewritten for Claude Code and must be reconciled by hand -- auto-applying an upstream diff to them would clobber the port.
+- **Only the two rubric skills track upstream body-for-body**, so only they can be auto-applied. Their *bodies* are verbatim; their frontmatter carries a deliberate one-line delta (upstream's `disable-model-invocation: true` is removed, because Claude Code cannot preload a skill that sets it into a subagent's `skills:` field). Everything else (`thermos` orchestrator, agents, README, manifests, LICENSE, CHANGELOG) was rewritten for Claude Code and must be reconciled by hand -- auto-applying an upstream diff to them would clobber the port.
 
-`git apply --3way` gives the safety net: verbatim files apply cleanly, and if upstream ever
-edits them in a way that conflicts it leaves standard conflict markers rather than failing silently.
+`git apply --3way` gives the safety net: body edits apply cleanly over the frontmatter delta, and if
+upstream ever touches the frontmatter it leaves standard conflict markers rather than failing silently.
+If a conflict lands on the `disable-model-invocation` line, keep **our** side (the line stays removed).
 
 ## Workflow
 
@@ -50,8 +51,9 @@ edits them in a way that conflicts it leaves standard conflict markers rather th
         thermos/.cursor-plugin/plugin.json thermos/LICENSE thermos/CHANGELOG.md
    ```
    Use the path map below to find each file's Claude Code counterpart. Preserve the port's
-   adaptations (Claude frontmatter, `Bash`/`Explore`/`Task` orchestration, install commands,
-   dual-copyright LICENSE); only carry over the actual upstream content changes.
+   adaptations (Claude frontmatter including `tools`/`skills`, `Bash`/`Explore`/`Agent` orchestration,
+   `ReportFindings` output, install commands, dual-copyright LICENSE); only carry over the actual
+   upstream content changes.
 
 6. **Advance the baseline** once the sync is applied and verified, so the next run diffs from here:
    ```bash
@@ -73,13 +75,13 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 
 ## File buckets
 
-**Verbatim -- auto-apply (step 4):**
-- `plugins/thermos/skills/thermo-nuclear-review/SKILL.md`
-- `plugins/thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`
+**Body-verbatim -- auto-apply with `--3way` (step 4):**
+- `plugins/thermos/skills/thermo-nuclear-review/SKILL.md` (frontmatter delta: no `disable-model-invocation`)
+- `plugins/thermos/skills/thermo-nuclear-code-quality-review/SKILL.md` (same delta)
 
 **Transformed -- review and hand-port (step 5), never auto-apply:**
-- `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Task`)
-- `plugins/thermos/agents/*.md` (Claude frontmatter: `model`, `color`; orchestration rewritten)
+- `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Agent`/`TaskOutput`/`ReportFindings`)
+- `plugins/thermos/agents/*.md` (Claude frontmatter: `model`, `color`, `tools`, `skills`; orchestration rewritten)
 - `plugins/thermos/README.md` (port notice + Claude Code install commands)
 - `plugins/thermos/.claude-plugin/plugin.json` and root `.claude-plugin/marketplace.json` (Claude manifest layout)
 - `plugins/thermos/LICENSE` (combined MIT: Cursor + porter)

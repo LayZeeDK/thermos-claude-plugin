@@ -51,16 +51,18 @@ flowchart TB
 
 | Agent | Description |
 |:------|:------------|
-| `thermo-nuclear-reviewer` | Diff-scoped subagent for the deep review rubric. |
-| `thermo-nuclear-code-quality-reviewer` | Diff-scoped subagent for the code-quality rubric. |
+| `thermo-nuclear-reviewer` | Diff-scoped, read-only subagent for the deep review rubric. |
+| `thermo-nuclear-code-quality-reviewer` | Diff-scoped, read-only subagent for the code-quality rubric. |
+
+Both agents declare a read-only `tools` allowlist and preload their rubric through the `skills` frontmatter field, so the rubric is in context at startup rather than discovered mid-run.
 
 ## Typical usage
 
 **Double review (thermos):**
 
-1. Gather `git diff main...HEAD` with the `Bash` tool and the full contents of the changed files with the `Explore` agent.
+1. Gather the **full** `git diff main...HEAD` with the `Bash` tool (context lines included) and the contents of the changed files with the `Explore` agent.
 2. Launch both subagents in one message with `run_in_background: true`, passing each the same scoped diff/file context.
-3. Collect both results with `TaskOutput`, then synthesize prioritized, deduplicated findings.
+3. Collect both results with `TaskOutput`, synthesize prioritized deduplicated findings, and report them with `ReportFindings`.
 
 **Single skill:** invoke `thermo-nuclear-review` or `thermo-nuclear-code-quality-review` in the main agent, or the matching subagent after gathering diff context.
 

@@ -1,7 +1,7 @@
 {
   "name": "thermos",
-  "version": "1.0.1",
-  "description": "Thermo-nuclear branch review: deep correctness and security audits plus harsh code-quality rubrics, parallel subagents, and thermos orchestration.",
+  "version": "1.1.0",
+  "description": "Thermo-nuclear branch review: deep correctness and security audits plus harsh code-quality rubrics, parallel read-only subagents, and thermos orchestration with structured findings.",
   "author": {
     "name": "Lars Gyrup Brink Nielsen",
     "email": "larsbrinknielsen@gmail.com"
