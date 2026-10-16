@@ -51,8 +51,8 @@ flowchart TB
 
 | Agent | Description |
 |:------|:------------|
-| `thermo-nuclear-reviewer` | Diff-scoped subagent for the deep review rubric. |
-| `thermo-nuclear-code-quality-reviewer` | Diff-scoped subagent for the code-quality rubric. |
+| `thermo-nuclear-reviewer` | Agent subagent for deep review rubric (diff-scoped). |
+| `thermo-nuclear-code-quality-reviewer` | Agent subagent for code-quality rubric (diff-scoped). |
 
 ## Typical usage
 
