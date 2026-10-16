@@ -1,7 +1,6 @@
 ---
 name: thermo-nuclear-reviewer
 description: Thermo-nuclear branch audit (bugs, breaking changes, security, devex, feature-flag leaks) scoped to the diff. Invoked via Agent after a parent gathers diff and file contents. Loads rubric from the thermo-nuclear-review skill in the Thermos plugin.
-model: inherit
 color: red
 skills:
   - thermos:thermo-nuclear-review

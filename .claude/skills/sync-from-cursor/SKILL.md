@@ -82,7 +82,7 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 
 **Transformed -- review and hand-port (step 5), never auto-apply:**
 - `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Agent`; drops `disable-model-invocation`)
-- `plugins/thermos/agents/*.md` (Claude frontmatter `model` and `color`, plus `skills` to preload the matching rubric; orchestration rewritten)
+- `plugins/thermos/agents/*.md` (Claude frontmatter `color`, plus `skills` to preload the matching rubric, and no `model`, like upstream; orchestration rewritten)
 - `plugins/thermos/README.md` (port notice + Claude Code install commands)
 - `plugins/thermos/.claude-plugin/plugin.json` and root `.claude-plugin/marketplace.json` (Claude manifest layout)
 - `plugins/thermos/LICENSE` (combined MIT: Cursor + porter)
