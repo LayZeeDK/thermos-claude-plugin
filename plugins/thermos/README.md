@@ -62,6 +62,10 @@ flowchart TB
 2. Invoke both subagents in one message with `run_in_background: true`.
 3. Synthesize prioritized, deduped findings.
 
+Add `--effort <level>` to `/thermos`, for example `/thermos --effort xhigh`, to run both reviewers at that effort level. Claude passes it as the Agent tool's per-call `effort` parameter, which needs Claude Code v2.1.292 or later.
+
+Add `--model <model>`, for example `/thermos --model sonnet`, to run both reviewers on that model. Claude passes it as the Agent tool's per-call `model` parameter. You can combine both, as in `/thermos --effort high --model opus`.
+
 **Single skill:** invoke `thermo-nuclear-review` or `thermo-nuclear-code-quality-review` in the main agent, or the matching subagent after gathering diff context.
 
 ## License

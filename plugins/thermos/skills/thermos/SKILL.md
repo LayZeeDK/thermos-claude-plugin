@@ -1,6 +1,7 @@
 ---
 name: thermos
 description: "Launch both thermo-nuclear review subagents in parallel, then synthesize their findings. Use for thermos, double thermo review, or combined bug/security and code-quality branch audits."
+argument-hint: "[branch, PR, commit or range] [--effort <level>] [--model <model>]"
 ---
 
 # Thermos
