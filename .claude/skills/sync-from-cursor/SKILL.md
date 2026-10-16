@@ -67,7 +67,8 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 | Upstream (`cursor/plugins`) | This repo |
 |:----------------------------|:----------|
 | `thermos/skills/<name>/SKILL.md` | `plugins/thermos/skills/<name>/SKILL.md` |
-| `thermos/agents/<name>.md` | `plugins/thermos/agents/<name>.md` |
+| `thermos/agents/thermo-nuclear-review-subagent.md` | `plugins/thermos/agents/thermo-nuclear-reviewer.md` |
+| `thermos/agents/thermo-nuclear-code-quality-review-subagent.md` | `plugins/thermos/agents/thermo-nuclear-code-quality-reviewer.md` |
 | `thermos/README.md` | `plugins/thermos/README.md` |
 | `thermos/CHANGELOG.md` | `plugins/thermos/CHANGELOG.md` |
 | `thermos/LICENSE` | `plugins/thermos/LICENSE` |
