@@ -1,0 +1,536 @@
+import assert from 'node:assert/strict';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+
+import {
+  ENV,
+  install,
+  installed,
+  wrapNodeTest,
+  type HookDependencies,
+  type NodeTestModule,
+  type ProcessRecord,
+  type RecordedTest,
+  type StrykerNamespace,
+} from './hook-core.ts';
+
+type Kind = keyof NodeTestModule;
+type Fn = (this: unknown, ...args: unknown[]) => unknown;
+
+interface Registration {
+  kind: Kind;
+  name: string;
+  /** The arguments after the name, as the wrapper passed them on. */
+  rest: unknown[];
+  self: unknown;
+}
+
+interface SuiteCall {
+  self: unknown;
+  args: unknown[];
+}
+
+const TEST_FILE = join('/repo', 'a.test.ts');
+
+/**
+ * A stand-in for node:test that records registrations. Like node:test, it runs suite bodies while they are
+ * registered (with a recognisable `this` and argument) and reports a suite body that throws instead of throwing.
+ */
+function fakeNodeTest() {
+  const registrations: Registration[] = [];
+  const suiteResults: unknown[] = [];
+  const register = (kind: Kind) =>
+    Object.assign(
+      function (this: unknown, name: string, ...rest: unknown[]) {
+        registrations.push({ kind, name, rest, self: this });
+        const body = rest.find((arg) => typeof arg === 'function') as Fn | undefined;
+
+        if ((kind === 'describe' || kind === 'suite') && body) {
+          try {
+            suiteResults.push(body.call('suite this', 'suite argument'));
+          } catch (error) {
+            suiteResults.push(error);
+          }
+        }
+
+        return `${kind} ${name}`;
+      },
+      { skip: `${kind}.skip` },
+    );
+  const module: NodeTestModule = {
+    describe: register('describe'),
+    suite: register('suite'),
+    it: register('it'),
+    test: register('test'),
+  };
+
+  return { module, registrations, suiteResults };
+}
+
+/** Returns the body the wrapper registered for the test with this name. */
+function bodyOf(registrations: Registration[], name: string): (this: unknown, ...args: unknown[]) => Promise<unknown> {
+  const registration = registrations.find((candidate) => candidate.name === name);
+  assert.ok(registration, `${name} was not registered`);
+  const body = registration.rest.find((arg) => typeof arg === 'function') as Fn;
+
+  return async function (this: unknown, ...args: unknown[]) {
+    return body.apply(this, args);
+  };
+}
+
+/** Wraps a fake node:test with the given filter and a clock that advances 5 ms per reading. */
+function wrapped(filter?: string[]) {
+  const fake = fakeNodeTest();
+  const ns: StrykerNamespace = {};
+  const env: Record<string, string | undefined> = {};
+  const tests: RecordedTest[] = [];
+  let clock = 100;
+  wrapNodeTest({
+    ns,
+    testFile: TEST_FILE,
+    tests,
+    filter: filter && new Set(filter),
+    env,
+    now: () => (clock += 5),
+    nodeTest: fake.module,
+  });
+
+  return { ...fake, ns, env, tests };
+}
+
+describe('wrapNodeTest', () => {
+  it('names tests after the file, the enclosing suites, and the test, for every node:test function', async () => {
+    const { module, tests, registrations } = wrapped();
+    module.describe('outer', () => {
+      module.suite('inner', () => {
+        module.it('first', () => {});
+      });
+      module.test('second', () => {});
+    });
+    module.suite('sibling', () => {
+      module.it('third', () => {});
+    });
+    module.test('top', () => {});
+
+    for (const name of ['first', 'second', 'third', 'top']) {
+      await bodyOf(registrations, name)();
+    }
+
+    assert.deepEqual(
+      tests.map((test) => test.id),
+      [
+        `${TEST_FILE} > outer > inner > first`,
+        `${TEST_FILE} > outer > second`,
+        `${TEST_FILE} > sibling > third`,
+        `${TEST_FILE} > top`,
+      ],
+    );
+  });
+
+  it('leaves the suite after a suite body throws', async () => {
+    const { module, tests, registrations, suiteResults } = wrapped();
+    const failure = new Error('broken suite');
+    module.describe('broken', () => {
+      throw failure;
+    });
+    module.it('after', () => {});
+
+    await bodyOf(registrations, 'after')();
+
+    assert.equal(suiteResults[0], failure);
+    assert.deepEqual(
+      tests.map((test) => test.id),
+      [`${TEST_FILE} > after`],
+    );
+  });
+
+  it('passes the name, options, receiver and return values through to node:test', async () => {
+    const { module, registrations, suiteResults } = wrapped();
+    const options = { timeout: 1000 };
+    let suiteCall: SuiteCall | undefined;
+    let testCall: SuiteCall | undefined;
+
+    const suiteReturn = module.describe.call(
+      'describe this',
+      'suite',
+      options,
+      function (this: unknown, ...args: unknown[]) {
+        suiteCall = { self: this, args };
+
+        return 'suite body result';
+      },
+    );
+    const testReturn = module.it.call('it this', 'case', options, function (this: unknown, ...args: unknown[]) {
+      testCall = { self: this, args };
+
+      return 'test body result';
+    });
+
+    assert.equal(suiteReturn, 'describe suite');
+    assert.equal(testReturn, 'it case');
+    assert.deepEqual(
+      registrations.map(({ kind, name, rest, self }) => ({ kind, name, options: rest[0], self, count: rest.length })),
+      [
+        { kind: 'describe', name: 'suite', options, self: 'describe this', count: 2 },
+        { kind: 'it', name: 'case', options, self: 'it this', count: 2 },
+      ],
+    );
+    assert.deepEqual(suiteCall, { self: 'suite this', args: ['suite argument'] });
+    assert.equal(suiteResults[0], 'suite body result');
+
+    const result = await bodyOf(registrations, 'case').call('test context', 'done');
+
+    assert.deepEqual(testCall, { self: 'test context', args: ['done'] });
+    assert.equal(result, 'test body result');
+  });
+
+  it('registers tests and suites without a body unchanged', () => {
+    const { module, registrations, tests } = wrapped();
+    module.describe('todo suite');
+    module.it('todo test', { todo: true });
+
+    assert.deepEqual(
+      registrations.map(({ name, rest }) => ({ name, rest })),
+      [
+        { name: 'todo suite', rest: [] },
+        { name: 'todo test', rest: [{ todo: true }] },
+      ],
+    );
+    assert.deepEqual(tests, []);
+  });
+
+  it('keeps the properties of the node:test functions, such as skip', () => {
+    const { module } = wrapped();
+
+    for (const kind of ['describe', 'suite', 'it', 'test'] as const) {
+      assert.equal((module[kind] as unknown as { skip: string }).skip, `${kind}.skip`);
+    }
+  });
+
+  it('records a passing test with the time it took', async () => {
+    const { module, registrations, tests } = wrapped();
+    module.it('passes', () => {});
+
+    await bodyOf(registrations, 'passes')();
+
+    assert.deepEqual(tests, [{ id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 5 }]);
+  });
+
+  it('records a failing test with its message and rethrows the error', async () => {
+    const { module, registrations, tests } = wrapped();
+    const failure = new Error('expected 1 to be 2');
+    module.it('fails', () => {
+      throw failure;
+    });
+    module.it('rejects', async () => {
+      throw failure;
+    });
+
+    await assert.rejects(bodyOf(registrations, 'fails')(), (error) => error === failure);
+    await assert.rejects(bodyOf(registrations, 'rejects')(), (error) => error === failure);
+
+    assert.deepEqual(tests, [
+      { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'expected 1 to be 2', timeSpentMs: 5 },
+      { id: `${TEST_FILE} > rejects`, status: 'failed', failureMessage: 'expected 1 to be 2', timeSpentMs: 5 },
+    ]);
+  });
+
+  it('records a thrown value that is not an Error as text', async () => {
+    const { module, registrations, tests } = wrapped();
+    module.it('throws a string', () => {
+      throw 'plain text';
+    });
+
+    await assert.rejects(bodyOf(registrations, 'throws a string')(), (error) => error === 'plain text');
+
+    assert.equal(tests[0]?.failureMessage, 'plain text');
+  });
+
+  it('sets the current test id in the namespace and the environment while the test runs', async () => {
+    const { module, registrations, ns, env } = wrapped();
+    const seen: unknown[] = [];
+    module.it('observes', () => {
+      seen.push(ns.currentTestId, env[ENV.current]);
+    });
+
+    await bodyOf(registrations, 'observes')();
+
+    assert.deepEqual(seen, [`${TEST_FILE} > observes`, `${TEST_FILE} > observes`]);
+  });
+
+  it('clears the current test id after a test, also after a failure', async () => {
+    const { module, registrations, ns, env } = wrapped();
+    module.it('passes', () => {});
+    module.it('fails', () => {
+      throw new Error('no');
+    });
+
+    await bodyOf(registrations, 'passes')();
+
+    assert.equal(ns.currentTestId, undefined);
+    assert.ok(!(ENV.current in env));
+
+    await assert.rejects(bodyOf(registrations, 'fails')());
+
+    assert.equal(ns.currentTestId, undefined);
+    assert.ok(!(ENV.current in env));
+  });
+
+  it('skips the bodies of tests outside the filter and runs the others', async () => {
+    const { module, registrations, tests, ns } = wrapped([`${TEST_FILE} > group > wanted`]);
+    const ran: string[] = [];
+    module.describe('group', () => {
+      module.it('wanted', () => {
+        ran.push('wanted');
+      });
+      module.it('unwanted', () => {
+        ran.push('unwanted');
+      });
+    });
+    module.test('other', () => {
+      ran.push('other');
+    });
+
+    for (const name of ['wanted', 'unwanted', 'other']) {
+      await bodyOf(registrations, name)();
+    }
+
+    assert.deepEqual(ran, ['wanted']);
+    assert.deepEqual(
+      tests.map((test) => test.id),
+      [`${TEST_FILE} > group > wanted`],
+    );
+    assert.equal(ns.currentTestId, undefined);
+  });
+});
+
+interface Harness {
+  deps: HookDependencies;
+  fake: ReturnType<typeof fakeNodeTest>;
+  records: { path: string; record: ProcessRecord }[];
+  calls: string[];
+  exit: () => void;
+}
+
+/** Hook dependencies with fakes, for a process whose main file is the test file unless `mainFile` says otherwise. */
+function harness(env: Record<string, string | undefined>, overrides: Partial<HookDependencies> = {}): Harness {
+  const fake = fakeNodeTest();
+  const unwrappedIt = fake.module.it;
+  const records: Harness['records'] = [];
+  const calls: string[] = [];
+  const listeners: (() => void)[] = [];
+  const deps: HookDependencies = {
+    env,
+    mainFile: TEST_FILE,
+    pid: 4321,
+    global: {},
+    nodeTest: () => {
+      calls.push('nodeTest');
+
+      return fake.module;
+    },
+    publishNodeTest: () => {
+      calls.push(fake.module.it === unwrappedIt ? 'publishNodeTest before wrapping' : 'publishNodeTest');
+    },
+    onExit: (listener) => {
+      calls.push('onExit');
+      listeners.push(listener);
+    },
+    writeRecord: (path, record) => {
+      records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
+    },
+    now: () => 0,
+    join,
+    ...overrides,
+  };
+
+  return {
+    deps,
+    fake,
+    records,
+    calls,
+    exit: () => {
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+  };
+}
+
+const OUT = join('/tmp', 'out');
+
+describe('install', () => {
+  it('does nothing when the runner did not start the process tree', () => {
+    const { deps, calls } = harness({ [ENV.file]: TEST_FILE });
+
+    assert.equal(install(deps), false);
+    assert.deepEqual(deps.global, {});
+    assert.deepEqual(calls, []);
+  });
+
+  it('does nothing when a hook is already installed in the process', () => {
+    const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
+
+    assert.equal(install(deps), true);
+
+    calls.length = 0;
+
+    assert.equal(install(deps), false);
+    assert.deepEqual(calls, []);
+  });
+
+  it('marks the process with a symbol that every copy of the hook shares', () => {
+    const { deps } = harness({ [ENV.out]: OUT });
+    install(deps);
+
+    assert.equal(deps.global[installed], true);
+    assert.equal(installed, Symbol.for('thermos.stryker-node-test-runner.hook'));
+  });
+
+  it('keeps an existing Stryker namespace', () => {
+    const ns: StrykerNamespace = { mutantCoverage: { static: { 1: 1 }, perTest: {} } };
+    const { deps } = harness({ [ENV.out]: OUT });
+    deps.global.__stryker__ = ns;
+    install(deps);
+
+    assert.equal(deps.global.__stryker__, ns);
+    assert.deepEqual(ns.mutantCoverage, { static: { 1: 1 }, perTest: {} });
+  });
+
+  it('sets the hit limit and starts counting when the limit is positive', () => {
+    const { deps } = harness({ [ENV.out]: OUT, [ENV.hitLimit]: '25' });
+    install(deps);
+
+    assert.equal(deps.global.__stryker__?.hitLimit, 25);
+    assert.equal(deps.global.__stryker__?.hitCount, 0);
+  });
+
+  for (const hitLimit of [undefined, '0', 'none']) {
+    it(`counts no hits with the hit limit ${String(hitLimit)}`, () => {
+      const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.hitLimit]: hitLimit });
+      install(deps);
+      exit();
+
+      assert.equal(deps.global.__stryker__?.hitLimit, undefined);
+      assert.equal(deps.global.__stryker__?.hitCount, undefined);
+      assert.ok(!('hitCount' in (records[0]?.record ?? {})));
+    });
+  }
+
+  it('attributes the process to the test that started it', () => {
+    const { deps } = harness({ [ENV.out]: OUT, [ENV.current]: `${TEST_FILE} > spawns` }, { mainFile: '/other.mjs' });
+    install(deps);
+
+    assert.equal(deps.global.__stryker__?.currentTestId, `${TEST_FILE} > spawns`);
+  });
+
+  for (const current of [undefined, '']) {
+    it(`attributes the process to no test when the current test is ${JSON.stringify(current)}`, () => {
+      const { deps } = harness({ [ENV.out]: OUT, [ENV.current]: current });
+      deps.global.__stryker__ = { currentTestId: 'stale' };
+      install(deps);
+
+      assert.equal(deps.global.__stryker__.currentTestId, undefined);
+    });
+  }
+
+  it('wraps node:test, then publishes it, in the process that runs the test file', async () => {
+    const { deps, fake, calls } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
+    install(deps);
+
+    assert.deepEqual(calls, ['nodeTest', 'publishNodeTest', 'onExit']);
+
+    fake.module.it('runs', () => {});
+    await bodyOf(fake.registrations, 'runs')();
+
+    assert.equal(deps.global.__stryker__?.currentTestId, undefined);
+  });
+
+  for (const [description, env, mainFile] of [
+    ['a process the tests spawned', { [ENV.file]: TEST_FILE }, '/repo/child.mjs'],
+    ['a process without a main file', { [ENV.file]: TEST_FILE }, undefined],
+    ['a run without a test file', {}, undefined],
+    ['a run without a test file, from a main file', {}, TEST_FILE],
+  ] as const) {
+    it(`leaves node:test alone in ${description}`, () => {
+      const { deps, calls } = harness({ [ENV.out]: OUT, ...env }, { mainFile });
+
+      assert.equal(install(deps), true);
+      assert.deepEqual(calls, ['onExit']);
+    });
+  }
+
+  it('records the tests of the test file in a file named after the process', async () => {
+    let clock = 0;
+    const { deps, fake, records, exit } = harness(
+      { [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.dryRun]: 'false' },
+      { now: () => (clock += 3) },
+    );
+    install(deps);
+    fake.module.it('passes', () => {});
+    fake.module.it('fails', () => {
+      throw new Error('nope');
+    });
+    await bodyOf(fake.registrations, 'passes')();
+    await assert.rejects(bodyOf(fake.registrations, 'fails')());
+
+    exit();
+
+    assert.deepEqual(records, [
+      {
+        path: join(OUT, '4321.json'),
+        record: {
+          tests: [
+            { id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 3 },
+            { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'nope', timeSpentMs: 3 },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it('runs only the filtered tests', async () => {
+    const { deps, fake, records, exit } = harness({
+      [ENV.out]: OUT,
+      [ENV.file]: TEST_FILE,
+      [ENV.filter]: JSON.stringify([`${TEST_FILE} > wanted`]),
+    });
+    const ran: string[] = [];
+    install(deps);
+    fake.module.it('wanted', () => {
+      ran.push('wanted');
+    });
+    fake.module.it('unwanted', () => {
+      ran.push('unwanted');
+    });
+    await bodyOf(fake.registrations, 'wanted')();
+    await bodyOf(fake.registrations, 'unwanted')();
+    exit();
+
+    assert.deepEqual(ran, ['wanted']);
+    assert.deepEqual(
+      records[0]?.record.tests.map((test) => test.id),
+      [`${TEST_FILE} > wanted`],
+    );
+  });
+
+  it('writes the hit count and, only in the dry run, the mutant coverage', () => {
+    const coverage = { static: { 1: 2 }, perTest: { [`${TEST_FILE} > t`]: { 3: 1 } } };
+    const written = ['true', 'false', undefined].map((dryRun) => {
+      const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.dryRun]: dryRun, [ENV.hitLimit]: '9' });
+      install(deps);
+      const ns = deps.global.__stryker__ as StrykerNamespace;
+      ns.mutantCoverage = coverage;
+      ns.hitCount = 7;
+      exit();
+
+      return records[0]?.record;
+    });
+
+    assert.deepEqual(written, [
+      { tests: [], hitCount: 7, mutantCoverage: coverage },
+      { tests: [], hitCount: 7 },
+      { tests: [], hitCount: 7 },
+    ]);
+  });
+});
