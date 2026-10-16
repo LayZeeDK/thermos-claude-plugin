@@ -12,10 +12,12 @@ lives in `plugins/thermos/` (a single-plugin marketplace). Conveniently, upstrea
 maps **1:1** onto our `plugins/thermos/`, which keeps syncing mechanical. Two facts drive the workflow:
 
 - **The `thermos/` prefix must be re-based onto `plugins/thermos/`.** `git diff --relative=thermos` strips the upstream prefix; `git apply --directory=plugins/thermos` re-roots the patch into our plugin directory.
-- **Only the two rubric skills are byte-verbatim** with upstream, so only they can be auto-applied. Everything else (`thermos` orchestrator, agents, README, manifests, LICENSE, CHANGELOG) was rewritten for Claude Code and must be reconciled by hand -- auto-applying an upstream diff to them would clobber the port.
+- **Only the two rubric skills match upstream**, so only they can be auto-applied. Their bodies are byte-identical, and their frontmatter lacks upstream's `disable-model-invocation: true` line, which the port removes from every skill (CHANGELOG 1.1.0 explains why). Everything else (`thermos` orchestrator, agents, README, manifests, LICENSE, CHANGELOG) was rewritten for Claude Code and must be reconciled by hand. Auto-applying an upstream diff to those files would overwrite the port's changes.
 
 `git apply --3way` gives the safety net: verbatim files apply cleanly, and if upstream ever
 edits them in a way that conflicts it leaves standard conflict markers rather than failing silently.
+If a conflict lands next to the removed `disable-model-invocation` line, take upstream's change
+and keep that line removed.
 
 ## Workflow
 
@@ -78,8 +80,8 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 - `plugins/thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`
 
 **Transformed -- review and hand-port (step 5), never auto-apply:**
-- `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Task`)
-- `plugins/thermos/agents/*.md` (Claude frontmatter: `model`, `color`; orchestration rewritten)
+- `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Task`; drops `disable-model-invocation`)
+- `plugins/thermos/agents/*.md` (Claude frontmatter `model` and `color`, plus `skills` to preload the matching rubric; orchestration rewritten)
 - `plugins/thermos/README.md` (port notice + Claude Code install commands)
 - `plugins/thermos/.claude-plugin/plugin.json` and root `.claude-plugin/marketplace.json` (Claude manifest layout)
 - `plugins/thermos/LICENSE` (combined MIT: Cursor + porter)
@@ -87,3 +89,4 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 
 If a brand-new file appears upstream (a new skill or agent), decide which bucket it belongs to:
 a pure rubric is usually verbatim; anything with Cursor-specific syntax needs porting.
+Remove `disable-model-invocation: true` from any new skill, whichever bucket it lands in.
