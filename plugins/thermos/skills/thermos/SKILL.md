@@ -6,7 +6,7 @@ argument-hint: "[branch, PR, commit or range] [--effort <level>] [--model <model
 
 # Thermos
 
-Run the two thermo review passes as background subagents in parallel, then synthesize their results.
+Run the two thermo review passes as async background subagents in parallel, then synthesize their results.
 
 ## Workflow
 

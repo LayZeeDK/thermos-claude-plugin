@@ -1,4 +1,4 @@
-# Thermos plugin (Claude Code port)
+# Thermos plugin
 
 Thermo-nuclear branch review for Claude Code agents: deep correctness and security audits, harsh maintainability rubrics, and parallel subagent orchestration.
 
