@@ -1,5 +1,7 @@
 # Changelog
 
+This port uses [Semantic Versioning](https://semver.org/). Its public interface is the plugin name, the skill names and their slash commands, the agent names that callers pass as `subagent_type`, who may invoke each skill, and the prompt sections the agents expect. The port's version number does not follow upstream's. From 1.1.0 on, each release names the Cursor Thermos version and upstream commit it is based on.
+
 ## 1.0.1
 
 Renamed both agents to follow Claude Code's role-based naming convention, dropping the `-subagent` suffix (a Cursor-ism; Claude Code names subagents like `code-reviewer`, `security-auditor`).
