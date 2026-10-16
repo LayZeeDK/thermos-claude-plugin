@@ -58,8 +58,8 @@ flowchart TB
 
 **Double review (thermos):**
 
-1. Gather `git diff main...HEAD` with the `Bash` tool and the full contents of the changed files with the `Explore` agent.
-2. Launch both subagents in one message with `run_in_background: true`, passing each the same scoped diff/file context.
+1. Gather `git diff main...HEAD` and full contents of changed files.
+2. Invoke both subagents in one message with `run_in_background: true`.
 3. Synthesize prioritized, deduped findings.
 
 **Single skill:** invoke `thermo-nuclear-review` or `thermo-nuclear-code-quality-review` in the main agent, or the matching subagent after gathering diff context.

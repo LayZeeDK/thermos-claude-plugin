@@ -10,7 +10,7 @@ Run the two thermo review passes as background subagents in parallel, then synth
 ## Workflow
 
 1. Determine the review scope from the user request, PR, current branch, or relevant changed files.
-2. Gather the diff and any file/context excerpts the reviewers need to evaluate the change without guessing. Use the `Bash` tool for `git diff <base>...HEAD` (default base `main`), and the `Explore` agent (or `Read`) to pull the full contents of the changed files.
+2. Gather the diff and any file/context excerpts needed for reviewers to evaluate the change without guessing.
 3. Launch both subagents in the same message with `run_in_background: true`:
    - `subagent_type: "thermo-nuclear-reviewer"` for bugs, breakages, security, devex regressions, feature-flag leaks, and other branch-audit risks.
    - `subagent_type: "thermo-nuclear-code-quality-reviewer"` for maintainability, structure, file-size growth, spaghetti, abstractions, and codebase-health risks.
