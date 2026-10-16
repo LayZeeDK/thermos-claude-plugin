@@ -49,7 +49,7 @@ and keep that line removed.
    ```bash
    git diff "$BASE"..cursor/main --relative=thermos \
      -- thermos/skills/thermos thermos/agents thermos/README.md \
-        thermos/.cursor-plugin/plugin.json thermos/LICENSE thermos/CHANGELOG.md
+        thermos/.cursor-plugin/plugin.json thermos/LICENSE thermos/CHANGELOG.md thermos/assets
    ```
    Use the path map below to find each file's Claude Code counterpart. Preserve the port's
    adaptations (Claude frontmatter, `Bash`/`Explore`/`Agent` orchestration, install commands,
@@ -71,6 +71,7 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 | `thermos/README.md` | `plugins/thermos/README.md` |
 | `thermos/CHANGELOG.md` | `plugins/thermos/CHANGELOG.md` |
 | `thermos/LICENSE` | `plugins/thermos/LICENSE` |
+| `thermos/assets/logo.png` | `plugins/thermos/assets/logo.png` (byte-identical copy; if upstream changes it, copy the file over) |
 | `thermos/.cursor-plugin/plugin.json` | `plugins/thermos/.claude-plugin/plugin.json` (+ root `.claude-plugin/marketplace.json`) |
 
 ## File buckets
