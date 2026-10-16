@@ -52,7 +52,7 @@ and keep that line removed.
         thermos/.cursor-plugin/plugin.json thermos/LICENSE thermos/CHANGELOG.md thermos/assets
    ```
    Use the path map below to find each file's Claude Code counterpart. Preserve the port's
-   adaptations (Claude frontmatter, `Bash`/`Explore`/`Agent` orchestration, install commands,
+   adaptations (Claude frontmatter, `Bash`/`PowerShell`/`Explore`/`Agent` orchestration, install commands,
    dual-copyright LICENSE); only carry over the actual upstream content changes.
 
 6. **Advance the baseline** once the sync is applied and verified, so the next run diffs from here. The script writes upstream's version and commit into the manifest's `metadata.upstream` and prints the "Based on Cursor Thermos ..." line for the next CHANGELOG entry:
@@ -81,8 +81,8 @@ Then review the working tree (`git status`, `git diff`) and commit the sync.
 - `plugins/thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`
 
 **Transformed -- review and hand-port (step 5), never auto-apply:**
-- `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses Claude Code `Bash`/`Explore`/`Agent`; drops `disable-model-invocation`)
-- `plugins/thermos/agents/*.md` (Claude frontmatter `color`, plus `skills` to preload the matching rubric, and no `model`, like upstream; orchestration rewritten)
+- `plugins/thermos/skills/thermos/SKILL.md` (orchestration uses the Claude Code `Agent` tool with plugin-qualified `subagent_type` names; adds `argument-hint` and drops `disable-model-invocation`)
+- `plugins/thermos/agents/*.md` (Claude frontmatter `color`, plus `skills` to preload the matching rubric, and no `model`, like upstream; "Parent orchestration" swaps only the tool names)
 - `plugins/thermos/README.md` (port notice + Claude Code install commands)
 - `plugins/thermos/.claude-plugin/plugin.json` and root `.claude-plugin/marketplace.json` (Claude manifest layout)
 - `plugins/thermos/LICENSE` (combined MIT: Cursor + porter)
