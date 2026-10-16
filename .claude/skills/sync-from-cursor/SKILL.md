@@ -27,9 +27,9 @@ and keep that line removed.
    git fetch cursor
    ```
 
-2. **Read the baseline.** The last-synced upstream commit is stored next to this skill:
+2. **Read the baseline.** The plugin manifest keeps the last-synced upstream commit in `metadata.upstream.commit`:
    ```bash
-   BASE=$(cat .claude/skills/sync-from-cursor/BASELINE)
+   BASE=$(node -p 'require("./plugins/thermos/.claude-plugin/plugin.json").metadata.upstream.commit')
    ```
 
 3. **See what changed upstream** under Thermos since that baseline. If this is empty, you are already up to date -- stop here.
@@ -55,9 +55,9 @@ and keep that line removed.
    adaptations (Claude frontmatter, `Bash`/`Explore`/`Agent` orchestration, install commands,
    dual-copyright LICENSE); only carry over the actual upstream content changes.
 
-6. **Advance the baseline** once the sync is applied and verified, so the next run diffs from here:
+6. **Advance the baseline** once the sync is applied and verified, so the next run diffs from here. The script writes upstream's version and commit into the manifest's `metadata.upstream` and prints the "Based on Cursor Thermos ..." line for the next CHANGELOG entry:
    ```bash
-   git rev-parse cursor/main > .claude/skills/sync-from-cursor/BASELINE
+   node .claude/skills/sync-from-cursor/advance-baseline.ts
    ```
 
 Then review the working tree (`git status`, `git diff`) and commit the sync.
