@@ -24,4 +24,4 @@ You are an **Agent subagent**. The parent agent already collected git output and
 
 ## Parent orchestration
 
-Typical flow: gather the review context first — run `git diff <base>...HEAD` with the `Bash` tool and pull the full contents of the changed files with the `Explore` agent (default base `main`). Then invoke this agent with `subagent_type: "thermo-nuclear-code-quality-reviewer"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.
+Typical flow: gather the review context first — run `git diff <base>...HEAD` with the `Bash` tool and pull the full contents of the changed files with the `Explore` agent (default base `main`). Then invoke this agent with `subagent_type: "thermos:thermo-nuclear-code-quality-reviewer"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.
