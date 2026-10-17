@@ -128,6 +128,70 @@ describe('NodeTestRunner', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
   });
 
+  it('removes the directories that runners of ended processes left behind when it is initialized', async (t) => {
+    project(t, { 'a.test.mjs': PASSING });
+    const left = join(tmpdir(), `stryker-node-test-${NO_PROCESS}-left`);
+    mkdirSync(join(left, 'out'), { recursive: true });
+    t.after(() => rmSync(left, { recursive: true, force: true }));
+
+    await initRunner(['a.test.mjs']);
+
+    assert.ok(!existsSync(left), `left behind: ${left}`);
+  });
+
+  it('removes its output directory after a run', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { writeFileSync } from 'node:fs';",
+        `writeFileSync('out-dir.txt', process.env.${ENV.out});`,
+        "it('passes', () => {});",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { records, exitCode, stderr } = await settle(
+      runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }),
+    );
+
+    assert.deepEqual({ exitCode, stderr, count: records.length }, { exitCode: 0, stderr: '', count: 1 });
+    const outDir = readFileSync(join(dir, 'out-dir.txt'), 'utf8');
+    assert.equal(dirname(dirname(outDir)), resolve(tmpdir()));
+    assert.ok(basename(dirname(outDir)).startsWith(`stryker-node-test-${process.pid}-`), outDir);
+    assert.ok(!existsSync(dirname(outDir)));
+  });
+
+  for (const [description, exit] of [
+    ['exits', ''],
+    ['exits through process.exit', 'process.exit(1);'],
+    ['is killed', "process.kill(process.pid, 'SIGKILL');"],
+    [
+      'leaves a process working in it for a moment',
+      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], " +
+        "{ cwd: left, detached: true, stdio: 'ignore', windowsHide: true }).unref();",
+    ],
+  ] as const) {
+    it(`removes what a test file leaves in the temporary directory when it ${description}`, async (t) => {
+      const dir = project(t, {
+        'a.test.mjs': fixture(
+          "import { spawn } from 'node:child_process';",
+          "import { mkdtempSync, writeFileSync } from 'node:fs';",
+          "import { tmpdir } from 'node:os';",
+          "import { join } from 'node:path';",
+          "const left = mkdtempSync(join(tmpdir(), 'left-'));",
+          "writeFileSync('left.txt', left);",
+          exit,
+        ),
+      });
+      const runner = await initRunner(['a.test.mjs']);
+
+      await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));
+
+      const left = readFileSync(join(dir, 'left.txt'), 'utf8');
+      t.after(() => rmSync(left, { recursive: true, force: true }));
+      assert.ok(!existsSync(left), `left behind: ${left}`);
+    });
+  }
+
   it('keeps multi-byte characters intact in stderr that spans several reads', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture("process.stderr.write('\\u20ac'.repeat(100_000));", 'process.exitCode = 5;'),
@@ -888,68 +952,4 @@ describe('NodeTestRunner', () => {
       nrOfTests: 1,
     });
   });
-
-  it('removes the directories that runners of ended processes left behind when it is initialized', async (t) => {
-    project(t, { 'a.test.mjs': PASSING });
-    const left = join(tmpdir(), `stryker-node-test-${NO_PROCESS}-left`);
-    mkdirSync(join(left, 'out'), { recursive: true });
-    t.after(() => rmSync(left, { recursive: true, force: true }));
-
-    await initRunner(['a.test.mjs']);
-
-    assert.ok(!existsSync(left), `left behind: ${left}`);
-  });
-
-  it('removes its output directory after a run', async (t) => {
-    const dir = project(t, {
-      'a.test.mjs': fixture(
-        "import { writeFileSync } from 'node:fs';",
-        `writeFileSync('out-dir.txt', process.env.${ENV.out});`,
-        "it('passes', () => {});",
-      ),
-    });
-    const runner = await initRunner(['a.test.mjs']);
-
-    const { records, exitCode, stderr } = await settle(
-      runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }),
-    );
-
-    assert.deepEqual({ exitCode, stderr, count: records.length }, { exitCode: 0, stderr: '', count: 1 });
-    const outDir = readFileSync(join(dir, 'out-dir.txt'), 'utf8');
-    assert.equal(dirname(dirname(outDir)), resolve(tmpdir()));
-    assert.ok(basename(dirname(outDir)).startsWith(`stryker-node-test-${process.pid}-`), outDir);
-    assert.ok(!existsSync(dirname(outDir)));
-  });
-
-  for (const [description, exit] of [
-    ['exits', ''],
-    ['exits through process.exit', 'process.exit(1);'],
-    ['is killed', "process.kill(process.pid, 'SIGKILL');"],
-    [
-      'leaves a process working in it for a moment',
-      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], " +
-        "{ cwd: left, detached: true, stdio: 'ignore', windowsHide: true }).unref();",
-    ],
-  ] as const) {
-    it(`removes what a test file leaves in the temporary directory when it ${description}`, async (t) => {
-      const dir = project(t, {
-        'a.test.mjs': fixture(
-          "import { spawn } from 'node:child_process';",
-          "import { mkdtempSync, writeFileSync } from 'node:fs';",
-          "import { tmpdir } from 'node:os';",
-          "import { join } from 'node:path';",
-          "const left = mkdtempSync(join(tmpdir(), 'left-'));",
-          "writeFileSync('left.txt', left);",
-          exit,
-        ),
-      });
-      const runner = await initRunner(['a.test.mjs']);
-
-      await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));
-
-      const left = readFileSync(join(dir, 'left.txt'), 'utf8');
-      t.after(() => rmSync(left, { recursive: true, force: true }));
-      assert.ok(!existsSync(left), `left behind: ${left}`);
-    });
-  }
 });
