@@ -213,6 +213,54 @@ describe('wrapNodeTest', () => {
     }
   });
 
+  it('names tests inside only and todo suites after their suites, also tests registered through only', async () => {
+    const { module, registrations, tests } = wrapped();
+    module.describe.only('describe.only', () => {
+      module.it('first', () => {});
+      module.it.only('it.only', () => {});
+    });
+    module.suite.only('suite.only', () => {
+      module.test.only('test.only', () => {});
+    });
+    module.describe.todo('describe.todo', () => {
+      module.it('fails', () => {
+        throw new Error('not done yet');
+      });
+    });
+    module.suite.todo('suite.todo', () => {
+      module.test('second', () => {});
+    });
+
+    for (const name of ['first', 'it.only', 'test.only', 'fails', 'second']) {
+      await bodyOf(registrations, name)().catch(() => {});
+    }
+
+    assert.deepEqual(
+      tests.map(({ id, status }) => ({ id, status })),
+      [
+        { id: `${TEST_FILE} > describe.only > first`, status: 'passed' },
+        { id: `${TEST_FILE} > describe.only > it.only`, status: 'passed' },
+        { id: `${TEST_FILE} > suite.only > test.only`, status: 'passed' },
+        { id: `${TEST_FILE} > describe.todo > fails`, status: 'skipped' },
+        { id: `${TEST_FILE} > suite.todo > second`, status: 'skipped' },
+      ],
+    );
+    assert.deepEqual(
+      registrations.map(({ kind, name }) => `${kind} ${name}`),
+      [
+        'describe.only describe.only',
+        'it first',
+        'it.only it.only',
+        'suite.only suite.only',
+        'test.only test.only',
+        'describe.todo describe.todo',
+        'it fails',
+        'suite.todo suite.todo',
+        'test second',
+      ],
+    );
+  });
+
   it('records a skipped test as skipped when it is registered, and never runs it', () => {
     const { module, registrations, tests } = wrapped();
     const run = () => assert.fail('ran a skipped test');

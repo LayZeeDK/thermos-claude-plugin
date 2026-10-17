@@ -645,6 +645,27 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('names the tests inside only and todo suites after their suites', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture("describe.only('only suite', () => { it.only('runs', () => { cover('only'); }); });"),
+      'b.test.mjs': fixture(
+        "describe.todo('todo suite', () => {",
+        "  it('fails', () => { throw new Error('not done'); });",
+        '});',
+      ),
+    });
+    const runner = await initRunner(['*.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(summary(tests), [
+      { id: `${a} > only suite > runs`, status: TestStatus.Success, failureMessage: undefined },
+      { id: `${join(dir, 'b.test.mjs')} > todo suite > fails`, status: TestStatus.Skipped, failureMessage: undefined },
+    ]);
+    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, { [`${a} > only suite > runs`]: { only: 1 } });
+  });
+
   it('reports no tests for a test file that declares none', async (t) => {
     project(t, { 'a.test.mjs': fixture("cover('s');") });
     const runner = await initRunner(['a.test.mjs']);

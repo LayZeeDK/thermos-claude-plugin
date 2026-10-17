@@ -151,10 +151,9 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, node
   /** The flags of a registration's options, `rest[0]` unless that is the body, which has none, and its shorthand's. */
   const flagsOf = (rest: unknown[], shorthand?: Flags): Flags => ({ ...(rest[0] as object), ...shorthand });
 
-  for (const key of ['describe', 'suite'] as const) {
-    const original = nodeTest[key];
-    nodeTest[key] = Object.assign(function (this: unknown, name: string, ...rest: unknown[]) {
-      const suite = { name: String(name), todo: flagsOf(rest).todo };
+  const wrapSuite = (register: Registrar, shorthand?: Flags): Registrar =>
+    function (this: unknown, name: string, ...rest: unknown[]) {
+      const suite = { name: String(name), todo: flagsOf(rest, shorthand).todo };
       const wrap = (body: Body) =>
         function (this: unknown, ...args: unknown[]) {
           suites.push(suite);
@@ -166,9 +165,8 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, node
           }
         };
 
-      return original.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
-    }, original);
-  }
+      return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
+    };
 
   const wrapTest = (register: Registrar, shorthand?: Flags): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
@@ -261,11 +259,21 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, node
       return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
     };
 
+  // The body of a skipped suite never runs, so describe.skip needs no wrapper.
+  for (const key of ['describe', 'suite'] as const) {
+    const original = nodeTest[key];
+    nodeTest[key] = Object.assign(wrapSuite(original), original, {
+      todo: wrapSuite(original.todo, { todo: true }),
+      only: wrapSuite(original.only),
+    });
+  }
+
   for (const key of ['it', 'test'] as const) {
     const original = nodeTest[key];
     nodeTest[key] = Object.assign(wrapTest(original), original, {
       skip: wrapTest(original.skip, { skip: true }),
       todo: wrapTest(original.todo, { todo: true }),
+      only: wrapTest(original.only),
     });
   }
 }
