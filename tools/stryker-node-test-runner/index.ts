@@ -2,9 +2,10 @@
 // NODE_OPTIONS, so every process the tests spawn reports mutant coverage too, attributed to the test that spawned
 // it. Results and coverage are per test, and a mutant run executes only the tests that cover the mutant.
 import { spawn } from 'node:child_process';
-import { globSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { globSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 import { INSTRUMENTER_CONSTANTS, type MutantCoverage, type StrykerOptions } from '@stryker-mutator/api/core';
@@ -117,13 +118,14 @@ export function filesFor(testFiles: string[], testFilter: string[] | undefined):
 }
 
 /**
- * Builds the environment for one test file's process tree. The processes keep Node's compile cache in `cacheDir`
- * unless the environment names a directory.
+ * Builds the environment for one test file's process tree. The processes use `tmpDir` as their temporary directory,
+ * and keep Node's compile cache in `cacheDir` unless the environment names a directory.
  */
 export function runEnv(
   base: NodeJS.ProcessEnv,
   file: string,
   outDir: string,
+  tmpDir: string,
   run: RunOptions,
   cacheDir: string | undefined,
 ): NodeJS.ProcessEnv {
@@ -134,6 +136,10 @@ export function runEnv(
     [ENV.out]: outDir,
     [ENV.file]: file,
     [ENV.dryRun]: String(run.dryRun),
+    // os.tmpdir() reads TMPDIR first on POSIX and TEMP first on Windows, then TMP.
+    TMPDIR: tmpDir,
+    TEMP: tmpDir,
+    TMP: tmpDir,
   };
 
   for (const key of [ENV.current, ENV.hitLimit, ENV.filter, INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE]) {
@@ -157,6 +163,37 @@ export function runEnv(
   }
 
   return env;
+}
+
+function removeNow(dir: string): void {
+  rmSync(dir, {
+    recursive: true,
+    // Stryker disable next-line BooleanLiteral: the directory exists until a removal succeeds
+    force: true,
+  });
+}
+
+/**
+ * Removes a run's directory. A process that a test file started can outlive the file's process by a moment, and
+ * Windows refuses to remove a directory that a running process works in (EPERM from Node.js 24, EBUSY from 22), so
+ * that failure is retried for about a second before it is thrown.
+ */
+export async function removeRunDir(dir: string, remove = removeNow): Promise<void> {
+  for (let attempt = 1; attempt !== 20; attempt++) {
+    try {
+      remove(dir);
+
+      return;
+    } catch (error) {
+      if (!['EBUSY', 'EPERM'].includes(String((error as NodeJS.ErrnoException).code))) {
+        throw error;
+      }
+
+      await sleep(50);
+    }
+  }
+
+  remove(dir);
 }
 
 export class NodeTestRunner implements TestRunner {
@@ -252,13 +289,20 @@ export class NodeTestRunner implements TestRunner {
       : { status: DryRunStatus.Complete, tests };
   }
 
-  /** Runs one test file and collects the record of every process it started. */
+  /**
+   * Runs one test file and collects the record of every process it started. The processes get a temporary directory
+   * inside the run's directory, so what they leave there is removed with it, however they exit.
+   */
   async runFile(file: string, run: RunOptions): Promise<FileRun> {
     // Stryker disable next-line StringLiteral: the prefix only names the directory
-    const outDir = mkdtempSync(join(tmpdir(), 'stryker-node-test-'));
+    const runDir = mkdtempSync(join(tmpdir(), 'stryker-node-test-'));
+    const outDir = join(runDir, 'out');
+    const tmpDir = join(runDir, 'tmp');
 
     try {
-      const env = runEnv(process.env, file, outDir, run, this.#cacheDir);
+      mkdirSync(outDir);
+      mkdirSync(tmpDir);
+      const env = runEnv(process.env, file, outDir, tmpDir, run, this.#cacheDir);
       this.#log.debug(`Running node ${file}`);
       const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>((done, fail) => {
         const child = spawn(process.execPath, [file], {
@@ -278,11 +322,7 @@ export class NodeTestRunner implements TestRunner {
 
       return { records, exitCode, stderr };
     } finally {
-      rmSync(outDir, {
-        recursive: true,
-        // Stryker disable next-line BooleanLiteral: the directory always exists here
-        force: true,
-      });
+      await removeRunDir(runDir);
     }
   }
 }

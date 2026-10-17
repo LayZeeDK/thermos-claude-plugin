@@ -7,7 +7,6 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,7 +28,7 @@ import {
 } from '@stryker-mutator/api/test-runner';
 
 import { ENV } from './hook-core.ts';
-import { filesFor, mergeCoverage, NodeTestRunner, runEnv, toTestResults } from './index.ts';
+import { filesFor, mergeCoverage, NodeTestRunner, removeRunDir, runEnv, toTestResults } from './index.ts';
 
 const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
@@ -128,14 +127,62 @@ describe('filesFor', () => {
   });
 });
 
+describe('removeRunDir', () => {
+  /** A removal that fails with `code` for the first `failures` calls. */
+  function failing(code: string, failures = Infinity) {
+    const removal = {
+      calls: 0,
+      remove: () => {
+        removal.calls++;
+
+        if (removal.calls <= failures) {
+          throw Object.assign(new Error(`${code} ${removal.calls}`), { code });
+        }
+      },
+    };
+
+    return removal;
+  }
+
+  for (const code of ['EPERM', 'EBUSY']) {
+    it(`tries again while the directory is in use (${code})`, async () => {
+      const removal = failing(code, 2);
+
+      await settle(removeRunDir('dir', removal.remove));
+
+      assert.equal(removal.calls, 3);
+    });
+  }
+
+  it('throws any other error at once', async () => {
+    const removal = failing('EISDIR');
+
+    await assert.rejects(settle(removeRunDir('dir', removal.remove)), { message: 'EISDIR 1' });
+
+    assert.equal(removal.calls, 1);
+  });
+
+  it('throws the last error once the directory has been in use for about a second', async () => {
+    const removal = failing('EPERM');
+    const start = Date.now();
+
+    await assert.rejects(settle(removeRunDir('dir', removal.remove)), { message: 'EPERM 20' });
+
+    assert.equal(removal.calls, 20);
+    assert.ok(Date.now() - start >= 900, `gave up after ${Date.now() - start} ms`);
+  });
+});
+
 describe('runEnv', () => {
   const OUT = join('/tmp', 'out');
+  const TMP = join('/tmp', 'tmp');
 
   it('loads the hook before inherited options and drops the outer run state', () => {
     const base = {
       PATH: 'path',
       NODE_OPTIONS: '--max-old-space-size=100',
       [ENV.out]: 'outer out',
+      TEMP: 'outer temp',
       [ENV.current]: 'outer test',
       [ENV.hitLimit]: '5',
       [ENV.filter]: '["outer"]',
@@ -143,12 +190,15 @@ describe('runEnv', () => {
     };
     const before = { ...base };
 
-    assert.deepEqual(runEnv(base, FILE, OUT, { dryRun: false, disableBail: false }, undefined), {
+    assert.deepEqual(runEnv(base, FILE, OUT, TMP, { dryRun: false, disableBail: false }, undefined), {
       PATH: 'path',
       NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)} --max-old-space-size=100`,
       [ENV.out]: OUT,
       [ENV.file]: FILE,
       [ENV.dryRun]: 'false',
+      TMPDIR: TMP,
+      TEMP: TMP,
+      TMP,
     });
     assert.deepEqual(base, before);
   });
@@ -156,9 +206,11 @@ describe('runEnv', () => {
   it("uses the runner's compile cache directory unless the environment names one", () => {
     const run = { dryRun: false, disableBail: false };
 
-    assert.equal(runEnv({}, FILE, OUT, run, 'own').NODE_COMPILE_CACHE, 'own');
-    assert.equal(runEnv({ NODE_COMPILE_CACHE: 'inherited' }, FILE, OUT, run, 'own').NODE_COMPILE_CACHE, 'inherited');
-    assert.equal(runEnv({ NODE_COMPILE_CACHE: 'inherited' }, FILE, OUT, run, undefined).NODE_COMPILE_CACHE, 'inherited');
+    const inherited = { NODE_COMPILE_CACHE: 'inherited' };
+
+    assert.equal(runEnv({}, FILE, OUT, TMP, run, 'own').NODE_COMPILE_CACHE, 'own');
+    assert.equal(runEnv(inherited, FILE, OUT, TMP, run, 'own').NODE_COMPILE_CACHE, 'inherited');
+    assert.equal(runEnv(inherited, FILE, OUT, TMP, run, undefined).NODE_COMPILE_CACHE, 'inherited');
   });
 
   it('passes the run state on to the test file', () => {
@@ -167,6 +219,7 @@ describe('runEnv', () => {
         {},
         FILE,
         OUT,
+        TMP,
         { dryRun: true, disableBail: true, activeMutant: '12', hitLimit: 40, testFilter: [`${FILE} > test`] },
         undefined,
       ),
@@ -175,6 +228,9 @@ describe('runEnv', () => {
         [ENV.out]: OUT,
         [ENV.file]: FILE,
         [ENV.dryRun]: 'true',
+        TMPDIR: TMP,
+        TEMP: TMP,
+        TMP,
         [ACTIVE_MUTANT]: '12',
         [ENV.hitLimit]: '40',
         [ENV.filter]: JSON.stringify([`${FILE} > test`]),
@@ -280,25 +336,8 @@ function complete(result: DryRunResult): CompleteDryRunResult {
 let stalled = false;
 
 // The runners under test and every process they start share this compile cache, so none of them creates its own.
-const COMPILE_CACHE_PREFIX = 'node-test-runner-cache-';
-const COMPILE_CACHE = mkdtempSync(join(tmpdir(), COMPILE_CACHE_PREFIX));
+const COMPILE_CACHE = mkdtempSync(join(tmpdir(), 'node-test-runner-cache-'));
 process.env.NODE_COMPILE_CACHE = COMPILE_CACHE;
-
-// A test process that a mutant ends before any exit listener runs leaves its directory without files (Node may
-// have created an empty version directory inside); sweep those here once they are old enough to be dead.
-for (const name of readdirSync(tmpdir()).filter((candidate) => candidate.startsWith(COMPILE_CACHE_PREFIX))) {
-  const dir = join(tmpdir(), name);
-
-  try {
-    const hasFiles = readdirSync(dir, { recursive: true, withFileTypes: true }).some((entry) => entry.isFile());
-
-    if (dir !== COMPILE_CACHE && !hasFiles && Date.now() - statSync(dir).mtimeMs > 600_000) {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  } catch {
-    // Another test process may have removed or filled it in the meantime.
-  }
-}
 
 /** The compile cache directories runners of this process created; runners in other processes name theirs by pid. */
 function ownCacheDirs(): string[] {
@@ -554,6 +593,38 @@ describe('NodeTestRunner', () => {
     assert.ok(outDir.length > 0);
     assert.ok(!existsSync(outDir));
   });
+
+  for (const [description, exit] of [
+    ['exits', ''],
+    ['exits through process.exit', 'process.exit(1);'],
+    ['is killed', "process.kill(process.pid, 'SIGKILL');"],
+    [
+      'leaves a process working in it for a moment',
+      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], " +
+        "{ cwd: left, detached: true, stdio: 'ignore', windowsHide: true }).unref();",
+    ],
+  ] as const) {
+    it(`removes what a test file leaves in the temporary directory when it ${description}`, async (t) => {
+      const dir = project(t, {
+        'a.test.mjs': fixture(
+          "import { spawn } from 'node:child_process';",
+          "import { mkdtempSync, writeFileSync } from 'node:fs';",
+          "import { tmpdir } from 'node:os';",
+          "import { join } from 'node:path';",
+          "const left = mkdtempSync(join(tmpdir(), 'left-'));",
+          "writeFileSync('left.txt', left);",
+          exit,
+        ),
+      });
+      const runner = await initRunner(['a.test.mjs']);
+
+      await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));
+
+      const left = readFileSync(join(dir, 'left.txt'), 'utf8');
+      t.after(() => rmSync(left, { recursive: true, force: true }));
+      assert.ok(!existsSync(left), `left behind: ${left}`);
+    });
+  }
 
   it('keeps the compile cache of the processes a run starts in its own directory, until it is disposed', async (t) => {
     const dir = project(t, {
