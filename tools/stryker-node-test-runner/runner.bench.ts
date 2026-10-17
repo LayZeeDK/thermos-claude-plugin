@@ -4,19 +4,21 @@
 //   npm run bench -- --runs 9 --mutate-runs 0
 //   npm run bench -- --runner path/to/baseline/index.ts --runner tools/stryker-node-test-runner/index.ts
 //
-// Several `--runner` paths run interleaved (A, B, A, B, ...), so warmup, caches and drift hit every side alike.
+// tinybench times every run with process.hrtime.bigint(). Each scenario runs in rounds, a fresh Bench per round with
+// one run per `--runner` path, in the opposite order every other round (A B, B A, ...), so drift during the
+// benchmark hits every side alike. tinybench runs a Bench's tasks one after another and has no such order itself.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import type { Mutant, StrykerOptions } from '@stryker-mutator/api/core';
 import type { Logger } from '@stryker-mutator/api/logging';
 import { DryRunStatus, MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
+import { Bench } from 'tinybench';
 
 import type { NodeTestRunner } from './index.ts';
 
@@ -180,10 +182,35 @@ function stat(ms: number[]): Stat {
   return { runs: sorted.length, medianMs, minMs, maxMs, spread: (maxMs - minMs) / medianMs };
 }
 
-function format(name: string, { runs, medianMs, minMs, maxMs, spread }: Stat): string {
-  const fixed = (value: number) => value.toFixed(0).padStart(7);
+function format(name: string, { runs, medianMs, minMs, maxMs, spread }: Stat, unit = 'ms'): string {
+  const fixed = (value: number) => (unit === 'ms' ? value.toFixed(0) : value.toFixed(3)).padStart(7);
 
-  return `${name.padEnd(44)} median ${fixed(medianMs)} ms  min ${fixed(minMs)}  max ${fixed(maxMs)}  spread ${(spread * 100).toFixed(0).padStart(3)}%  runs ${runs}`;
+  return `${name.padEnd(44)} median ${fixed(medianMs)} ${unit}  min ${fixed(minMs)}  max ${fixed(maxMs)}  spread ${(spread * 100).toFixed(0).padStart(3)}%  runs ${runs}`;
+}
+
+/** Times each task's single run per round with tinybench, and stops at a failure. */
+async function round(tasks: [name: string, fn: () => unknown][]): Promise<Map<string, number>> {
+  const bench = new Bench({
+    iterations: 1,
+    time: 0,
+    warmup: false,
+    timestampProvider: 'hrtimeNow',
+    throws: true,
+    retainSamples: true,
+  });
+
+  for (const [name, fn] of tasks) {
+    bench.add(name, fn);
+  }
+
+  const times = new Map<string, number>();
+
+  for (const task of await bench.run()) {
+    assert.ok(task.result.state === 'completed', `${task.name} ended as ${task.result.state}`);
+    times.set(task.name, task.result.latency.samples![0]!);
+  }
+
+  return times;
 }
 
 async function loadRunner(path: string, dir: string): Promise<NodeTestRunner> {
@@ -195,15 +222,15 @@ async function loadRunner(path: string, dir: string): Promise<NodeTestRunner> {
   return runner;
 }
 
-function mutateWallMs(): number {
-  const start = performance.now();
-  const result = spawnSync('npm', ['run', 'mutate'], { shell: true, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
-  const ms = performance.now() - start;
+function mutate(): void {
+  const result = spawnSync('npm run mutate', {
+    shell: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+  });
   assert.equal(result.status, 0, `npm run mutate failed:\n${result.stdout}\n${result.stderr}`);
   const summary = result.stdout.match(/All files\s*\|\s*([\d.]+)/);
   assert.equal(summary?.[1], '100.00', `npm run mutate did not reach 100%:\n${result.stdout}`);
-
-  return ms;
 }
 
 async function main(): Promise<void> {
@@ -221,54 +248,56 @@ async function main(): Promise<void> {
     runners.push(...(await Promise.all(runnerPaths.map((path) => loadRunner(path, dir)))));
     const labels = runnerPaths.map((path) => (runnerPaths.length > 1 ? `[${path}] ` : ''));
     const samples = new Map<string, number[]>();
-    const sample = (label: string) => {
-      const existing = samples.get(label);
-
-      if (existing) {
-        return existing;
-      }
-
-      const created: number[] = [];
-      samples.set(label, created);
-
-      return created;
-    };
+    const add = (label: string, ms: number) => samples.set(label, [...(samples.get(label) ?? []), ms]);
 
     console.log(`node ${process.version} on ${process.platform} ${process.arch}, ${availableParallelism()} cores`);
     console.log(`fixtures: ${FILES} files x ${TESTS_PER_FILE} tests, ${SPAWNING_FILES} files spawn a child process`);
 
     for (const scenario of scenarios(files)) {
-      // One unmeasured warmup per side covers lazy initialization.
-      for (const runner of runners) {
-        await scenario.run(runner);
-      }
+      const sides = runners.map((runner, index): [string, () => Promise<void>] => [
+        `${labels[index]}${scenario.name}`,
+        async () => {
+          assert.ok((await scenario.run(runner)) > 0);
+        },
+      ]);
+      // One unmeasured round covers lazy initialization.
+      await round(sides);
 
       for (let run = 0; run < runs; run++) {
-        for (const [index, runner] of runners.entries()) {
-          const start = performance.now();
-          const tests = await scenario.run(runner);
-          const ms = performance.now() - start;
-          assert.ok(tests > 0);
-          sample(`${labels[index]}${scenario.name}`).push(ms);
+        const times = await round(run % 2 === 0 ? sides : [...sides].reverse());
+        const [first] = sides;
+
+        for (const [label] of sides) {
+          add(label, times.get(label)!);
+
+          if (label !== first![0]) {
+            add(`${label} / first runner`, times.get(label)! / times.get(first![0])!);
+          }
         }
       }
     }
 
     for (let run = 0; run < mutateRuns; run++) {
-      sample('npm run mutate, wall').push(mutateWallMs());
+      add('npm run mutate, wall', (await round([['npm run mutate, wall', mutate]])).get('npm run mutate, wall')!);
     }
 
-    const stats = Object.fromEntries([...samples].map(([label, ms]) => [label, stat(ms)]));
+    const stats = Object.fromEntries([...samples].map(([label, values]) => [label, stat(values)]));
 
     for (const [label, value] of Object.entries(stats)) {
-      console.log(format(label, value));
+      console.log(format(label, value, label.endsWith(' / first runner') ? 'x' : 'ms'));
     }
 
     if (args.json) {
       writeFileSync(
         args.json,
         JSON.stringify(
-          { node: process.version, platform: process.platform, arch: process.arch, cores: availableParallelism(), stats },
+          {
+            node: process.version,
+            platform: process.platform,
+            arch: process.arch,
+            cores: availableParallelism(),
+            stats,
+          },
           null,
           2,
         ),
