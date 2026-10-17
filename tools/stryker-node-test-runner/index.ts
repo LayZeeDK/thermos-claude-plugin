@@ -4,9 +4,9 @@
 // test, and a mutant run executes only the tests that cover the mutant.
 import { spawn } from 'node:child_process';
 import { globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 import {
@@ -235,25 +235,12 @@ function removeNow(dir: string): void {
 
 /**
  * Removes a directory the runner created. A process that a test file started can outlive the file's process by a
- * moment, and Windows refuses to remove a directory that a running process works in (EPERM from Node.js 24, EBUSY
- * from 22), so that failure is retried for about a second before it is thrown.
+ * moment, and Windows refuses to remove a directory that a running process works in, so node retries that failure
+ * for about a second (20 ms, then 40 ms, and so on) before it throws. On Node.js 24, `rmSync` gives up at once even
+ * with the same retry options.
  */
-export async function removeDir(dir: string, remove = removeNow): Promise<void> {
-  for (let attempt = 1; attempt !== 20; attempt++) {
-    try {
-      remove(dir);
-
-      return;
-    } catch (error) {
-      if (!['EBUSY', 'EPERM'].includes(String((error as NodeJS.ErrnoException).code))) {
-        throw error;
-      }
-
-      await sleep(50);
-    }
-  }
-
-  remove(dir);
+function removeDir(dir: string): Promise<void> {
+  return rm(dir, { recursive: true, maxRetries: 10, retryDelay: 20 });
 }
 
 /** Whether a process with this id runs; one that exists but may not be signalled runs too. */

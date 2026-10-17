@@ -36,7 +36,6 @@ import {
   isRunning,
   mergeCoverage,
   NodeTestRunner,
-  removeDir,
   removeLeftDirs,
   runEnv,
   toTestResults,
@@ -158,52 +157,6 @@ describe('filesFor', () => {
     assert.deepEqual(filesFor(files, [`${longer} > suite > test`]), [longer]);
     assert.deepEqual(filesFor(files, [`${a} > test`]), [a]);
     assert.deepEqual(filesFor(files, [b, `${a} > test`]), [a, b]);
-  });
-});
-
-describe('removeDir', () => {
-  /** A removal that fails with `code` for the first `failures` calls. */
-  function failing(code: string, failures = Infinity) {
-    const removal = {
-      calls: 0,
-      remove: () => {
-        removal.calls++;
-
-        if (removal.calls <= failures) {
-          throw Object.assign(new Error(`${code} ${removal.calls}`), { code });
-        }
-      },
-    };
-
-    return removal;
-  }
-
-  for (const code of ['EPERM', 'EBUSY']) {
-    it(`tries again while the directory is in use (${code})`, async () => {
-      const removal = failing(code, 2);
-
-      await settle(removeDir('dir', removal.remove));
-
-      assert.equal(removal.calls, 3);
-    });
-  }
-
-  it('throws any other error at once', async () => {
-    const removal = failing('EISDIR');
-
-    await assert.rejects(settle(removeDir('dir', removal.remove)), { message: 'EISDIR 1' });
-
-    assert.equal(removal.calls, 1);
-  });
-
-  it('throws the last error once the directory has been in use for about a second', async () => {
-    const removal = failing('EPERM');
-    const start = Date.now();
-
-    await assert.rejects(settle(removeDir('dir', removal.remove)), { message: 'EPERM 20' });
-
-    assert.equal(removal.calls, 20);
-    assert.ok(Date.now() - start >= 900, `gave up after ${Date.now() - start} ms`);
   });
 });
 
