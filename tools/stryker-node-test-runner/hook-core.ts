@@ -128,8 +128,9 @@ export interface WrapOptions {
  * Wraps node:test's suite and test functions so each test's id is known while it runs.
  *
  * ponytail: supports `(name, [options], fn)` calls with synchronous suite bodies and promise-or-sync test bodies,
- * which is what this repository's tests use. Callback-style tests (`(t, done)`) and `t.test` subtests are not
- * attributed; add them when a test needs them.
+ * which is what this repository's tests use. Callback-style tests (`(t, done)`) fail, because the wrapper declares
+ * no `done` parameter, and tests through the default export (`import test from 'node:test'`) or `t.test` subtests
+ * are not attributed; add them when a test needs them.
  */
 export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }: WrapOptions): void {
   const suites: string[] = [];
@@ -137,12 +138,8 @@ export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }
   for (const key of ['describe', 'suite'] as const) {
     const original = nodeTest[key];
     nodeTest[key] = Object.assign(function (this: unknown, name: string, ...rest: unknown[]) {
-      const index = rest.findIndex((arg) => typeof arg === 'function');
-
-      // Stryker disable next-line ConditionalExpression: with no function, rest[-1] is never passed on
-      if (index >= 0) {
-        const body = rest[index] as Body;
-        rest[index] = function (this: unknown, ...args: unknown[]) {
+      const wrap = (body: Body) =>
+        function (this: unknown, ...args: unknown[]) {
           suites.push(String(name));
 
           try {
@@ -151,46 +148,39 @@ export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }
             suites.pop();
           }
         };
-      }
 
-      return original.call(this, name, ...rest);
+      return original.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
     }, original);
   }
 
   for (const key of ['it', 'test'] as const) {
     const original = nodeTest[key];
     nodeTest[key] = Object.assign(function (this: unknown, name: string, ...rest: unknown[]) {
-      const index = rest.findIndex((arg) => typeof arg === 'function');
+      const id = [testFile, ...suites, String(name)].join(' > ');
+      const wrap = (body: Body) =>
+        filter && !filter.has(id)
+          ? () => {}
+          : async function (this: unknown, ...args: unknown[]) {
+              ns.currentTestId = id;
+              env[ENV.current] = id;
+              const start = now();
 
-      // Stryker disable next-line ConditionalExpression: with no function, rest[-1] is never passed on
-      if (index >= 0) {
-        const id = [testFile, ...suites, String(name)].join(' > ');
-        const body = rest[index] as Body;
-        rest[index] =
-          filter && !filter.has(id)
-            ? () => {}
-            : async function (this: unknown, ...args: unknown[]) {
-                ns.currentTestId = id;
-                env[ENV.current] = id;
-                const start = now();
+              try {
+                const result = await body.apply(this, args);
+                tests.push({ id, status: 'passed', timeSpentMs: now() - start });
 
-                try {
-                  const result = await body.apply(this, args);
-                  tests.push({ id, status: 'passed', timeSpentMs: now() - start });
+                return result;
+              } catch (error) {
+                const failureMessage = error instanceof Error ? error.message : String(error);
+                tests.push({ id, status: 'failed', failureMessage, timeSpentMs: now() - start });
+                throw error;
+              } finally {
+                ns.currentTestId = undefined;
+                delete env[ENV.current];
+              }
+            };
 
-                  return result;
-                } catch (error) {
-                  const failureMessage = error instanceof Error ? error.message : String(error);
-                  tests.push({ id, status: 'failed', failureMessage, timeSpentMs: now() - start });
-                  throw error;
-                } finally {
-                  ns.currentTestId = undefined;
-                  delete env[ENV.current];
-                }
-              };
-      }
-
-      return original.call(this, name, ...rest);
+      return original.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
     }, original);
   }
 }

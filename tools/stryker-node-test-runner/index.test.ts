@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { after, describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
@@ -28,7 +28,7 @@ import {
 } from '@stryker-mutator/api/test-runner';
 
 import { ENV } from './hook-core.ts';
-import { filesFor, mergeCoverage, NodeTestRunner, removeRunDir, runEnv, toTestResults } from './index.ts';
+import { filesFor, mergeCoverage, NodeTestRunner, removeDir, runEnv, toTestResults } from './index.ts';
 
 const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
@@ -127,7 +127,7 @@ describe('filesFor', () => {
   });
 });
 
-describe('removeRunDir', () => {
+describe('removeDir', () => {
   /** A removal that fails with `code` for the first `failures` calls. */
   function failing(code: string, failures = Infinity) {
     const removal = {
@@ -148,7 +148,7 @@ describe('removeRunDir', () => {
     it(`tries again while the directory is in use (${code})`, async () => {
       const removal = failing(code, 2);
 
-      await settle(removeRunDir('dir', removal.remove));
+      await settle(removeDir('dir', removal.remove));
 
       assert.equal(removal.calls, 3);
     });
@@ -157,7 +157,7 @@ describe('removeRunDir', () => {
   it('throws any other error at once', async () => {
     const removal = failing('EISDIR');
 
-    await assert.rejects(settle(removeRunDir('dir', removal.remove)), { message: 'EISDIR 1' });
+    await assert.rejects(settle(removeDir('dir', removal.remove)), { message: 'EISDIR 1' });
 
     assert.equal(removal.calls, 1);
   });
@@ -166,7 +166,7 @@ describe('removeRunDir', () => {
     const removal = failing('EPERM');
     const start = Date.now();
 
-    await assert.rejects(settle(removeRunDir('dir', removal.remove)), { message: 'EPERM 20' });
+    await assert.rejects(settle(removeDir('dir', removal.remove)), { message: 'EPERM 20' });
 
     assert.equal(removal.calls, 20);
     assert.ok(Date.now() - start >= 900, `gave up after ${Date.now() - start} ms`);
@@ -435,6 +435,18 @@ describe('NodeTestRunner', () => {
     assert.equal(stderr, String.fromCodePoint(0x20ac).repeat(100_000));
   });
 
+  it('ends a run whose test file writes more to stdout than a pipe holds', async (t) => {
+    const dir = project(t, { 'a.test.mjs': fixture("process.stdout.write('x'.repeat(1_000_000));") });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { exitCode } = await settle(
+      runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }),
+      2_000,
+    );
+
+    assert.equal(exitCode, 0);
+  });
+
   it('runs the TypeScript test files outside node_modules by default', async (t) => {
     const dir = project(t, {
       'a.test.ts': PASSING,
@@ -442,14 +454,19 @@ describe('NodeTestRunner', () => {
       [join('node_modules', 'pkg', 'c.test.ts')]: FAILING,
       'd.test.mjs': FAILING,
     });
-    const runner = await initRunner(undefined);
 
-    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+    for (const options of [{}, { nodeTest: {} }]) {
+      const runner = new NodeTestRunner(options as StrykerOptions, logger());
+      await runner.init();
+      t.after(() => runner.dispose());
 
-    assert.deepEqual(summary(tests), [
-      { id: `${join(dir, 'a.test.ts')} > passes`, status: TestStatus.Success, failureMessage: undefined },
-      { id: `${join(dir, 'sub', 'b.test.ts')} > passes`, status: TestStatus.Success, failureMessage: undefined },
-    ]);
+      const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+      assert.deepEqual(summary(tests), [
+        { id: `${join(dir, 'a.test.ts')} > passes`, status: TestStatus.Success, failureMessage: undefined },
+        { id: `${join(dir, 'sub', 'b.test.ts')} > passes`, status: TestStatus.Success, failureMessage: undefined },
+      ]);
+    }
   });
 
   it('reports the results and coverage of every test, including coverage of the processes a test starts', async (t) => {
@@ -590,8 +607,8 @@ describe('NodeTestRunner', () => {
 
     assert.deepEqual({ exitCode, stderr, count: records.length }, { exitCode: 0, stderr: '', count: 1 });
     const outDir = readFileSync(join(dir, 'out-dir.txt'), 'utf8');
-    assert.ok(outDir.length > 0);
-    assert.ok(!existsSync(outDir));
+    assert.equal(dirname(dirname(outDir)), resolve(tmpdir()));
+    assert.ok(!existsSync(dirname(outDir)));
   });
 
   for (const [description, exit] of [
@@ -645,7 +662,7 @@ describe('NodeTestRunner', () => {
 
     assert.equal(exitCode, 0);
     const cacheDir = readFileSync(join(dir, 'cache-dir.txt'), 'utf8');
-    assert.equal(dirname(cacheDir), tmpdir());
+    assert.equal(dirname(cacheDir), resolve(tmpdir()));
     assert.deepEqual(ownCacheDirs(), [...before, basename(cacheDir)].sort());
     // Node keys the cache by its version, then by file: one entry per hook module, written when the process exits.
     const entries = readdirSync(cacheDir).flatMap((version) => readdirSync(join(cacheDir, version)));

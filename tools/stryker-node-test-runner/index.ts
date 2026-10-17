@@ -29,8 +29,8 @@ import { ENV, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 
 /** Options under `nodeTest` in the Stryker configuration. */
 export interface NodeTestOptions {
-  /** Glob patterns for the test files, relative to the working directory. */
-  testFiles: string[];
+  /** Glob patterns for the test files, relative to the working directory. Defaults to every `.test.ts` file. */
+  testFiles?: string[];
 }
 
 interface RunOptions {
@@ -166,19 +166,15 @@ export function runEnv(
 }
 
 function removeNow(dir: string): void {
-  rmSync(dir, {
-    recursive: true,
-    // Stryker disable next-line BooleanLiteral: the directory exists until a removal succeeds
-    force: true,
-  });
+  rmSync(dir, { recursive: true });
 }
 
 /**
- * Removes a run's directory. A process that a test file started can outlive the file's process by a moment, and
- * Windows refuses to remove a directory that a running process works in (EPERM from Node.js 24, EBUSY from 22), so
- * that failure is retried for about a second before it is thrown.
+ * Removes a directory the runner created. A process that a test file started can outlive the file's process by a
+ * moment, and Windows refuses to remove a directory that a running process works in (EPERM from Node.js 24, EBUSY
+ * from 22), so that failure is retried for about a second before it is thrown.
  */
-export async function removeRunDir(dir: string, remove = removeNow): Promise<void> {
+export async function removeDir(dir: string, remove = removeNow): Promise<void> {
   for (let attempt = 1; attempt !== 20; attempt++) {
     try {
       remove(dir);
@@ -206,11 +202,11 @@ export class NodeTestRunner implements TestRunner {
    * the throwaway fixtures of the tests, and Node's default directory would grow with every run.
    */
   #cacheDir?: string;
-  readonly #options: NodeTestOptions;
+  readonly #patterns: string[];
   readonly #log: Logger;
 
   constructor(options: StrykerOptions, log: Logger) {
-    this.#options = (options as { nodeTest?: NodeTestOptions }).nodeTest ?? { testFiles: ['**/*.test.ts'] };
+    this.#patterns = (options as { nodeTest?: NodeTestOptions }).nodeTest?.testFiles ?? ['**/*.test.ts'];
     this.#log = log;
   }
 
@@ -219,27 +215,22 @@ export class NodeTestRunner implements TestRunner {
   }
 
   async init(): Promise<void> {
-    this.#testFiles = globSync(this.#options.testFiles, { exclude: (name) => name === 'node_modules' })
+    this.#testFiles = globSync(this.#patterns, { exclude: (name) => name === 'node_modules' })
       .map((file) => resolve(file))
       .sort();
 
     if (this.#testFiles.length === 0) {
-      throw new Error(`No test files match ${JSON.stringify(this.#options.testFiles)}`);
+      throw new Error(`No test files match ${JSON.stringify(this.#patterns)}`);
     }
 
     if (process.env.NODE_COMPILE_CACHE === undefined) {
-      // Stryker disable next-line StringLiteral: the prefix only names the directory
-      this.#cacheDir = mkdtempSync(join(tmpdir(), `stryker-node-test-cache-${process.pid}-`));
+        this.#cacheDir = mkdtempSync(join(tmpdir(), `stryker-node-test-cache-${process.pid}-`));
     }
   }
 
   async dispose(): Promise<void> {
     if (this.#cacheDir !== undefined) {
-      rmSync(this.#cacheDir, {
-        recursive: true,
-        // Stryker disable next-line BooleanLiteral: the directory always exists here
-        force: true,
-      });
+      await removeDir(this.#cacheDir);
     }
   }
 
@@ -294,7 +285,6 @@ export class NodeTestRunner implements TestRunner {
    * inside the run's directory, so what they leave there is removed with it, however they exit.
    */
   async runFile(file: string, run: RunOptions): Promise<FileRun> {
-    // Stryker disable next-line StringLiteral: the prefix only names the directory
     const runDir = mkdtempSync(join(tmpdir(), 'stryker-node-test-'));
     const outDir = join(runDir, 'out');
     const tmpDir = join(runDir, 'tmp');
@@ -307,7 +297,6 @@ export class NodeTestRunner implements TestRunner {
       const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>((done, fail) => {
         const child = spawn(process.execPath, [file], {
           env,
-          // Stryker disable next-line ArrayDeclaration: piping unread output only shows as a hang once a pipe fills
           stdio: ['ignore', 'ignore', 'pipe'],
         });
         let errors = '';
@@ -322,7 +311,7 @@ export class NodeTestRunner implements TestRunner {
 
       return { records, exitCode, stderr };
     } finally {
-      await removeRunDir(runDir);
+      await removeDir(runDir);
     }
   }
 }
