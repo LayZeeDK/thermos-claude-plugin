@@ -28,6 +28,7 @@ export interface ProcessRecord {
 
 /** The part of Stryker's global namespace (`globalThis.__stryker__`) the hook uses. */
 export interface StrykerNamespace {
+  activeMutant?: string;
   currentTestId?: string;
   mutantCoverage?: Coverage;
   hitCount?: number;
@@ -61,7 +62,12 @@ export const ENV = {
   current: 'STRYKER_NODE_TEST_CURRENT',
   filter: 'STRYKER_NODE_TEST_FILTER',
   bail: 'STRYKER_NODE_TEST_BAIL',
+  /** The mutant the hook activates once the tests start, when Stryker asks for runtime activation. */
+  activeMutant: 'STRYKER_NODE_TEST_ACTIVE_MUTANT',
 } as const;
+
+/** Stryker's variable for the active mutant, which instrumented code reads when it loads. */
+export const ACTIVE_MUTANT_ENV = '__STRYKER_ACTIVE_MUTANT__';
 
 export interface HookDependencies {
   env: Record<string, string | undefined>;
@@ -109,7 +115,17 @@ export function install(deps: HookDependencies): boolean {
   if (testFile && deps.mainFile === testFile) {
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
-    wrapNodeTest({ ns, testFile, tests, filter, bail, env: deps.env, now: deps.now, nodeTest: deps.nodeTest() });
+    wrapNodeTest({
+      ns,
+      testFile,
+      tests,
+      filter,
+      bail,
+      activeMutant: deps.env[ENV.activeMutant],
+      env: deps.env,
+      now: deps.now,
+      nodeTest: deps.nodeTest(),
+    });
     deps.publishNodeTest();
   }
 
@@ -133,6 +149,8 @@ export interface WrapOptions {
   filter: Set<string> | undefined;
   /** Whether the bodies of tests that start after a test of this process failed are skipped. */
   bail: boolean;
+  /** The mutant to activate when the first test starts; it stays active for the rest of the process. */
+  activeMutant: string | undefined;
   env: Record<string, string | undefined>;
   now: () => number;
   nodeTest: NodeTestModule;
@@ -145,7 +163,17 @@ export interface WrapOptions {
  * value or a promise or that take node:test's `done` callback. Tests through the default export
  * (`import test from 'node:test'`) and `t.test` subtests are not attributed; add them when a test needs them.
  */
-export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, nodeTest }: WrapOptions): void {
+export function wrapNodeTest({
+  ns,
+  testFile,
+  tests,
+  filter,
+  bail,
+  activeMutant,
+  env,
+  now,
+  nodeTest,
+}: WrapOptions): void {
   const suites: { name: string; todo: unknown }[] = [];
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
   /** The flags of a registration's options, `rest[0]` unless that is the body, which has none, and its shorthand's. */
@@ -183,6 +211,12 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, node
       const enter = () => {
         ns.currentTestId = id;
         env[ENV.current] = id;
+
+        // The environment variable makes the processes the test starts load with the mutant active.
+        if (activeMutant !== undefined) {
+          ns.activeMutant = activeMutant;
+          env[ACTIVE_MUTANT_ENV] = activeMutant;
+        }
 
         return now();
       };

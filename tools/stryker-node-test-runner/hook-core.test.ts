@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
+  ACTIVE_MUTANT_ENV,
   ENV,
   install,
   installed,
@@ -83,8 +84,11 @@ function bodyOf(registrations: Registration[], name: string): (this: unknown, ..
   };
 }
 
-/** Wraps a fake node:test with the given filter and bail setting and a clock that advances 5 ms per reading. */
-function wrapped(filter?: string[], bail = false) {
+/**
+ * Wraps a fake node:test with the given filter, bail setting and mutant to activate at runtime, and a clock that
+ * advances 5 ms per reading.
+ */
+function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   const fake = fakeNodeTest();
   const ns: StrykerNamespace = {};
   const env: Record<string, string | undefined> = {};
@@ -96,6 +100,7 @@ function wrapped(filter?: string[], bail = false) {
     tests,
     filter: filter && new Set(filter),
     bail,
+    activeMutant,
     env,
     now: () => (clock += 5),
     nodeTest: fake.module,
@@ -471,6 +476,40 @@ describe('wrapNodeTest', () => {
     assert.deepEqual(seen, [`${TEST_FILE} > observes`, `${TEST_FILE} > observes`]);
   });
 
+  it('activates the runtime mutant when a test starts and keeps it active, also for processes it starts', async () => {
+    const { module, registrations, ns, env } = wrapped(undefined, false, '7');
+    const seen: unknown[] = [];
+    module.it('first', () => {
+      seen.push(ns.activeMutant, env[ACTIVE_MUTANT_ENV]);
+    });
+    module.it('second', (_t: unknown, done: () => void) => {
+      seen.push(ns.activeMutant);
+      done();
+    });
+
+    assert.deepEqual([ns.activeMutant, env[ACTIVE_MUTANT_ENV]], [undefined, undefined]);
+
+    await bodyOf(registrations, 'first')();
+
+    assert.deepEqual([ns.activeMutant, env[ACTIVE_MUTANT_ENV]], ['7', '7']);
+
+    ns.activeMutant = undefined;
+    await bodyOf(registrations, 'second')({}, () => {});
+
+    assert.deepEqual(seen, ['7', '7', '7']);
+  });
+
+  it('leaves a statically activated mutant alone', async () => {
+    const { module, registrations, ns, env } = wrapped();
+    ns.activeMutant = '3';
+    module.it('runs', () => {});
+
+    await bodyOf(registrations, 'runs')();
+
+    assert.equal(ns.activeMutant, '3');
+    assert.ok(!(ACTIVE_MUTANT_ENV in env));
+  });
+
   it('clears the current test id after a test, also after a failure', async () => {
     const { module, registrations, ns, env } = wrapped();
     module.it('passes', () => {});
@@ -752,6 +791,18 @@ describe('install', () => {
         },
       },
     ]);
+  });
+
+  it('activates the mutant the runner names for runtime activation once a test starts', async () => {
+    const { deps, fake } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.activeMutant]: '5' });
+    install(deps);
+
+    assert.equal(deps.global.__stryker__?.activeMutant, undefined);
+
+    fake.module.it('runs', () => {});
+    await bodyOf(fake.registrations, 'runs')();
+
+    assert.equal(deps.global.__stryker__?.activeMutant, '5');
   });
 
   it('runs only the filtered tests', async () => {

@@ -23,6 +23,7 @@ import {
   toMutantRunResult,
   type DryRunOptions,
   type DryRunResult,
+  type MutantActivation,
   type MutantRunOptions,
   type MutantRunResult,
   type TestResult,
@@ -44,6 +45,8 @@ interface RunOptions {
   /** Set in the dry run only. */
   coverageAnalysis?: CoverageAnalysis;
   activeMutant?: string;
+  /** When the mutant becomes active; from the start of the process unless this is `runtime`. */
+  mutantActivation?: MutantActivation;
   hitLimit?: number;
   /** Test ids to run; every test runs when absent. */
   testFilter?: string[];
@@ -154,7 +157,14 @@ export function runEnv(
     TMP: tmpDir,
   };
 
-  const runState = [ENV.current, ENV.hitLimit, ENV.filter, ENV.bail, INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE];
+  const runState = [
+    ENV.current,
+    ENV.hitLimit,
+    ENV.filter,
+    ENV.bail,
+    ENV.activeMutant,
+    INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE,
+  ];
 
   for (const key of runState) {
     delete env[key];
@@ -164,8 +174,10 @@ export function runEnv(
     env.NODE_COMPILE_CACHE = cacheDir;
   }
 
+  // At runtime activation the hook activates the mutant once the tests start, so module-level code runs unmutated.
   if (run.activeMutant !== undefined) {
-    env[INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE] = run.activeMutant;
+    const runtime = run.mutantActivation === 'runtime';
+    env[runtime ? ENV.activeMutant : INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE] = run.activeMutant;
   }
 
   if (run.hitLimit !== undefined) {
@@ -270,6 +282,7 @@ export class NodeTestRunner implements TestRunner {
       dryRun: false,
       disableBail: options.disableBail,
       activeMutant: options.activeMutant.id,
+      mutantActivation: options.mutantActivation,
       hitLimit: options.hitLimit,
       testFilter: options.testFilter,
     });

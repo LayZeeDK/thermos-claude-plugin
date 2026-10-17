@@ -27,7 +27,7 @@ import {
   type TestResult,
 } from '@stryker-mutator/api/test-runner';
 
-import { ENV } from './hook-core.ts';
+import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
 import { filesFor, mergeCoverage, NodeTestRunner, removeDir, runEnv, toTestResults } from './index.ts';
 
 const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
@@ -199,6 +199,10 @@ describe('runEnv', () => {
   const OUT = join('/tmp', 'out');
   const TMP = join('/tmp', 'tmp');
 
+  it("names Stryker's active mutant variable as the hook does", () => {
+    assert.equal(ACTIVE_MUTANT_ENV, ACTIVE_MUTANT);
+  });
+
   it('loads the hook before inherited options and drops the outer run state', () => {
     const base = {
       PATH: 'path',
@@ -209,6 +213,7 @@ describe('runEnv', () => {
       [ENV.hitLimit]: '5',
       [ENV.filter]: '["outer"]',
       [ENV.bail]: 'true',
+      [ENV.activeMutant]: '8',
       [ACTIVE_MUTANT]: '9',
     };
     const before = { ...base };
@@ -259,6 +264,18 @@ describe('runEnv', () => {
         [ENV.filter]: JSON.stringify([`${FILE} > test`]),
       },
     );
+  });
+
+  it('activates the mutant from the start of the process, or for the hook to activate once the tests start', () => {
+    const run = { dryRun: false, disableBail: false, activeMutant: '12' };
+    const active = (mutantActivation: 'runtime' | 'static') => {
+      const env = runEnv({}, FILE, OUT, TMP, { ...run, mutantActivation }, undefined);
+
+      return { atStart: env[ACTIVE_MUTANT], onceTestsStart: env[ENV.activeMutant] };
+    };
+
+    assert.deepEqual(active('static'), { atStart: '12', onceTestsStart: undefined });
+    assert.deepEqual(active('runtime'), { atStart: undefined, onceTestsStart: '12' });
   });
 
   it('asks the test file to bail only in a mutant run with bail enabled', () => {
@@ -826,6 +843,28 @@ describe('NodeTestRunner', () => {
     ]);
     const result = await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'static' })));
     assert.deepEqual(result.status === MutantRunStatus.Killed && result.killedBy, [a]);
+  });
+
+  it('activates a mutant once the tests start when activation is runtime, also in processes they start', async (t) => {
+    const child = `process.exitCode = process.env.${ACTIVE_MUTANT} === 'fixture-mutant' ? 0 : 1;`;
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        `if (process.env.${ACTIVE_MUTANT} || globalThis.__stryker__.activeMutant) {`,
+        "  throw new Error('module-level mutant');",
+        '}',
+        "it('sees the mutant', () => {",
+        "  assert.equal(globalThis.__stryker__.activeMutant, 'fixture-mutant');",
+        `  assert.equal(spawnSync(process.execPath, ['-e', ${JSON.stringify(child)}]).status, 0);`,
+        '});',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const testFilter = [`${join(dir, 'a.test.mjs')} > sees the mutant`];
+
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
   });
 
   it('times out a mutant run that exceeds the hit limit', async (t) => {
