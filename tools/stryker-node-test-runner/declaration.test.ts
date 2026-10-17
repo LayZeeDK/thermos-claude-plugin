@@ -18,7 +18,12 @@ describe('plugin declaration', () => {
   it('validates the nodeTest options with a JSON schema', () => {
     const validate = new ajvModule.default({ allErrors: true, strict: false }).compile(strykerValidationSchema);
 
-    for (const options of [{}, { nodeTest: {} }, { nodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } }]) {
+    for (const options of [
+      {},
+      { nodeTest: {} },
+      { nodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } },
+      { nodeTest: { nodeArgs: ['--enable-source-maps', '--stack-size=900'] } },
+    ]) {
       assert.ok(validate(options), JSON.stringify(options));
     }
 
@@ -27,6 +32,8 @@ describe('plugin declaration', () => {
       { nodeTest: { testFiles: '*.test.ts' } },
       { nodeTest: { testFiles: [1] } },
       { nodeTest: { testfiles: ['*.test.ts'] } },
+      { nodeTest: { nodeArgs: '--enable-source-maps' } },
+      { nodeTest: { nodeArgs: [1] } },
     ]) {
       assert.ok(!validate(options), JSON.stringify(options));
     }

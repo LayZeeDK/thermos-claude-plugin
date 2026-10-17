@@ -37,6 +37,8 @@ import { ENV, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 export interface NodeTestOptions {
   /** Glob patterns for the test files, relative to the working directory. Defaults to every `.test.ts` file. */
   testFiles?: string[];
+  /** Arguments for `node` ahead of the test file, such as `--enable-source-maps`. */
+  nodeArgs?: string[];
 }
 
 interface RunOptions {
@@ -234,12 +236,15 @@ export class NodeTestRunner implements TestRunner {
    */
   #cacheDir?: string;
   readonly #patterns: string[];
+  readonly #nodeArgs: string[];
   readonly #log: Logger;
 
   constructor(options: StrykerOptions, log: Logger) {
-    const patterns = (options as { nodeTest?: NodeTestOptions }).nodeTest?.testFiles ?? ['**/*.test.ts'];
+    const nodeTest = (options as { nodeTest?: NodeTestOptions }).nodeTest;
+    const patterns = nodeTest?.testFiles ?? ['**/*.test.ts'];
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
     this.#patterns = options.testFiles ? [...patterns, ...options.testFiles] : patterns;
+    this.#nodeArgs = nodeTest?.nodeArgs ?? [];
     this.#log = log;
   }
 
@@ -342,7 +347,7 @@ export class NodeTestRunner implements TestRunner {
       const env = runEnv(process.env, file, outDir, tmpDir, run, this.#cacheDir);
       this.#log.debug(`Running node ${file}`);
       const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>((done, fail) => {
-        const child = spawn(process.execPath, [file], {
+        const child = spawn(process.execPath, [...this.#nodeArgs, file], {
           env,
           stdio: ['ignore', 'ignore', 'pipe'],
         });
@@ -370,7 +375,10 @@ export const strykerValidationSchema = {
   properties: {
     nodeTest: {
       type: 'object',
-      properties: { testFiles: { type: 'array', items: { type: 'string' } } },
+      properties: {
+        testFiles: { type: 'array', items: { type: 'string' } },
+        nodeArgs: { type: 'array', items: { type: 'string' } },
+      },
       additionalProperties: false,
     },
   },

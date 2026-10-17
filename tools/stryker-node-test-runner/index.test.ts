@@ -565,6 +565,27 @@ describe('NodeTestRunner', () => {
     }
   });
 
+  it('passes nodeTest.nodeArgs to the node process of each test file', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { writeFileSync } from 'node:fs';",
+        "writeFileSync('exec-argv.json', JSON.stringify(process.execArgv));",
+        "it('passes', () => {});",
+      ),
+    });
+    const execArgv = async (options: object) => {
+      const runner = new NodeTestRunner(options as StrykerOptions, logger());
+      await runner.init();
+      await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));
+
+      return JSON.parse(readFileSync(join(dir, 'exec-argv.json'), 'utf8')) as string[];
+    };
+    const nodeArgs = ['--no-deprecation', '--stack-size=900'];
+
+    assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'], nodeArgs } }), nodeArgs);
+    assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'] } }), []);
+  });
+
   it('runs a test file once when several patterns match it', async (t) => {
     const dir = project(t, { 'a.test.mjs': PASSING });
     const runner = await initRunner(['a.test.mjs', '*.test.mjs', './a.test.mjs', join(dir, 'a.test.mjs')]);
