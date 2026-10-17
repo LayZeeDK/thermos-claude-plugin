@@ -116,15 +116,21 @@ export function filesFor(testFiles: string[], testFilter: string[] | undefined):
   return testFiles.filter((file) => testFilter.some((id) => id === file || id.startsWith(`${file} > `)));
 }
 
-/** Builds the environment for one test file's process tree. */
-export function runEnv(base: NodeJS.ProcessEnv, file: string, outDir: string, run: RunOptions): NodeJS.ProcessEnv {
+/**
+ * Builds the environment for one test file's process tree. The processes keep Node's compile cache in `cacheDir`
+ * unless the environment names a directory.
+ */
+export function runEnv(
+  base: NodeJS.ProcessEnv,
+  file: string,
+  outDir: string,
+  run: RunOptions,
+  cacheDir: string | undefined,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...base,
     // The hook comes first, so a copy of this runner under test takes precedence over the runner running it.
     NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)} ${base.NODE_OPTIONS ?? ''}`.trim(),
-    // Every process compiles the hook and its imports; Node's compile cache (its own default directory) makes that
-    // a one-time cost per Node version instead of one per process.
-    NODE_COMPILE_CACHE: base.NODE_COMPILE_CACHE ?? join(tmpdir(), 'node-compile-cache'),
     [ENV.out]: outDir,
     [ENV.file]: file,
     [ENV.dryRun]: String(run.dryRun),
@@ -132,6 +138,10 @@ export function runEnv(base: NodeJS.ProcessEnv, file: string, outDir: string, ru
 
   for (const key of [ENV.current, ENV.hitLimit, ENV.filter, INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE]) {
     delete env[key];
+  }
+
+  if (env.NODE_COMPILE_CACHE === undefined && cacheDir !== undefined) {
+    env.NODE_COMPILE_CACHE = cacheDir;
   }
 
   if (run.activeMutant !== undefined) {
@@ -153,6 +163,12 @@ export class NodeTestRunner implements TestRunner {
   static inject = tokens(commonTokens.options, commonTokens.logger);
 
   #testFiles: string[] = [];
+  /**
+   * Every process compiles the hook and its imports; Node's compile cache makes that a one-time cost per runner.
+   * The directory is this runner's own, because the cache keeps an entry for every file a process loads, including
+   * the throwaway fixtures of the tests, and Node's default directory would grow with every run.
+   */
+  #cacheDir?: string;
   readonly #options: NodeTestOptions;
   readonly #log: Logger;
 
@@ -172,6 +188,21 @@ export class NodeTestRunner implements TestRunner {
 
     if (this.#testFiles.length === 0) {
       throw new Error(`No test files match ${JSON.stringify(this.#options.testFiles)}`);
+    }
+
+    if (process.env.NODE_COMPILE_CACHE === undefined) {
+      // Stryker disable next-line StringLiteral: the prefix only names the directory
+      this.#cacheDir = mkdtempSync(join(tmpdir(), `stryker-node-test-cache-${process.pid}-`));
+    }
+  }
+
+  async dispose(): Promise<void> {
+    if (this.#cacheDir !== undefined) {
+      rmSync(this.#cacheDir, {
+        recursive: true,
+        // Stryker disable next-line BooleanLiteral: the directory always exists here
+        force: true,
+      });
     }
   }
 
@@ -227,7 +258,7 @@ export class NodeTestRunner implements TestRunner {
     const outDir = mkdtempSync(join(tmpdir(), 'stryker-node-test-'));
 
     try {
-      const env = runEnv(process.env, file, outDir, run);
+      const env = runEnv(process.env, file, outDir, run, this.#cacheDir);
       this.#log.debug(`Running node ${file}`);
       const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>((done, fail) => {
         const child = spawn(process.execPath, [file], {

@@ -209,6 +209,7 @@ function mutateWallMs(): number {
 async function main(): Promise<void> {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'node-test-runner-bench-')));
   const files: string[] = [];
+  const runners: NodeTestRunner[] = [];
 
   try {
     for (let index = 0; index < FILES; index++) {
@@ -217,7 +218,7 @@ async function main(): Promise<void> {
       files.push(file);
     }
 
-    const runners = await Promise.all(runnerPaths.map((path) => loadRunner(path, dir)));
+    runners.push(...(await Promise.all(runnerPaths.map((path) => loadRunner(path, dir)))));
     const labels = runnerPaths.map((path) => (runnerPaths.length > 1 ? `[${path}] ` : ''));
     const samples = new Map<string, number[]>();
     const sample = (label: string) => {
@@ -274,6 +275,7 @@ async function main(): Promise<void> {
       );
     }
   } finally {
+    await Promise.all(runners.map((runner) => runner.dispose?.()));
     rmSync(dir, { recursive: true, force: true });
   }
 }
