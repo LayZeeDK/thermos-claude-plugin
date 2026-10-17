@@ -8,9 +8,12 @@ import {
   install,
   installed,
   recordEvents,
+  redirectNodeTest,
   reporting,
   wrapNodeTest,
+  wrappedNodeTest,
   type HookDependencies,
+  type ModuleHooks,
   type NodeTestModule,
   type ProcessRecord,
   type RecordedTest,
@@ -66,12 +69,15 @@ function fakeNodeTest() {
       only: register(`${kind}.only`),
       mock: `${kind}.mock`,
     });
-  const module: NodeTestModule = {
+  // Like node:test, the module is the `test` function, which carries the other functions.
+  const test = withShorthands('test');
+  const module: NodeTestModule = Object.assign(test, {
     describe: withShorthands('describe'),
     suite: withShorthands('suite'),
     it: withShorthands('it'),
-    test: withShorthands('test'),
-  };
+    test,
+    run: 'run',
+  });
 
   return { module, registrations, suiteResults };
 }
@@ -113,7 +119,7 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   const tests: RecordedTest[] = [];
   /** The current test id each test body saw, by calling `see`. */
   const seen: (string | undefined)[] = [];
-  wrapNodeTest({
+  const module = wrapNodeTest({
     ns,
     testFile: TEST_FILE,
     tests,
@@ -124,7 +130,7 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
     nodeTest: fake.module,
   });
 
-  return { ...fake, ns, env, tests, seen, see: () => seen.push(ns.currentTestId) };
+  return { ...fake, original: fake.module, module, ns, env, tests, seen, see: () => seen.push(ns.currentTestId) };
 }
 
 describe('wrapNodeTest', () => {
@@ -221,12 +227,30 @@ describe('wrapNodeTest', () => {
     );
   });
 
-  it('keeps the other properties of the node:test functions', () => {
+  it('keeps the other properties of the node:test module and functions', () => {
     const { module } = wrapped();
 
     for (const kind of ['describe', 'suite', 'it', 'test'] as const) {
       assert.equal((module[kind] as unknown as { mock: string }).mock, `${kind}.mock`);
     }
+
+    assert.equal((module as unknown as { run: string }).run, 'run');
+  });
+
+  it('wraps the module, which is the test function, in a copy and leaves node:test unchanged', async () => {
+    const { module, original, registrations, seen, see } = wrapped();
+    const unwrapped = { ...original };
+    module('default export', see);
+    module.only('default export only', see);
+
+    for (const name of ['default export', 'default export only']) {
+      await bodyOf(registrations, name)(testContext());
+    }
+
+    assert.deepEqual(seen, [`${TEST_FILE} > default export`, `${TEST_FILE} > default export only`]);
+    assert.equal(module.test, module);
+    assert.notEqual(module, original);
+    assert.deepEqual({ ...original }, unwrapped);
   });
 
   it('names the tests of only and todo suites and shorthands after their suites', async () => {
@@ -594,20 +618,94 @@ describe('recordEvents', () => {
   });
 });
 
+let imports = 0;
+
+/**
+ * Resolves and loads `node:test` through the module hooks, as an import and as a require, and evaluates both modules
+ * with `wrapped` as the wrapped node:test module.
+ */
+async function importRedirected(hooks: ModuleHooks, wrapped: unknown) {
+  const global = globalThis as HookDependencies['global'];
+  const previous = global[wrappedNodeTest];
+  const passOn = () => assert.fail('passed node:test on');
+  const sourceFor = (conditions: string[]) => {
+    const { url } = hooks.resolve('node:test', { conditions }, passOn) as { url: string };
+
+    return (hooks.load(url, {}, passOn) as { source: string }).source;
+  };
+
+  try {
+    global[wrappedNodeTest] = wrapped as NodeTestModule;
+    // A comment of its own keeps the import from coming from the module cache.
+    const source = `${sourceFor(['node', 'import'])}\n// ${++imports}`;
+    const module = (await import(`data:text/javascript,${encodeURIComponent(source)}`)) as Record<string, unknown>;
+    const commonjs = { exports: undefined as unknown };
+    new Function('module', sourceFor(['node', 'require']))(commonjs);
+
+    return { module, commonjs: commonjs.exports };
+  } finally {
+    global[wrappedNodeTest] = previous;
+  }
+}
+
+describe('redirectNodeTest', () => {
+  it('resolves node:test to a module of its own for import and for require, and leaves other modules alone', () => {
+    const hooks = redirectNodeTest(['it']);
+    const passOn = (...args: unknown[]) => ({ passedOn: args });
+    const context = { conditions: ['node', 'import'] };
+    type Resolved = { url: string; format: string; shortCircuit?: true };
+    const imported = hooks.resolve('node:test', context, passOn) as Resolved;
+    const required = hooks.resolve('node:test', { conditions: ['node', 'require'] }, passOn) as typeof imported;
+    const loaded = [imported, required].map(({ url }) => hooks.load(url, {}, passOn) as typeof imported);
+
+    assert.deepEqual(
+      [imported.format, required.format, imported.url === required.url],
+      ['module', 'commonjs', false],
+    );
+    assert.deepEqual([imported, required].map(({ url }) => url.startsWith('node:')), [false, false]);
+    // Node.js requires a hook that does not pass a module on to say so.
+    assert.deepEqual(
+      [imported, required, ...loaded].map(({ format, shortCircuit }) => [format, shortCircuit]),
+      [
+        ['module', true],
+        ['commonjs', true],
+        ['module', true],
+        ['commonjs', true],
+      ],
+    );
+    assert.deepEqual(hooks.resolve('node:assert', context, passOn), { passedOn: ['node:assert', context] });
+    assert.deepEqual(hooks.load('node:assert', context, passOn), { passedOn: ['node:assert', context] });
+    assert.deepEqual(hooks.load(`x${imported.url}`, context, passOn), { passedOn: [`x${imported.url}`, context] });
+  });
+
+  it('gives the wrapped module as default export and require result, and its properties as named exports', async () => {
+    const wrapped = Object.assign(() => 'test', { it: () => 'it', mock: { name: 'mock' } });
+
+    const { module, commonjs } = await importRedirected(redirectNodeTest(['it', 'mock']), wrapped);
+
+    assert.deepEqual({ ...module }, { default: wrapped, it: wrapped.it, mock: wrapped.mock });
+    assert.equal(commonjs, wrapped);
+  });
+});
+
 interface Harness {
   deps: HookDependencies;
   fake: ReturnType<typeof fakeNodeTest>;
   records: { path: string; record: ProcessRecord }[];
   calls: string[];
+  /** The module hooks the hook registered. */
+  hooks: ModuleHooks[];
+  /** The wrapped node:test module the hook published. */
+  wrapped: () => NodeTestModule;
   exit: () => void;
 }
 
 /** Hook dependencies with fakes, for a process whose main file is the test file unless `mainFile` says otherwise. */
 function harness(env: Record<string, string | undefined>, overrides: Partial<HookDependencies> = {}): Harness {
   const fake = fakeNodeTest();
-  const unwrappedIt = fake.module.it;
   const records: Harness['records'] = [];
   const calls: string[] = [];
+  const hooks: ModuleHooks[] = [];
   const listeners: (() => void)[] = [];
   const deps: HookDependencies = {
     env,
@@ -619,8 +717,9 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
 
       return fake.module;
     },
-    publishNodeTest: () => {
-      calls.push(fake.module.it === unwrappedIt ? 'publishNodeTest before wrapping' : 'publishNodeTest');
+    registerHooks: (registered) => {
+      calls.push(deps.global[wrappedNodeTest] ? 'registerHooks' : 'registerHooks before publishing');
+      hooks.push(registered);
     },
     onExit: (listener) => {
       calls.push('onExit');
@@ -638,6 +737,13 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     fake,
     records,
     calls,
+    hooks,
+    wrapped: () => {
+      const wrapped = deps.global[wrappedNodeTest];
+      assert.ok(wrapped, 'the hook published no wrapped node:test');
+
+      return wrapped;
+    },
     exit: () => {
       for (const listener of listeners) {
         listener();
@@ -688,6 +794,7 @@ describe('install', () => {
     assert.equal(deps.global[installed], true);
     assert.equal(installed, Symbol.for('thermos.stryker-node-test-runner.hook'));
     assert.equal(reporting, Symbol.for('thermos.stryker-node-test-runner.reporting'));
+    assert.equal(wrappedNodeTest, Symbol.for('thermos.stryker-node-test-runner.node-test'));
   });
 
   it('keeps an existing Stryker namespace', () => {
@@ -737,14 +844,17 @@ describe('install', () => {
     });
   }
 
-  it('wraps node:test, then publishes it, in the process that runs the test file', async () => {
-    const { deps, fake, calls } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
+  it('wraps node:test in the process that runs the test file, and makes imports of node:test give it', async () => {
+    const { deps, fake, calls, hooks, wrapped } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
     install(deps);
 
-    assert.deepEqual(calls, ['nodeTest', 'publishNodeTest', 'onExit']);
+    assert.deepEqual(calls, ['nodeTest', 'registerHooks', 'onExit']);
+    assert.equal(hooks.length, 1);
+    const names = Object.keys((await importRedirected(hooks[0] as ModuleHooks, wrapped())).module);
+    assert.deepEqual(names.sort(), ['default', ...Object.keys(fake.module)].sort());
 
     const seen: unknown[] = [];
-    fake.module.it('runs', () => {
+    wrapped().it('runs', () => {
       seen.push(deps.global.__stryker__?.currentTestId);
     });
     await bodyOf(fake.registrations, 'runs')(testContext());
@@ -764,6 +874,7 @@ describe('install', () => {
       assert.equal(install(deps), true);
       assert.deepEqual(calls, ['onExit']);
       assert.equal(deps.global[reporting], undefined);
+      assert.equal(deps.global[wrappedNodeTest], undefined);
     });
   }
 
@@ -789,29 +900,29 @@ describe('install', () => {
   });
 
   it('activates the mutant the runner names for runtime activation once a test starts', async () => {
-    const { deps, fake } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.activeMutant]: '5' });
+    const { deps, fake, wrapped } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.activeMutant]: '5' });
     install(deps);
 
     assert.equal(deps.global.__stryker__?.activeMutant, undefined);
 
-    fake.module.it('runs', () => {});
+    wrapped().it('runs', () => {});
     await bodyOf(fake.registrations, 'runs')(testContext());
 
     assert.equal(deps.global.__stryker__?.activeMutant, '5');
   });
 
   it('runs only the filtered tests', async () => {
-    const { deps, fake } = harness({
+    const { deps, fake, wrapped } = harness({
       [ENV.out]: OUT,
       [ENV.file]: TEST_FILE,
       [ENV.filter]: JSON.stringify([`${TEST_FILE} > wanted`]),
     });
     const ran: string[] = [];
     install(deps);
-    fake.module.it('wanted', () => {
+    wrapped().it('wanted', () => {
       ran.push('wanted');
     });
-    fake.module.it('unwanted', () => {
+    wrapped().it('unwanted', () => {
       ran.push('unwanted');
     });
     await bodyOf(fake.registrations, 'wanted')(testContext());
@@ -823,10 +934,10 @@ describe('install', () => {
   for (const bail of ['true', 'false', undefined]) {
     it(`${bail === 'true' ? 'skips' : 'runs'} later tests with bail ${String(bail)}; children never bail`, async () => {
       const env = { [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.bail]: bail };
-      const { deps, fake } = harness(env);
+      const { deps, fake, wrapped } = harness(env);
       const ran: string[] = [];
       install(deps);
-      fake.module.it('later', () => {
+      wrapped().it('later', () => {
         ran.push('later');
       });
       report(deps, 'fails', 'fail');

@@ -152,6 +152,46 @@ describe('hook', () => {
     assert.equal(record.mutantCoverage?.perTest[id]?.['fixture-1'], 1);
   });
 
+  it("attributes tests declared through node:test's default export and through require", async (t) => {
+    const dir = tempDir(t);
+    const outDir = join(dir, 'out');
+    mkdirSync(outDir);
+    const testFile = join(dir, 'fixture.test.mjs');
+    writeFileSync(
+      testFile,
+      [
+        "import test from 'node:test';",
+        "import { createRequire } from 'node:module';",
+        'const required = createRequire(import.meta.url)(\'node:test\');',
+        'const cover = () => {',
+        '  const ns = globalThis.__stryker__;',
+        '  ns.mutantCoverage ??= { static: {}, perTest: {} };',
+        "  ns.mutantCoverage.perTest[ns.currentTestId] = { 'fixture-1': 1 };",
+        '};',
+        "test('default export', cover);",
+        "test.describe('suite', () => { test.it('nested', cover); });",
+        "required('required', cover);",
+        "required.it('required it', cover);",
+        '',
+      ].join('\n'),
+    );
+
+    const { code, pid } = await runWithHook([testFile], {
+      [ENV.out]: outDir,
+      [ENV.file]: testFile,
+      [ENV.dryRun]: 'true',
+    });
+
+    assert.equal(code, 0);
+    const record = readRecords(outDir)[`${pid}.json`];
+    const ids = ['default export', 'suite > nested', 'required', 'required it'].map((name) => `${testFile} > ${name}`);
+    assert.deepEqual(
+      record?.tests.map(({ id }) => id),
+      ids,
+    );
+    assert.deepEqual(Object.keys(record?.mutantCoverage?.perTest ?? {}), ids);
+  });
+
   it('records the results node:test reports, also of hooks, runtime skips and todo tests', async (t) => {
     const dir = tempDir(t);
     const outDir = join(dir, 'out');

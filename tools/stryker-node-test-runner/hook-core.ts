@@ -62,13 +62,13 @@ export interface TestEvent {
   };
 }
 
-/** The node:test functions the hook wraps. */
-export interface NodeTestModule {
+/** The node:test module: its `test` function, which carries the other functions the hook wraps. */
+export type NodeTestModule = Register & {
   describe: Register;
   suite: Register;
   it: Register;
   test: Register;
-}
+};
 
 /** Environment variables shared between the runner and the hook. */
 export const ENV = {
@@ -91,9 +91,14 @@ export interface HookDependencies {
   /** `process.argv[1]`, resolved to an absolute path. */
   mainFile: string | undefined;
   pid: number;
-  global: { __stryker__?: StrykerNamespace; [installed]?: true; [reporting]?: (event: TestEvent) => void };
+  global: {
+    __stryker__?: StrykerNamespace;
+    [installed]?: true;
+    [reporting]?: (event: TestEvent) => void;
+    [wrappedNodeTest]?: NodeTestModule;
+  };
   nodeTest: () => NodeTestModule;
-  publishNodeTest: () => void;
+  registerHooks: (hooks: ModuleHooks) => unknown;
   onExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
   join: (...parts: string[]) => string;
@@ -104,6 +109,9 @@ export const installed = Symbol.for('thermos.stryker-node-test-runner.hook');
 
 /** Where the hook of a test file's process leaves the function that the runner's reporter passes events to. */
 export const reporting = Symbol.for('thermos.stryker-node-test-runner.reporting');
+
+/** Where the hook of a test file's process keeps the wrapped node:test module that imports of node:test give. */
+export const wrappedNodeTest = Symbol.for('thermos.stryker-node-test-runner.node-test');
 
 /**
  * Installs the hook when the runner started this process tree. Returns whether it installed.
@@ -135,7 +143,7 @@ export function install(deps: HookDependencies): boolean {
     deps.global[reporting] = recordEvents(testFile, tests);
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
-    wrapNodeTest({
+    const wrapped = wrapNodeTest({
       ns,
       testFile,
       tests,
@@ -145,7 +153,8 @@ export function install(deps: HookDependencies): boolean {
       env: deps.env,
       nodeTest: deps.nodeTest(),
     });
-    deps.publishNodeTest();
+    deps.global[wrappedNodeTest] = wrapped;
+    deps.registerHooks(redirectNodeTest(Object.keys(wrapped)));
   }
 
   deps.onExit(() => {
@@ -217,16 +226,18 @@ export interface WrapOptions {
 }
 
 /**
- * Wraps node:test's suite and test functions so each test's id is known while it runs, and so tests outside the
- * filter, or after a failure when bailing, are skipped. The test results come from node:test's reporter events.
+ * Returns a copy of the node:test module whose suite and test functions are wrapped so each test's id is known while
+ * it runs, and so tests outside the filter, or after a failure when bailing, are skipped. The test results come from
+ * node:test's reporter events.
  *
  * ponytail: supports `(name, [options], fn)` calls with synchronous suite bodies, and test bodies that return a
- * value or a promise or that take node:test's `done` callback. Tests through the default export
- * (`import test from 'node:test'`) and `t.test` subtests are not attributed; add them when a test needs them.
+ * value or a promise or that take node:test's `done` callback. `t.test` subtests are not attributed; add them when a
+ * test needs them.
  * Bailing acts on the results node:test has reported, and node:test reports the first tests of a file only once its
  * reporters start, so a few quick tests can still run after the first failure.
  */
-export function wrapNodeTest({ ns, testFile, tests, filter, bail, activeMutant, env, nodeTest }: WrapOptions): void {
+export function wrapNodeTest(options: WrapOptions): NodeTestModule {
+  const { ns, testFile, tests, filter, bail, activeMutant, env, nodeTest } = options;
   const suites: string[] = [];
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
 
@@ -315,20 +326,62 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, activeMutant, 
     };
 
   // The bodies of skipped suites and tests never run, so `skip` needs no wrapper.
-  for (const key of ['describe', 'suite'] as const) {
-    const original = nodeTest[key];
-    nodeTest[key] = Object.assign(wrapSuite(original), original, {
-      todo: wrapSuite(original.todo),
-      only: wrapSuite(original.only),
-    });
-  }
+  const withShorthands = (original: Register, wrap: (register: Registrar) => Registrar): Register =>
+    Object.assign(wrap(original), original, { todo: wrap(original.todo), only: wrap(original.only) });
+  // The module is node:test's `test` function, which also carries the other functions.
+  const test = withShorthands(nodeTest, wrapTest);
 
-  for (const key of ['it', 'test'] as const) {
-    const original = nodeTest[key];
-    nodeTest[key] = Object.assign(wrapTest(original), original, {
-      todo: wrapTest(original.todo),
-      only: wrapTest(original.only),
-    });
-  }
+  return Object.assign(test, {
+    describe: withShorthands(nodeTest.describe, wrapSuite),
+    suite: withShorthands(nodeTest.suite, wrapSuite),
+    it: withShorthands(nodeTest.it, wrapTest),
+    test,
+  });
+}
+
+/** The module hooks part of `module.registerHooks` that the hook uses. */
+export interface ModuleHooks {
+  resolve: (
+    specifier: string,
+    context: { conditions: string[] },
+    nextResolve: (specifier: string, context: { conditions: string[] }) => unknown,
+  ) => unknown;
+  load: (url: string, context: object, nextLoad: (url: string, context: object) => unknown) => unknown;
+}
+
+const WRAPPED_URL = 'thermos-stryker-node-test:node-test/';
+
+/**
+ * Module hooks that make `import 'node:test'` and `require('node:test')` give the wrapped module on
+ * `globalThis[wrappedNodeTest]`, with these named exports. The default export, and what `require` returns, is
+ * node:test's `test` function itself, so the built-in module cannot be wrapped in place.
+ */
+export function redirectNodeTest(names: string[]): ModuleHooks {
+  const wrapped = `globalThis[Symbol.for(${JSON.stringify(wrappedNodeTest.description)})]`;
+  const sources = {
+    module: `const wrapped = ${wrapped}; export default wrapped; export const { ${names.join(', ')} } = wrapped;`,
+    commonjs: `module.exports = ${wrapped};`,
+  };
+
+  return {
+    resolve: (specifier, context, nextResolve) => {
+      if (specifier !== 'node:test') {
+        return nextResolve(specifier, context);
+      }
+
+      const format = context.conditions.includes('require') ? 'commonjs' : 'module';
+
+      return { url: `${WRAPPED_URL}${format}`, format, shortCircuit: true };
+    },
+    load: (url, context, nextLoad) => {
+      if (!url.startsWith(WRAPPED_URL)) {
+        return nextLoad(url, context);
+      }
+
+      const format = url.slice(WRAPPED_URL.length) as keyof typeof sources;
+
+      return { format, source: sources[format], shortCircuit: true };
+    },
+  };
 }
 
