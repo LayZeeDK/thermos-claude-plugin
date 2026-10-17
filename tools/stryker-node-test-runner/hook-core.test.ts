@@ -153,6 +153,21 @@ describe('recordEvents', () => {
       ],
     );
   });
+
+  it('records the failure of the test file itself, from an `after` hook outside any suite, as that hook', () => {
+    const error = { failureType: 'hookFailed', message: 'after failure', cause: new Error('after failure') };
+
+    assert.deepEqual(
+      record([
+        ...reported('passes', 0, 'pass', testDetails),
+        { type: 'test:fail', data: { name: TEST_FILE, nesting: 0, details: { duration_ms: 4, error } } },
+      ]),
+      [
+        { id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 1.5 },
+        { id: `${TEST_FILE} > "after" hook`, status: 'failed', failureMessage: 'after failure', timeSpentMs: 4 },
+      ],
+    );
+  });
 });
 
 let imports = 0;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { TestStatus } from '@stryker-mutator/api/test-runner';
+import { MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 
 import {
   complete,
@@ -11,6 +11,7 @@ import {
   fixture,
   fixtureCoverage,
   initRunner,
+  mutantRunOptions,
   project,
   settle,
   shareCompileCache,
@@ -115,5 +116,34 @@ describe('NodeTestRunner results', () => {
       ],
     );
     assert.deepEqual(fixtureCoverage(mutantCoverage), { static: {}, perTest: {} });
+  });
+
+  it("names a failing `after` hook outside any suite as the test file's hook, which kills a mutant", async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { after } from 'node:test';",
+        "it('passes', () => {});",
+        "after(() => { throw new Error('after failure'); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+    const hook = `${a} > "after" hook`;
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(
+      tests.map(({ id, name, status }) => ({ id, name, status })),
+      [
+        { id: `${a} > passes`, name: 'passes', status: TestStatus.Success },
+        { id: hook, name: '"after" hook', status: TestStatus.Failed },
+      ],
+    );
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
+      status: MutantRunStatus.Killed,
+      killedBy: [hook],
+      failureMessage: 'after failure',
+      nrOfTests: 2,
+    });
   });
 });

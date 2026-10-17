@@ -92,6 +92,7 @@ export interface TestEvent {
     todo?: unknown;
     /** Present on `test:pass` and `test:fail`. */
     details?: {
+      /** Absent when the test file itself fails. */
       type?: 'suite' | 'test';
       duration_ms: number;
       error?: { failureType?: string; message: string; cause?: unknown };
@@ -258,7 +259,9 @@ export function recordEvents(
     }
 
     const enclosing = Array.from({ length: data.nesting }, (_, level) => names.get(level) as string);
-    const id = [...enclosing, data.name].reduce(testId, testFile);
+    // node:test reports a failing `after` hook of the test file as a failure of the file itself, which has no type.
+    const name = kind === undefined ? '"after" hook' : data.name;
+    const id = [...enclosing, name].reduce(testId, testFile);
 
     const test: RecordedTest = { id, status: 'passed', timeSpentMs };
     const startPosition = positions.get(id);
