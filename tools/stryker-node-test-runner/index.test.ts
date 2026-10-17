@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -28,7 +29,17 @@ import {
 } from '@stryker-mutator/api/test-runner';
 
 import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
-import { fileError, filesFor, mergeCoverage, NodeTestRunner, removeDir, runEnv, toTestResults } from './index.ts';
+import {
+  fileError,
+  filesFor,
+  isRunning,
+  mergeCoverage,
+  NodeTestRunner,
+  removeDir,
+  removeLeftDirs,
+  runEnv,
+  toTestResults,
+} from './index.ts';
 
 const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
@@ -183,6 +194,69 @@ describe('removeDir', () => {
 
     assert.equal(removal.calls, 20);
     assert.ok(Date.now() - start >= 900, `gave up after ${Date.now() - start} ms`);
+  });
+});
+
+/** The id of a process that ran and ended. */
+function endedPid(): number {
+  return spawnSync(process.execPath, ['-e', '']).pid as number;
+}
+
+describe('isRunning', () => {
+  it('tells running processes, also ones it may not signal, from ended ones', () => {
+    // The system process on Windows and init on POSIX run, and only an administrator may signal them.
+    const system = process.platform === 'win32' ? 4 : 1;
+
+    assert.deepEqual([process.pid, system, endedPid()].map(isRunning), [true, true, false]);
+  });
+});
+
+describe('removeLeftDirs', () => {
+  it('removes the run and cache directories of runners whose processes ended, and leaves everything else', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'left-dirs-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const names = [
+      'stryker-node-test-111-a',
+      'stryker-node-test-cache-111-b',
+      'stryker-node-test-222-c',
+      'stryker-node-test-cache-222-d',
+      'stryker-node-test-e',
+      'other-111-f',
+      'other-stryker-node-test-111-g',
+    ];
+
+    for (const name of names) {
+      mkdirSync(join(dir, name));
+    }
+
+    const asked: number[] = [];
+    removeLeftDirs(dir, (pid) => {
+      asked.push(pid);
+
+      return pid === 222;
+    });
+
+    assert.deepEqual(readdirSync(dir).sort(), names.slice(2).sort());
+    assert.deepEqual(asked.sort(), [111, 111, 222, 222]);
+  });
+
+  it('leaves a directory it cannot remove yet and goes on with the others', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'left-dirs-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    mkdirSync(join(dir, 'stryker-node-test-111-a'));
+    mkdirSync(join(dir, 'stryker-node-test-111-b'));
+    const removed: string[] = [];
+
+    removeLeftDirs(
+      dir,
+      () => false,
+      (path) => {
+        removed.push(basename(path));
+        throw Object.assign(new Error('in use'), { code: 'EBUSY' });
+      },
+    );
+
+    assert.deepEqual(removed.sort(), ['stryker-node-test-111-a', 'stryker-node-test-111-b']);
   });
 });
 
@@ -1144,6 +1218,17 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('removes the directories that runners of ended processes left behind when it is initialized', async (t) => {
+    project(t, { 'a.test.mjs': PASSING });
+    const left = join(tmpdir(), `stryker-node-test-${endedPid()}-left`);
+    mkdirSync(join(left, 'out'), { recursive: true });
+    t.after(() => rmSync(left, { recursive: true, force: true }));
+
+    await initRunner(['a.test.mjs']);
+
+    assert.ok(!existsSync(left), `left behind: ${left}`);
+  });
+
   it('removes its output directory after a run', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
@@ -1161,6 +1246,7 @@ describe('NodeTestRunner', () => {
     assert.deepEqual({ exitCode, stderr, count: records.length }, { exitCode: 0, stderr: '', count: 1 });
     const outDir = readFileSync(join(dir, 'out-dir.txt'), 'utf8');
     assert.equal(dirname(dirname(outDir)), resolve(tmpdir()));
+    assert.ok(basename(dirname(outDir)).startsWith(`stryker-node-test-${process.pid}-`), outDir);
     assert.ok(!existsSync(dirname(outDir)));
   });
 

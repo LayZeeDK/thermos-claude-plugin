@@ -229,6 +229,36 @@ export async function removeDir(dir: string, remove = removeNow): Promise<void> 
   remove(dir);
 }
 
+/** Whether a process with this id runs; one that exists but may not be signalled runs too. */
+export function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+/**
+ * Removes the directories in `dir` that runners of processes that no longer run left behind. Stryker kills a worker
+ * whose run takes too long, and a killed worker cannot remove its run directory or its compile cache. A directory
+ * that cannot be removed yet is left for a later runner.
+ */
+export function removeLeftDirs(dir: string, running = isRunning, remove = removeNow): void {
+  for (const name of readdirSync(dir)) {
+    const pid = /^stryker-node-test-(?:cache-)?(\d+)-/.exec(name)?.[1];
+
+    if (pid !== undefined && !running(Number(pid))) {
+      try {
+        remove(join(dir, name));
+      } catch {
+        // A process that the killed worker started may still work in it.
+      }
+    }
+  }
+}
+
 export class NodeTestRunner implements TestRunner {
   static inject = tokens(commonTokens.options, commonTokens.logger);
 
@@ -265,8 +295,10 @@ export class NodeTestRunner implements TestRunner {
       throw new Error(`No test files match ${JSON.stringify(this.#patterns)}`);
     }
 
+    removeLeftDirs(tmpdir());
+
     if (process.env.NODE_COMPILE_CACHE === undefined) {
-        this.#cacheDir = mkdtempSync(join(tmpdir(), `stryker-node-test-cache-${process.pid}-`));
+      this.#cacheDir = mkdtempSync(join(tmpdir(), `stryker-node-test-cache-${process.pid}-`));
     }
   }
 
@@ -359,7 +391,7 @@ export class NodeTestRunner implements TestRunner {
    * inside the run's directory, so what they leave there is removed with it, however they exit.
    */
   async runFile(file: string, run: RunOptions): Promise<FileRun> {
-    const runDir = mkdtempSync(join(tmpdir(), 'stryker-node-test-'));
+    const runDir = mkdtempSync(join(tmpdir(), `stryker-node-test-${process.pid}-`));
     const outDir = join(runDir, 'out');
     const tmpDir = join(runDir, 'tmp');
 
