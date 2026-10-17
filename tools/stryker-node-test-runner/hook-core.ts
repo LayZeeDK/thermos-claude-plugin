@@ -1,5 +1,16 @@
 // The logic hook.ts installs into every process of a node:test run under Stryker. Its dependencies are
 // parameters, so tests can drive it in-process.
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+/** The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name. */
+export function testId(parent: string, name: string): string {
+  return `${parent} > ${name}`;
+}
+
+/** Whether `id` is the id of `scope` or of a suite or test inside it. */
+export function within(id: string, scope: string): boolean {
+  return id === scope || id.startsWith(`${scope} > `);
+}
 
 /** A test as the hook records it. */
 export interface RecordedTest {
@@ -241,8 +252,8 @@ export function recordEvents(
       return;
     }
 
-    const enclosing = Array.from({ length: data.nesting }, (_, level) => names.get(level));
-    const id = [testFile, ...enclosing, data.name].join(' > ');
+    const enclosing = Array.from({ length: data.nesting }, (_, level) => names.get(level) as string);
+    const id = [...enclosing, data.name].reduce(testId, testFile);
 
     const test: RecordedTest = { id, status: 'passed', timeSpentMs };
     const startPosition = positions.get(id);
@@ -288,7 +299,8 @@ export interface WrapOptions {
 /**
  * Returns a copy of the node:test module whose suite and test functions are wrapped so each test's id is known while
  * it runs, and so tests outside the filter, or after a failure when bailing, are skipped. Subtests that a test
- * registers with `t.test` are wrapped the same way. The test results come from node:test's reporter events.
+ * registers with `t.test` are wrapped the same way. The test results come from node:test's reporter events, so a
+ * suite's or test's id follows node:test's nesting.
  *
  * ponytail: supports synchronous suite bodies, and test bodies that return a value or a promise or that take
  * node:test's `done` callback. Bailing acts on the results node:test has reported,
@@ -297,7 +309,12 @@ export interface WrapOptions {
  */
 export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const { ns, testFile, tests, filter, bail, activeMutant, env, positions, callSites, nodeTest } = options;
-  const suites: string[] = [];
+  /**
+   * The id of the suite or test whose body runs. node:test makes the suite or test whose body runs, followed through
+   * asynchronous calls, the parent of the suites and tests registered with its module's functions.
+   */
+  const running = new AsyncLocalStorage<string>();
+  const parentId = () => running.getStore() ?? testFile;
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
   const setCurrent = (id: string | undefined) => {
     ns.currentTestId = id;
@@ -312,8 +329,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
    * Whether the filter selects the test, or a subtest of it, which the test must run to register. Stryker names a
    * whole test file in the filter when --testFiles limits the run.
    */
-  const selected = (id: string) =>
-    !filter || filter.has(testFile) || [...filter].some((test) => test === id || test.startsWith(`${id} > `));
+  const selected = (id: string) => !filter || filter.has(testFile) || [...filter].some((test) => within(test, id));
   /** Activates the runtime mutant, if any, for the rest of the process. */
   const activate = () => {
     // The environment variable makes the processes started from now on load with the mutant active.
@@ -354,41 +370,37 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const wrapSuite = (register: Registrar): Registrar =>
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
+      const id = testId(parentId(), name);
       const wrap = (suiteBody: Body) =>
         function (this: unknown, ...bodyArgs: unknown[]) {
-          suites.push(name);
-
-          try {
-            return suiteBody.apply(this, bodyArgs);
-          } finally {
-            suites.pop();
-          }
+          return running.run(id, () => suiteBody.apply(this, bodyArgs));
         };
 
       return register.call(this, name, { ...options, concurrency: false }, ...(body ? [wrap(body)] : []));
     };
 
-  /** Wraps a function that registers tests named after `scope()`: the file and the enclosing suites, or a test. */
-  const wrapTest = (register: Registrar, scope = () => [testFile, ...suites]): Registrar =>
+  /** Wraps a function that registers tests whose parent has the id `parent()`. */
+  const wrapTest = (register: Registrar, parent = parentId): Registrar =>
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
-      const id = [...scope(), name].join(' > ');
+      const id = testId(parent(), name);
       // node:test takes a test's position from its caller, which is this wrapper, so the wrapper finds it itself.
       const site = callSites().find(({ file }) => file === testFile);
 
       if (site) {
         positions.set(id, { line: site.line - 1, column: site.column - 1 });
       }
-      /** The test that registered this one as a subtest, which is current again once this one ends. */
-      let parent: string | undefined;
+      /** The test that was current when this one started, which is current again once this one ends. */
+      let previous: string | undefined;
 
       const enter = (context: TestContext) => {
-        parent = ns.currentTestId;
+        previous = ns.currentTestId;
         setCurrent(id);
-        context.test = wrapTest(context.test, () => [id]);
+        // `t.test` registers a subtest of `t`'s test, wherever it is called.
+        context.test = wrapTest(context.test, () => id);
         activate();
       };
-      const leave = () => setCurrent(parent);
+      const leave = () => setCurrent(previous);
       const wrap = (body: Body): Body => {
         // node:test passes a `done` callback only to a function that declares a second parameter.
         if (body.length >= 2) {
@@ -403,10 +415,12 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
             enter(context as TestContext);
 
             try {
-              body.call(this, context, (error?: unknown) => {
-                leave();
-                done(error);
-              });
+              running.run(id, () =>
+                body.call(this, context, (error?: unknown) => {
+                  leave();
+                  done(error);
+                }),
+              );
             } catch (error) {
               leave();
               throw error;
@@ -424,7 +438,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
           enter(args[0] as TestContext);
 
           try {
-            return await body.apply(this, args);
+            return await running.run(id, () => body.apply(this, args));
           } finally {
             leave();
           }
@@ -454,7 +468,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     test,
     // A `before` hook outside any suite runs as soon as it is registered, while the file loads, like the rest of the
     // file's top level; it runs before the mutant is active.
-    before: wrapHook(nodeTest.before, () => suites.length > 0),
+    before: wrapHook(nodeTest.before, () => running.getStore() !== undefined),
     beforeEach: wrapHook(nodeTest.beforeEach),
   });
 }

@@ -402,6 +402,37 @@ describe('wrapNodeTest', () => {
     assert.ok(!(ENV.current in env));
   });
 
+  it('names the suites and tests a running test registers with the module after it, as node:test nests them', async () => {
+    const { module, registrations, seen, see } = wrapped();
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+    module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+      module.it('inner', see);
+      module.describe('suite', () => {
+        module.it('in suite', see);
+      });
+      t.test('child', tick);
+      // node:test starts a subtest at once; its parent goes on while it waits.
+      const child = bodyOf(registrations, 'child')(testContext());
+      module.test('while a subtest runs', see);
+      await child;
+      await tick();
+      module.it('after an await', see);
+    });
+
+    await bodyOf(registrations, 'parent')(testContext(registrations));
+
+    for (const name of ['inner', 'in suite', 'while a subtest runs', 'after an await']) {
+      await bodyOf(registrations, name)(testContext());
+    }
+
+    assert.deepEqual(seen, [
+      `${TEST_FILE} > parent > inner`,
+      `${TEST_FILE} > parent > suite > in suite`,
+      `${TEST_FILE} > parent > while a subtest runs`,
+      `${TEST_FILE} > parent > after an await`,
+    ]);
+  });
+
   it('runs a test whose subtest the filter selects, and skips the subtests it does not select', async () => {
     const { module, registrations, seen, see } = wrapped([`${TEST_FILE} > parent > wanted`]);
     module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {

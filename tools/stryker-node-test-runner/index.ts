@@ -32,7 +32,7 @@ import {
   type TestRunnerCapabilities,
 } from '@stryker-mutator/api/test-runner';
 
-import { ENV, type ProcessRecord, type RecordedTest } from './hook-core.ts';
+import { ENV, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 
 /** Options under `nodeTest` in the Stryker configuration. */
 export interface NodeTestOptions {
@@ -132,7 +132,7 @@ export function filesFor(testFiles: string[], testFilter: string[] | undefined):
     return testFiles;
   }
 
-  return testFiles.filter((file) => testFilter.some((id) => id === file || id.startsWith(`${file} > `)));
+  return testFiles.filter((file) => testFilter.some((id) => within(id, file)));
 }
 
 /**

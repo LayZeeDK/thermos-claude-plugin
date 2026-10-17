@@ -863,6 +863,43 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('names the suites and tests a running test registers with it and describe after it, as node:test does', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('outer', async () => {",
+        "  it('inner', () => { cover('inner'); });",
+        "  describe('suite', () => { it('in suite', () => { cover('in suite'); }); });",
+        '  await new Promise((resolve) => setImmediate(resolve));',
+        "  it('after await', () => { cover('after await'); });",
+        '});',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+    const ids = ['outer > inner', 'outer > suite > in suite', 'outer > after await'].map((name) => `${a} > ${name}`);
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(
+      tests.map(({ id, startPosition }) => ({ id, line: startPosition?.line })),
+      [
+        { id: ids[0], line: 5 },
+        { id: ids[1], line: 6 },
+        { id: ids[2], line: 8 },
+        { id: `${a} > outer`, line: 4 },
+      ],
+    );
+    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
+      [ids[0] as string]: { inner: 1 },
+      [ids[1] as string]: { 'in suite': 1 },
+      [ids[2] as string]: { 'after await': 1 },
+    });
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[2] as string] }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 2,
+    });
+  });
+
   it('runs the tests of a suite or test asking for concurrency one at a time, for coverage of their own', async (t) => {
     const interleaved = (name: string) =>
       `async () => { cover('${name} 1'); await new Promise((resolve) => setImmediate(resolve)); cover('${name} 2'); }`;
