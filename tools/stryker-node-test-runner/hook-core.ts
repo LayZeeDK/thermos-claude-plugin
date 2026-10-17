@@ -3,7 +3,10 @@
 
 /** A test as the hook records it. */
 export interface RecordedTest {
-  /** The test file's absolute path, the enclosing suite names, and the test name, joined by ` > `. */
+  /**
+   * The test file's absolute path, the names of the enclosing suites and, for a subtest, tests, and the test's name,
+   * joined by ` > `.
+   */
   id: string;
   /** Skipped tests include todo tests, which run but whose outcome node:test ignores. */
   status: 'passed' | 'failed' | 'skipped';
@@ -271,8 +274,8 @@ export interface WrapOptions {
   /** Whether tests that start after a test of this process failed are skipped. */
   bail: boolean;
   /**
-   * The mutant to activate when the first test, or a `before` or `beforeEach` hook ahead of it, starts; it stays
-   * active for the rest of the process.
+   * The mutant to activate when the first test starts, or a `beforeEach` hook or a suite's `before` hook ahead of it;
+   * it stays active for the rest of the process.
    */
   activeMutant: string | undefined;
   env: Record<string, string | undefined>;
@@ -287,8 +290,8 @@ export interface WrapOptions {
  * it runs, and so tests outside the filter, or after a failure when bailing, are skipped. Subtests that a test
  * registers with `t.test` are wrapped the same way. The test results come from node:test's reporter events.
  *
- * ponytail: supports `(name, [options], fn)` calls with synchronous suite bodies, and test bodies that return a
- * value or a promise or that take node:test's `done` callback. Bailing acts on the results node:test has reported,
+ * ponytail: supports synchronous suite bodies, and test bodies that return a value or a promise or that take
+ * node:test's `done` callback. Bailing acts on the results node:test has reported,
  * and node:test reports the first tests of a file only once its reporters start, so a few quick tests can still run
  * after the first failure.
  */
@@ -334,32 +337,42 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     };
 
   /**
-   * The arguments after the name of a suite or test, with its body wrapped and its subtests made to run one at a time,
-   * as node:test does without `concurrency`: coverage goes to the one current test.
+   * A suite's or test's arguments as node:test reads them: an optional name, options and body. node:test names one
+   * without a non-empty name after its body, or `<anonymous>`; the wrapper passes the name on, as the body it passes
+   * is its own.
    */
-  const serial = (rest: unknown[], wrap: (body: Body) => Body) =>
-    rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : { ...(arg as object), concurrency: false }));
+  const parse = (args: unknown[]) => {
+    const body = args.find((arg) => typeof arg === 'function') as Body | undefined;
+    const options = args.find((arg) => typeof arg === 'object') as object | undefined;
+    const name = typeof args[0] === 'string' && args[0] !== '' ? args[0] : body?.name || '<anonymous>';
 
+    return { name, options, body };
+  };
+
+  // Every suite and test is registered with `concurrency: false`, so the tests inside it run one at a time, as
+  // node:test does without `concurrency`, and coverage goes to the one current test.
   const wrapSuite = (register: Registrar): Registrar =>
-    function (this: unknown, name: string, ...rest: unknown[]) {
-      const wrap = (body: Body) =>
-        function (this: unknown, ...args: unknown[]) {
-          suites.push(String(name));
+    function (this: unknown, ...args: unknown[]) {
+      const { name, options, body } = parse(args);
+      const wrap = (suiteBody: Body) =>
+        function (this: unknown, ...bodyArgs: unknown[]) {
+          suites.push(name);
 
           try {
-            return body.apply(this, args);
+            return suiteBody.apply(this, bodyArgs);
           } finally {
             suites.pop();
           }
         };
 
-      return register.call(this, name, ...serial(rest, wrap));
+      return register.call(this, name, { ...options, concurrency: false }, ...(body ? [wrap(body)] : []));
     };
 
   /** Wraps a function that registers tests named after `scope()`: the file and the enclosing suites, or a test. */
   const wrapTest = (register: Registrar, scope = () => [testFile, ...suites]): Registrar =>
-    function (this: unknown, name: string, ...rest: unknown[]) {
-      const id = [...scope(), String(name)].join(' > ');
+    function (this: unknown, ...args: unknown[]) {
+      const { name, options, body } = parse(args);
+      const id = [...scope(), name].join(' > ');
       // node:test takes a test's position from its caller, which is this wrapper, so the wrapper finds it itself.
       const site = callSites().find(({ file }) => file === testFile);
 
@@ -377,10 +390,6 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       };
       const leave = () => setCurrent(parent);
       const wrap = (body: Body): Body => {
-        if (!selected(id)) {
-          return (context) => (context as TestContext).skip();
-        }
-
         // node:test passes a `done` callback only to a function that declares a second parameter.
         if (body.length >= 2) {
           return function (this: unknown, context: unknown, done: (error?: unknown) => void) {
@@ -422,7 +431,10 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
         };
       };
 
-      return register.call(this, name, ...serial(rest, wrap));
+      // A test registered as skipped runs neither its body nor its beforeEach and afterEach hooks.
+      const skip = !selected(id) && { skip: true };
+
+      return register.call(this, name, { ...options, concurrency: false, ...skip }, ...(body ? [wrap(body)] : []));
     };
 
   // The bodies of skipped suites and tests never run, so `skip` needs no wrapper.

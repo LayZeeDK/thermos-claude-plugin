@@ -251,10 +251,43 @@ describe('wrapNodeTest', () => {
     assert.deepEqual(
       registrations.map(({ name, rest }) => ({ name, rest })),
       [
-        { name: 'empty suite', rest: [] },
+        { name: 'empty suite', rest: [{ concurrency: false }] },
         { name: 'empty test', rest: [{ timeout: 5, concurrency: false }] },
       ],
     );
+  });
+
+  it('names suites and tests without a name, or with options first, after their bodies, like node:test', async () => {
+    const { module, registrations, seen, see } = wrapped();
+    const call = (register: unknown, ...args: unknown[]) => (register as (...args: unknown[]) => unknown)(...args);
+    call(module.describe, '', () => {
+      call(module.it, () => see());
+    });
+    call(module.test, { timeout: 1 }, function optionsFirst() {
+      see();
+    });
+    call(module.it, function nameOnly() {
+      see();
+    });
+
+    for (const registration of registrations.filter(({ kind }) => kind !== 'describe')) {
+      await (registration.rest.find((arg) => typeof arg === 'function') as Fn)(testContext());
+    }
+
+    assert.deepEqual(
+      registrations.map(({ name, rest }) => [name, rest[0]]),
+      [
+        ['<anonymous>', { concurrency: false }],
+        ['<anonymous>', { concurrency: false }],
+        ['optionsFirst', { timeout: 1, concurrency: false }],
+        ['nameOnly', { concurrency: false }],
+      ],
+    );
+    assert.deepEqual(seen, [
+      `${TEST_FILE} > <anonymous> > <anonymous>`,
+      `${TEST_FILE} > optionsFirst`,
+      `${TEST_FILE} > nameOnly`,
+    ]);
   });
 
   it('keeps the other properties of the node:test module and functions', () => {
@@ -371,25 +404,25 @@ describe('wrapNodeTest', () => {
 
   it('runs a test whose subtest the filter selects, and skips the subtests it does not select', async () => {
     const { module, registrations, seen, see } = wrapped([`${TEST_FILE} > parent > wanted`]);
-    const skipped: Record<string, boolean> = {};
-    const run = async (name: string) => {
-      const context = testContext(registrations);
-      await bodyOf(registrations, name)(context);
-      skipped[name] = context.skipped;
-    };
     module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
       see();
       t.test('wanted', see);
       t.test('unwanted', see);
-      await run('wanted');
-      await run('unwanted');
+      await bodyOf(registrations, 'wanted')(testContext());
     });
     module.it('paren', see);
 
-    await run('parent');
-    await run('paren');
+    await bodyOf(registrations, 'parent')(testContext(registrations));
 
-    assert.deepEqual(skipped, { wanted: false, unwanted: true, parent: false, paren: true });
+    assert.deepEqual(
+      registrations.map(({ name, rest }) => [name, (rest[0] as { skip?: true }).skip]),
+      [
+        ['parent', undefined],
+        ['paren', true],
+        ['wanted', undefined],
+        ['unwanted', true],
+      ],
+    );
     assert.deepEqual(seen, [`${TEST_FILE} > parent`, `${TEST_FILE} > parent > wanted`]);
   });
 
@@ -617,30 +650,26 @@ describe('wrapNodeTest', () => {
     assert.ok(!(ENV.current in env));
   });
 
-  it('skips the tests outside the filter and runs the others', async () => {
+  it('registers the tests outside the filter as skipped, so node:test runs neither them nor their hooks', () => {
     const filter = [`${TEST_FILE} > group > wanted`, `${TEST_FILE} > elsewhere`];
-    const { module, registrations, ns, seen, see } = wrapped(filter);
+    const { module, registrations } = wrapped(filter);
     module.describe('group', () => {
-      module.it('wanted', see);
-      module.it('unwanted', see);
+      module.it('wanted', { skip: false }, () => {});
+      module.it('unwanted', { timeout: 5 }, () => {});
     });
-    module.test('other', see);
-    module.test('calls back', (_t: unknown, done: () => void) => {
-      see();
-      done();
-    });
-    const contexts = ['wanted', 'unwanted', 'other', 'calls back'].map((name) => {
-      const context = testContext();
-      void bodyOf(registrations, name)(context, () => {});
+    module.test('other', () => {});
+    module.test('calls back', (_t: unknown, done: () => void) => done());
 
-      return context.skipped;
-    });
-
-    await new Promise((resolve) => setImmediate(resolve));
-
-    assert.deepEqual(contexts, [false, true, true, true]);
-    assert.deepEqual(seen, [`${TEST_FILE} > group > wanted`]);
-    assert.equal(ns.currentTestId, undefined);
+    assert.deepEqual(
+      registrations.map(({ name, rest }) => [name, rest[0]]),
+      [
+        ['group', { concurrency: false }],
+        ['wanted', { skip: false, concurrency: false }],
+        ['unwanted', { timeout: 5, concurrency: false, skip: true }],
+        ['other', { concurrency: false, skip: true }],
+        ['calls back', { concurrency: false, skip: true }],
+      ],
+    );
   });
 
   it('runs every test of the file when the filter names the file itself', async () => {
@@ -1135,24 +1164,23 @@ describe('install', () => {
     assert.equal(deps.global.__stryker__?.activeMutant, '5');
   });
 
-  it('runs only the filtered tests', async () => {
+  it('runs only the filtered tests', () => {
     const { deps, fake, wrapped } = harness({
       [ENV.out]: OUT,
       [ENV.file]: TEST_FILE,
       [ENV.filter]: JSON.stringify([`${TEST_FILE} > wanted`]),
     });
-    const ran: string[] = [];
     install(deps);
-    wrapped().it('wanted', () => {
-      ran.push('wanted');
-    });
-    wrapped().it('unwanted', () => {
-      ran.push('unwanted');
-    });
-    await bodyOf(fake.registrations, 'wanted')(testContext());
-    await bodyOf(fake.registrations, 'unwanted')(testContext());
+    wrapped().it('wanted', () => {});
+    wrapped().it('unwanted', () => {});
 
-    assert.deepEqual(ran, ['wanted']);
+    assert.deepEqual(
+      fake.registrations.map(({ name, rest }) => [name, (rest[0] as { skip?: true }).skip]),
+      [
+        ['wanted', undefined],
+        ['unwanted', true],
+      ],
+    );
   });
 
   for (const bail of ['true', 'false', undefined]) {

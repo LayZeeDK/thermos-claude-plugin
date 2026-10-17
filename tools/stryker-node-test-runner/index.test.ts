@@ -922,6 +922,52 @@ describe('NodeTestRunner', () => {
     );
   });
 
+  it('gives tests without a name the ids node:test gives them, for results, coverage and the filter', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('', () => { cover('empty'); });",
+        "it({ timeout: 1000 }, function optionsFirst() { cover('options first'); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(
+      tests.map(({ id }) => id),
+      [`${a} > <anonymous>`, `${a} > optionsFirst`],
+    );
+    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
+      [`${a} > <anonymous>`]: { empty: 1 },
+      [`${a} > optionsFirst`]: { 'options first': 1 },
+    });
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > <anonymous>`] }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
+  });
+
+  it('runs neither the tests outside the filter nor their beforeEach and afterEach hooks', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { afterEach, beforeEach } from 'node:test';",
+        "const failFor = (name) => (t) => { if (t.name !== 'selected') throw new Error(name + ' ran for ' + t.name); };",
+        "beforeEach(failFor('beforeEach'));",
+        "afterEach(failFor('afterEach'));",
+        "it('selected', () => {});",
+        "it('unselected', () => {});",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const testFilter = [`${join(dir, 'a.test.mjs')} > selected`];
+
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
+  });
+
   it('names the tests inside only and todo suites after their suites', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture("describe.only('only suite', () => { it.only('runs', () => { cover('only'); }); });"),
