@@ -457,6 +457,10 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('can be disposed without being initialized', async () => {
+    await new NodeTestRunner({} as StrykerOptions, logger()).dispose();
+  });
+
   it('fails to initialize without test files', async (t) => {
     project(t, { 'a.test.mjs': PASSING });
     const options = { nodeTest: { testFiles: ['none/*.test.mjs'] } };
@@ -598,6 +602,51 @@ describe('NodeTestRunner', () => {
       assert.deepEqual(summary(tests), [{ id: join(dir, 'a.test.mjs'), status: TestStatus.Failed, failureMessage }]);
     });
   }
+
+  it('reports no tests for a test file that declares none', async (t) => {
+    project(t, { 'a.test.mjs': fixture("cover('s');") });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(tests, []);
+    assert.deepEqual(fixtureCoverage(mutantCoverage), { static: { s: 1 }, perTest: {} });
+  });
+
+  it('keeps the tests that ran before a test file exits with code 0 from inside a test', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('passes', () => {});",
+        "it('exits', () => { process.exit(0); });",
+        "it('never runs', () => {});",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(summary(tests), [
+      { id: `${join(dir, 'a.test.mjs')} > passes`, status: TestStatus.Success, failureMessage: undefined },
+    ]);
+  });
+
+  it('reports a test file whose process is killed as failed, losing the tests it ran', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('passes', () => {});",
+        "it('is killed', () => { process.kill(process.pid, 'SIGKILL'); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    // A signal leaves no exit code on POSIX; Windows terminates the process with exit code 1.
+    const exitCode = process.platform === 'win32' ? 1 : null;
+    assert.deepEqual(summary(tests), [
+      { id: join(dir, 'a.test.mjs'), status: TestStatus.Failed, failureMessage: `node exited with code ${exitCode}` },
+    ]);
+  });
 
   it('stops after the first file with a failure, and a mutant run after any failure, unless bail is off', async (t) => {
     const dir = project(t, {
