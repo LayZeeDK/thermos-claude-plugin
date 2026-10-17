@@ -1,10 +1,10 @@
 // Named to sort after the other test files: the runner runs test files in path order and stops at the first failing
 // file, so the quick tests kill a mutant they cover before these slow ones start.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { after, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 
 import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { DryRunStatus, MutantRunStatus, TestStatus, type DryRunOptions } from '@stryker-mutator/api/test-runner';
@@ -28,34 +28,12 @@ import {
   REPORTER_ARG,
   runNodeOptions,
   settle,
-  stalled,
+  shareCompileCache,
   summary,
 } from './index.fixtures.ts';
 import { fileError, NodeTestRunner } from './index.ts';
 
-// The runners under test and every process they start share this compile cache, so none of them creates its own.
-const COMPILE_CACHE = mkdtempSync(join(tmpdir(), 'node-test-runner-cache-'));
-process.env.NODE_COMPILE_CACHE = COMPILE_CACHE;
-
-// Removed on exit rather than in an `after` hook, and ahead of the hook's own exit listener, so a process that dies
-// early or whose hook fails on exit (both happen under mutation testing) leaves nothing. The runners the tests never
-// dispose (a mutant of the runner can give each one a directory) are swept here too.
-process.prependListener('exit', () => {
-  for (const dir of [COMPILE_CACHE, ...ownCacheDirs().map((name) => join(tmpdir(), name))]) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // A process a test started may still hold a file for a moment; the next run removes its own directory anyway.
-    }
-  }
-});
-
-after(() => {
-  if (stalled) {
-    // A stalled run can leave a blocked process behind that would keep this one alive.
-    process.exit(1);
-  }
-});
+const COMPILE_CACHE = shareCompileCache();
 
 describe('NodeTestRunner', () => {
   it('can reload the environment', () => {

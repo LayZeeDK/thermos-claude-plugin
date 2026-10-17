@@ -1,9 +1,9 @@
-// Test files, runners and results for runner.test.ts, and the constants index.test.ts shares with it.
+// Test files, runners and results for the runner test files, and the constants index.test.ts shares with them.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { TestContext } from 'node:test';
+import { after, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { INSTRUMENTER_CONSTANTS, type Mutant, type MutantCoverage, type StrykerOptions } from '@stryker-mutator/api/core';
@@ -183,6 +183,38 @@ export async function settle<T>(run: Promise<T>, ms = 5_000): Promise<T> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Makes the runners under test, and every process they start, share a compile cache, so none of them creates its own,
+ * and ends the test file once its tests end if a run stalled. Returns the cache directory. Call it at the top level of
+ * a test file that runs runners.
+ */
+export function shareCompileCache(): string {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'node-test-runner-cache-'));
+  process.env.NODE_COMPILE_CACHE = cacheDir;
+
+  // Removed on exit rather than in an `after` hook, and ahead of the hook's own exit listener, so a process that dies
+  // early or whose hook fails on exit (both happen under mutation testing) leaves nothing. The runners the tests never
+  // dispose (a mutant of the runner can give each one a directory) are swept here too.
+  process.prependListener('exit', () => {
+    for (const dir of [cacheDir, ...ownCacheDirs().map((name) => join(tmpdir(), name))]) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // A process a test started may still hold a file for a moment; the next run removes its own directory anyway.
+      }
+    }
+  });
+
+  after(() => {
+    if (stalled) {
+      // A stalled run can leave a blocked process behind that would keep this one alive.
+      process.exit(1);
+    }
+  });
+
+  return cacheDir;
 }
 
 export function summary(tests: TestResult[]) {
