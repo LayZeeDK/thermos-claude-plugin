@@ -42,9 +42,9 @@ const TEST_FILE = join('/repo', 'a.test.ts');
 /**
  * A stand-in for node:test that records registrations. Like node:test, it runs suite bodies, except those of skipped
  * suites, while they are registered (with a recognisable `this` and argument) and reports a suite body that throws
- * instead of throwing.
+ * instead of throwing. Its tests have `expectFailure` unless it stands in for Node.js 22.
  */
-function fakeNodeTest() {
+function fakeNodeTest(expectFailure = true) {
   const registrations: Registration[] = [];
   const suiteResults: unknown[] = [];
   const register = (kind: string) =>
@@ -62,18 +62,19 @@ function fakeNodeTest() {
 
       return `${kind} ${name}`;
     };
-  const withShorthands = (kind: string) =>
+  const withShorthands = (kind: string, tests = true) =>
     Object.assign(register(kind), {
       skip: register(`${kind}.skip`),
       todo: register(`${kind}.todo`),
       only: register(`${kind}.only`),
+      ...(tests && expectFailure && { expectFailure: register(`${kind}.expectFailure`) }),
       mock: `${kind}.mock`,
     });
   // Like node:test, the module is the `test` function, which carries the other functions.
   const test = withShorthands('test');
   const module: NodeTestModule = Object.assign(test, {
-    describe: withShorthands('describe'),
-    suite: withShorthands('suite'),
+    describe: withShorthands('describe', false),
+    suite: withShorthands('suite', false),
     it: withShorthands('it'),
     test,
     run: 'run',
@@ -82,12 +83,20 @@ function fakeNodeTest() {
   return { module, registrations, suiteResults };
 }
 
-/** A test context as node:test passes it to a test's body, which notes whether the test skipped itself. */
-function testContext() {
+/**
+ * A test context as node:test passes it to a test's body, which notes whether the test skipped itself, and whose
+ * `test` adds its subtests to `registrations` as `t.test`.
+ */
+function testContext(registrations: Registration[] = []) {
   const context = {
     skipped: false,
     skip: () => {
       context.skipped = true;
+    },
+    test: function (this: unknown, name: string, ...rest: unknown[]) {
+      registrations.push({ kind: 't.test', name, rest, self: this });
+
+      return `t.test ${name}`;
     },
   };
 
@@ -207,9 +216,10 @@ describe('wrapNodeTest', () => {
     assert.deepEqual(suiteCall, { self: 'suite this', args: ['suite argument'] });
     assert.equal(suiteResults[0], 'suite body result');
 
-    const result = await bodyOf(registrations, 'case').call('test this', 'test context', 'second argument');
+    const context = testContext();
+    const result = await bodyOf(registrations, 'case').call('test this', context, 'second argument');
 
-    assert.deepEqual(testCall, { self: 'test this', args: ['test context', 'second argument'] });
+    assert.deepEqual(testCall, { self: 'test this', args: [context, 'second argument'] });
     assert.equal(result, 'test body result');
   });
 
@@ -294,6 +304,99 @@ describe('wrapNodeTest', () => {
         'test.todo test.todo',
       ],
     );
+  });
+
+  it('names subtests after the test that registers them, which is current again once they end', async () => {
+    const { module, registrations, ns, env, seen, see } = wrapped();
+    const context = testContext(registrations);
+    const childContext = testContext(registrations);
+    module.describe('suite', () => {
+      module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+        see();
+        assert.equal(t.test('child', see), 't.test child');
+        await bodyOf(registrations, 'child')(childContext);
+        see();
+      });
+    });
+    module.test('calls back', (t: { test: (name: string, body: Fn) => unknown }, done: () => void) => {
+      t.test('callback child', see);
+      done();
+    });
+
+    await bodyOf(registrations, 'parent')(context);
+    childContext.test('grandchild', see);
+    await bodyOf(registrations, 'grandchild')(testContext());
+    const callbackContext = testContext(registrations);
+    rawBodyOf(registrations, 'calls back')(callbackContext, () => {});
+    await bodyOf(registrations, 'callback child')(testContext());
+
+    assert.deepEqual(seen, [
+      `${TEST_FILE} > suite > parent`,
+      `${TEST_FILE} > suite > parent > child`,
+      `${TEST_FILE} > suite > parent`,
+      `${TEST_FILE} > suite > parent > child > grandchild`,
+      `${TEST_FILE} > calls back > callback child`,
+    ]);
+    assert.deepEqual(
+      registrations.filter(({ kind }) => kind === 't.test').map(({ name, self }) => [name, self]),
+      [
+        ['child', context],
+        ['grandchild', childContext],
+        ['callback child', callbackContext],
+      ],
+    );
+    assert.equal(ns.currentTestId, undefined);
+    assert.ok(!(ENV.current in env));
+  });
+
+  it('runs a test whose subtest the filter selects, and skips the subtests it does not select', async () => {
+    const { module, registrations, seen, see } = wrapped([`${TEST_FILE} > parent > wanted`]);
+    const skipped: Record<string, boolean> = {};
+    const run = async (name: string) => {
+      const context = testContext(registrations);
+      await bodyOf(registrations, name)(context);
+      skipped[name] = context.skipped;
+    };
+    module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+      see();
+      t.test('wanted', see);
+      t.test('unwanted', see);
+      await run('wanted');
+      await run('unwanted');
+    });
+    module.it('paren', see);
+
+    await run('parent');
+    await run('paren');
+
+    assert.deepEqual(skipped, { wanted: false, unwanted: true, parent: false, paren: true });
+    assert.deepEqual(seen, [`${TEST_FILE} > parent`, `${TEST_FILE} > parent > wanted`]);
+  });
+
+  it('wraps expectFailure on Node.js 24, where tests have it', async () => {
+    const { module, registrations, seen, see } = wrapped();
+    module.it.expectFailure?.('it.expectFailure', see);
+    module.test.expectFailure?.('test.expectFailure', see);
+
+    for (const name of ['it.expectFailure', 'test.expectFailure']) {
+      await bodyOf(registrations, name)(testContext());
+    }
+
+    assert.deepEqual(seen, [`${TEST_FILE} > it.expectFailure`, `${TEST_FILE} > test.expectFailure`]);
+    assert.equal(module.describe.expectFailure, undefined);
+
+    const node22 = wrapNodeTest({
+      ns: {},
+      testFile: TEST_FILE,
+      tests: [],
+      filter: undefined,
+      bail: false,
+      activeMutant: undefined,
+      env: {},
+      nodeTest: fakeNodeTest(false).module,
+    });
+
+    assert.deepEqual([node22.it.expectFailure, node22.expectFailure], [undefined, undefined]);
   });
 
   it('rethrows what a test body throws or rejects with', async () => {
@@ -434,7 +537,8 @@ describe('wrapNodeTest', () => {
   });
 
   it('skips the tests outside the filter and runs the others', async () => {
-    const { module, registrations, ns, seen, see } = wrapped([`${TEST_FILE} > group > wanted`]);
+    const filter = [`${TEST_FILE} > group > wanted`, `${TEST_FILE} > elsewhere`];
+    const { module, registrations, ns, seen, see } = wrapped(filter);
     module.describe('group', () => {
       module.it('wanted', see);
       module.it('unwanted', see);

@@ -753,6 +753,44 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('reports subtests and expectFailure tests with ids and coverage of their own, and filters subtests', async (t) => {
+    // Node.js 22 has no expectFailure.
+    const expectFailure = typeof (it as { expectFailure?: unknown }).expectFailure === 'function';
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('parent', async (t) => {",
+        "  cover('parent');",
+        "  await t.test('child', () => { cover('child'); });",
+        "  await t.test('failing child', () => { throw new Error('child failure'); });",
+        "  cover('parent again');",
+        '});',
+        "it.expectFailure?.('expects a failure', () => { cover('expected'); throw new Error('expected'); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(summary(tests), [
+      { id: `${a} > parent > child`, status: TestStatus.Success, failureMessage: undefined },
+      { id: `${a} > parent > failing child`, status: TestStatus.Failed, failureMessage: 'child failure' },
+      { id: `${a} > parent`, status: TestStatus.Failed, failureMessage: '1 subtest failed' },
+      ...(expectFailure
+        ? [{ id: `${a} > expects a failure`, status: TestStatus.Success, failureMessage: undefined }]
+        : []),
+    ]);
+    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
+      [`${a} > parent`]: { parent: 1, 'parent again': 1 },
+      [`${a} > parent > child`]: { child: 1 },
+      ...(expectFailure && { [`${a} > expects a failure`]: { expected: 1 } }),
+    });
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > parent > child`] }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 2,
+    });
+  });
+
   it('names the tests inside only and todo suites after their suites', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture("describe.only('only suite', () => { it.only('runs', () => { cover('only'); }); });"),

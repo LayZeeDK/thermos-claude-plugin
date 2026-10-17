@@ -37,11 +37,16 @@ export interface StrykerNamespace {
 
 type Body = (this: unknown, ...args: unknown[]) => unknown;
 type Registrar = (this: unknown, name: string, ...rest: unknown[]) => unknown;
-/** A node:test function with its shorthands, which do not call the function itself. */
-type Register = Registrar & { skip: Registrar; todo: Registrar; only: Registrar };
+/**
+ * A node:test function with its shorthands, which do not call the function itself. Tests have `expectFailure` from
+ * Node.js 24.
+ */
+type Register = Registrar & { skip: Registrar; todo: Registrar; only: Registrar; expectFailure?: Registrar };
 /** The part of the context node:test passes to a test's body that the hook uses. */
 interface TestContext {
   skip(): void;
+  /** Registers a subtest. */
+  test: Registrar;
 }
 
 /** The part of a node:test reporter event that the hook reads. */
@@ -227,19 +232,33 @@ export interface WrapOptions {
 
 /**
  * Returns a copy of the node:test module whose suite and test functions are wrapped so each test's id is known while
- * it runs, and so tests outside the filter, or after a failure when bailing, are skipped. The test results come from
- * node:test's reporter events.
+ * it runs, and so tests outside the filter, or after a failure when bailing, are skipped. Subtests that a test
+ * registers with `t.test` are wrapped the same way. The test results come from node:test's reporter events.
  *
  * ponytail: supports `(name, [options], fn)` calls with synchronous suite bodies, and test bodies that return a
- * value or a promise or that take node:test's `done` callback. `t.test` subtests are not attributed; add them when a
- * test needs them.
- * Bailing acts on the results node:test has reported, and node:test reports the first tests of a file only once its
- * reporters start, so a few quick tests can still run after the first failure.
+ * value or a promise or that take node:test's `done` callback. Bailing acts on the results node:test has reported,
+ * and node:test reports the first tests of a file only once its reporters start, so a few quick tests can still run
+ * after the first failure.
  */
 export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const { ns, testFile, tests, filter, bail, activeMutant, env, nodeTest } = options;
   const suites: string[] = [];
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
+  const setCurrent = (id: string | undefined) => {
+    ns.currentTestId = id;
+
+    if (id === undefined) {
+      delete env[ENV.current];
+    } else {
+      env[ENV.current] = id;
+    }
+  };
+  /**
+   * Whether the filter selects the test, or a subtest of it, which the test must run to register. Stryker names a
+   * whole test file in the filter when --testFiles limits the run.
+   */
+  const selected = (id: string) =>
+    !filter || filter.has(testFile) || [...filter].some((test) => test === id || test.startsWith(`${id} > `));
 
   const wrapSuite = (register: Registrar): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
@@ -257,13 +276,17 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
     };
 
-  const wrapTest = (register: Registrar): Registrar =>
+  /** Wraps a function that registers tests named after `scope()`: the file and the enclosing suites, or a test. */
+  const wrapTest = (register: Registrar, scope = () => [testFile, ...suites]): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
-      const id = [testFile, ...suites, String(name)].join(' > ');
+      const id = [...scope(), String(name)].join(' > ');
+      /** The test that registered this one as a subtest, which is current again once this one ends. */
+      let parent: string | undefined;
 
-      const enter = () => {
-        ns.currentTestId = id;
-        env[ENV.current] = id;
+      const enter = (context: TestContext) => {
+        parent = ns.currentTestId;
+        setCurrent(id);
+        context.test = wrapTest(context.test, () => [id]);
 
         // The environment variable makes the processes the test starts load with the mutant active.
         if (activeMutant !== undefined) {
@@ -271,13 +294,9 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
           env[ACTIVE_MUTANT_ENV] = activeMutant;
         }
       };
-      const leave = () => {
-        ns.currentTestId = undefined;
-        delete env[ENV.current];
-      };
+      const leave = () => setCurrent(parent);
       const wrap = (body: Body): Body => {
-        // Stryker names a whole test file in the filter when --testFiles limits the run.
-        if (filter && !filter.has(id) && !filter.has(testFile)) {
+        if (!selected(id)) {
           return (context) => (context as TestContext).skip();
         }
 
@@ -291,7 +310,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
               return;
             }
 
-            enter();
+            enter(context as TestContext);
 
             try {
               body.call(this, context, (error?: unknown) => {
@@ -312,7 +331,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
             return;
           }
 
-          enter();
+          enter(args[0] as TestContext);
 
           try {
             return await body.apply(this, args);
@@ -327,7 +346,11 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
 
   // The bodies of skipped suites and tests never run, so `skip` needs no wrapper.
   const withShorthands = (original: Register, wrap: (register: Registrar) => Registrar): Register =>
-    Object.assign(wrap(original), original, { todo: wrap(original.todo), only: wrap(original.only) });
+    Object.assign(wrap(original), original, {
+      todo: wrap(original.todo),
+      only: wrap(original.only),
+      ...(original.expectFailure && { expectFailure: wrap(original.expectFailure) }),
+    });
   // The module is node:test's `test` function, which also carries the other functions.
   const test = withShorthands(nodeTest, wrapTest);
 
