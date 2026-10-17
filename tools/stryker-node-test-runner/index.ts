@@ -3,7 +3,7 @@
 // it, and with reporter.ts as node:test's reporter, which gives the hook the results. Results and coverage are per
 // test, and a mutant run executes only the tests that cover the mutant.
 import { spawn } from 'node:child_process';
-import { globSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -268,19 +268,35 @@ export function isRunning(pid: number): boolean {
 }
 
 /**
- * Removes the directories in `dir` that runners of processes that no longer run left behind. Stryker kills a worker
- * whose run takes too long, and a killed worker cannot remove its run directory or its compile cache. A directory
- * that cannot be removed yet is left for a later runner.
+ * Whether this user owns the file or directory itself, not what a link points to. Windows has no user ids, so there
+ * every one counts as owned.
  */
-export function removeLeftDirs(dir: string, running = isRunning, remove = removeNow): void {
+export function isOwn(
+  path: string,
+  user: { getuid?: () => number } = process,
+  stat: (path: string) => { uid: number } = lstatSync,
+): boolean {
+  return user.getuid === undefined || stat(path).uid === user.getuid();
+}
+
+/**
+ * Removes the directories in `dir` that runners of this user's processes that no longer run left behind; a shared
+ * temporary directory holds other users' directories too. Stryker kills a worker whose run takes too long, and a
+ * killed worker cannot remove its run directory or its compile cache. A directory that cannot be removed yet is left
+ * for a later runner.
+ */
+export function removeLeftDirs(dir: string, { running = isRunning, owned = isOwn, remove = removeNow } = {}): void {
   for (const name of readdirSync(dir)) {
     const pid = /^stryker-node-test-(?:cache-)?(\d+)-/.exec(name)?.[1];
+    const path = join(dir, name);
 
     if (pid !== undefined && !running(Number(pid))) {
       try {
-        remove(join(dir, name));
+        if (owned(path)) {
+          remove(path);
+        }
       } catch {
-        // A process that the killed worker started may still work in it.
+        // A process that the killed worker started may still work in it, or another runner removed it first.
       }
     }
   }

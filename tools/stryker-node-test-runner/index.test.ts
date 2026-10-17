@@ -32,6 +32,7 @@ import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
 import {
   fileError,
   filesFor,
+  isOwn,
   isRunning,
   mergeCoverage,
   NodeTestRunner,
@@ -239,33 +240,93 @@ describe('removeLeftDirs', () => {
     }
 
     const asked: number[] = [];
-    removeLeftDirs(dir, (pid) => {
-      asked.push(pid);
+    removeLeftDirs(dir, {
+      running: (pid) => {
+        asked.push(pid);
 
-      return pid === 222;
+        return pid === 222;
+      },
     });
 
     assert.deepEqual(readdirSync(dir).sort(), names.slice(2).sort());
     assert.deepEqual(asked.sort(), [111, 111, 222, 222]);
   });
 
-  it('leaves a directory it cannot remove yet and goes on with the others', (t) => {
+  it("leaves the directories of other users' runners", (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'left-dirs-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
-    mkdirSync(join(dir, 'stryker-node-test-111-a'));
-    mkdirSync(join(dir, 'stryker-node-test-111-b'));
+    const names = ['stryker-node-test-111-mine', 'stryker-node-test-111-theirs', 'stryker-node-test-222-running'];
+
+    for (const name of names) {
+      mkdirSync(join(dir, name));
+    }
+
+    const asked: string[] = [];
+    removeLeftDirs(dir, {
+      running: (pid) => pid === 222,
+      owned: (path) => {
+        asked.push(path);
+
+        return path.endsWith('mine');
+      },
+    });
+
+    assert.deepEqual(readdirSync(dir).sort(), names.slice(1));
+    assert.deepEqual(asked.sort(), [join(dir, names[0] as string), join(dir, names[1] as string)]);
+  });
+
+  it('leaves a directory it cannot check or remove yet and goes on with the others', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'left-dirs-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const names = ['stryker-node-test-111-a', 'stryker-node-test-111-b', 'stryker-node-test-111-c'];
+
+    for (const name of names) {
+      mkdirSync(join(dir, name));
+    }
+
     const removed: string[] = [];
 
-    removeLeftDirs(
-      dir,
-      () => false,
-      (path) => {
+    removeLeftDirs(dir, {
+      running: () => false,
+      owned: (path) => {
+        if (path.endsWith('a')) {
+          throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+        }
+
+        return true;
+      },
+      remove: (path) => {
         removed.push(basename(path));
         throw Object.assign(new Error('in use'), { code: 'EBUSY' });
       },
-    );
+    });
 
-    assert.deepEqual(removed.sort(), ['stryker-node-test-111-a', 'stryker-node-test-111-b']);
+    assert.deepEqual(removed.sort(), names.slice(1));
+  });
+});
+
+describe('isOwn', () => {
+  it("compares the user id of the file itself with this process's", () => {
+    const stated: string[] = [];
+    const stat = (path: string) => {
+      stated.push(path);
+
+      return { uid: 7 };
+    };
+
+    assert.deepEqual([isOwn('a', { getuid: () => 7 }, stat), isOwn('b', { getuid: () => 8 }, stat)], [true, false]);
+    assert.deepEqual(stated, ['a', 'b']);
+  });
+
+  it('counts every file as owned where there are no user ids, as on Windows', () => {
+    assert.equal(isOwn('a', {}, () => assert.fail('looked up the owner')), true);
+  });
+
+  it('counts a directory this process created as owned', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'own-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+    assert.equal(isOwn(dir), true);
   });
 });
 
