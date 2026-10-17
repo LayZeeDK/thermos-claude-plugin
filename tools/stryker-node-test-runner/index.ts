@@ -1,6 +1,7 @@
 // A Stryker test runner for node:test. Each test file runs in its own `node` process with hook.ts loaded through
 // NODE_OPTIONS, so every process the tests spawn reports mutant coverage too, attributed to the test that spawned
-// it. Results and coverage are per test, and a mutant run executes only the tests that cover the mutant.
+// it, and with reporter.ts as node:test's reporter, which gives the hook the results. Results and coverage are per
+// test, and a mutant run executes only the tests that cover the mutant.
 import { spawn } from 'node:child_process';
 import { globSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,7 @@ export interface FileRun {
 }
 
 const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
+const REPORTER_URL = pathToFileURL(resolve(import.meta.dirname, 'reporter.ts')).href;
 
 /**
  * Merges the mutant coverage of several processes by adding up the hit counts. Without `perTest`, the hits inside
@@ -348,7 +350,7 @@ export class NodeTestRunner implements TestRunner {
       mkdirSync(outDir);
       mkdirSync(tmpDir);
       const env = runEnv(process.env, file, outDir, tmpDir, run, this.#cacheDir);
-      const args = [...this.#nodeArgs, file];
+      const args = [`--test-reporter=${REPORTER_URL}`, ...this.#nodeArgs, file];
 
       if (this.#log.isDebugEnabled()) {
         this.#log.debug(`Running: \`node ${args.map((arg) => `"${arg}"`).join(' ')}\` in ${process.cwd()}`);

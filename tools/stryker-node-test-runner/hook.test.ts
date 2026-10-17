@@ -6,9 +6,11 @@ import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { ENV, installed, type HookDependencies, type ProcessRecord } from './hook-core.ts';
+import { ENV, installed, reporting, type HookDependencies, type ProcessRecord, type TestEvent } from './hook-core.ts';
+import reporter from './reporter.ts';
 
 const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
+const REPORTER_URL = pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href;
 
 // Loaded here, outside any test, the hook stays inactive (the runner did not start this process, or its own hook is
 // installed), and Stryker counts the hook's mutants as covered by every test, including those that run it in a child.
@@ -70,18 +72,19 @@ function tempDir(t: TestContext): string {
 }
 
 /**
- * Runs `node --import hook.ts ...args` as the runner would, with only the hook's own variables set. It keeps
+ * Runs `node --import hook.ts --test-reporter=reporter.ts ...args` as the runner would, with only the hook's own
+ * variables set. It keeps
  * Stryker's active mutant, so a mutant in hook.ts reaches the process that loads it.
  */
 function runWithHook(args: string[], env: Record<string, string>): Promise<{ code: number | null; pid: number }> {
   const base = { ...process.env };
 
-  for (const key of ['NODE_OPTIONS', ...Object.values(ENV)]) {
+  for (const key of ['NODE_OPTIONS', 'NODE_TEST_CONTEXT', ...Object.values(ENV)]) {
     delete base[key];
   }
 
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, ['--import', HOOK_URL, ...args], {
+    const child = spawn(process.execPath, ['--import', HOOK_URL, `--test-reporter=${REPORTER_URL}`, ...args], {
       env: { ...base, ...env },
       stdio: 'ignore',
     });
@@ -149,6 +152,46 @@ describe('hook', () => {
     assert.equal(record.mutantCoverage?.perTest[id]?.['fixture-1'], 1);
   });
 
+  it('records the results node:test reports, also of hooks, runtime skips and todo tests', async (t) => {
+    const dir = tempDir(t);
+    const outDir = join(dir, 'out');
+    mkdirSync(outDir);
+    const testFile = join(dir, 'fixture.test.mjs');
+    writeFileSync(
+      testFile,
+      [
+        "import { afterEach, describe, it } from 'node:test';",
+        "describe('suite', () => {",
+        "  afterEach(() => { throw new Error('afterEach failure'); });",
+        "  it('passes, then its hook fails', () => {});",
+        '});',
+        "it('skips itself', (t) => { t.skip(); });",
+        "it('is todo', (t) => { t.todo(); throw new Error('not done'); });",
+        '',
+      ].join('\n'),
+    );
+
+    const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
+
+    assert.equal(code, 1);
+    assert.deepEqual(
+      readRecords(outDir)[`${pid}.json`]?.tests.map(({ id, status, failureMessage }) => ({
+        id,
+        status,
+        failureMessage,
+      })),
+      [
+        {
+          id: `${testFile} > suite > passes, then its hook fails`,
+          status: 'failed',
+          failureMessage: 'afterEach failure',
+        },
+        { id: `${testFile} > skips itself`, status: 'skipped', failureMessage: undefined },
+        { id: `${testFile} > is todo`, status: 'skipped', failureMessage: undefined },
+      ],
+    );
+  });
+
   it('records a process without a main file, such as node -e', async (t) => {
     const outDir = tempDir(t);
 
@@ -159,5 +202,29 @@ describe('hook', () => {
 
     assert.equal(code, 0);
     assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
+  });
+});
+
+describe('reporter', () => {
+  it('passes each event to the hook of the test file, and ignores the events of other processes', () => {
+    const global = globalThis as HookDependencies['global'];
+    const previous = global[reporting];
+    const events: TestEvent[] = [];
+    const errors: unknown[] = [];
+    const event = (name: string): TestEvent => ({ type: 'test:start', data: { name, nesting: 0 } });
+    reporter.on('error', (error) => errors.push(error));
+
+    try {
+      global[reporting] = (received) => events.push(received);
+      reporter.write(event('first'));
+      reporter.write(event('second'));
+      delete global[reporting];
+      reporter.write(event('elsewhere'));
+    } finally {
+      global[reporting] = previous;
+    }
+
+    assert.deepEqual(events, [event('first'), event('second')]);
+    assert.deepEqual(errors, []);
   });
 });

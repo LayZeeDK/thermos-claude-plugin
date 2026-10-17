@@ -7,12 +7,15 @@ import {
   ENV,
   install,
   installed,
+  recordEvents,
+  reporting,
   wrapNodeTest,
   type HookDependencies,
   type NodeTestModule,
   type ProcessRecord,
   type RecordedTest,
   type StrykerNamespace,
+  type TestEvent,
 } from './hook-core.ts';
 
 type Fn = (this: unknown, ...args: unknown[]) => unknown;
@@ -73,27 +76,43 @@ function fakeNodeTest() {
   return { module, registrations, suiteResults };
 }
 
-/** Returns the body the wrapper registered for the test with this name. */
-function bodyOf(registrations: Registration[], name: string): (this: unknown, ...args: unknown[]) => Promise<unknown> {
+/** A test context as node:test passes it to a test's body, which notes whether the test skipped itself. */
+function testContext() {
+  const context = {
+    skipped: false,
+    skip: () => {
+      context.skipped = true;
+    },
+  };
+
+  return context;
+}
+
+/** The body the wrapper registered for the test with this name. */
+function rawBodyOf(registrations: Registration[], name: string): Fn {
   const registration = registrations.find((candidate) => candidate.name === name);
   assert.ok(registration, `${name} was not registered`);
-  const body = registration.rest.find((arg) => typeof arg === 'function') as Fn;
+
+  return registration.rest.find((arg) => typeof arg === 'function') as Fn;
+}
+
+/** Returns the body the wrapper registered for the test with this name, as a function that returns a promise. */
+function bodyOf(registrations: Registration[], name: string): (this: unknown, ...args: unknown[]) => Promise<unknown> {
+  const body = rawBodyOf(registrations, name);
 
   return async function (this: unknown, ...args: unknown[]) {
     return body.apply(this, args);
   };
 }
 
-/**
- * Wraps a fake node:test with the given filter, bail setting and mutant to activate at runtime, and a clock that
- * advances 5 ms per reading.
- */
+/** Wraps a fake node:test with the given filter, bail setting and mutant to activate at runtime. */
 function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   const fake = fakeNodeTest();
   const ns: StrykerNamespace = {};
   const env: Record<string, string | undefined> = {};
   const tests: RecordedTest[] = [];
-  let clock = 100;
+  /** The current test id each test body saw, by calling `see`. */
+  const seen: (string | undefined)[] = [];
   wrapNodeTest({
     ns,
     testFile: TEST_FILE,
@@ -102,57 +121,50 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
     bail,
     activeMutant,
     env,
-    now: () => (clock += 5),
     nodeTest: fake.module,
   });
 
-  return { ...fake, ns, env, tests };
+  return { ...fake, ns, env, tests, seen, see: () => seen.push(ns.currentTestId) };
 }
 
 describe('wrapNodeTest', () => {
   it('names tests after the file, the enclosing suites, and the test, for every node:test function', async () => {
-    const { module, tests, registrations } = wrapped();
+    const { module, registrations, seen, see } = wrapped();
     module.describe('outer', () => {
       module.suite('inner', () => {
-        module.it('first', () => {});
+        module.it('first', see);
       });
-      module.test('second', () => {});
+      module.test('second', see);
     });
     module.suite('sibling', () => {
-      module.it('third', () => {});
+      module.it('third', see);
     });
-    module.test('top', () => {});
+    module.test('top', see);
 
     for (const name of ['first', 'second', 'third', 'top']) {
-      await bodyOf(registrations, name)();
+      await bodyOf(registrations, name)(testContext());
     }
 
-    assert.deepEqual(
-      tests.map((test) => test.id),
-      [
-        `${TEST_FILE} > outer > inner > first`,
-        `${TEST_FILE} > outer > second`,
-        `${TEST_FILE} > sibling > third`,
-        `${TEST_FILE} > top`,
-      ],
-    );
+    assert.deepEqual(seen, [
+      `${TEST_FILE} > outer > inner > first`,
+      `${TEST_FILE} > outer > second`,
+      `${TEST_FILE} > sibling > third`,
+      `${TEST_FILE} > top`,
+    ]);
   });
 
   it('leaves the suite after a suite body throws', async () => {
-    const { module, tests, registrations, suiteResults } = wrapped();
+    const { module, registrations, suiteResults, seen, see } = wrapped();
     const failure = new Error('broken suite');
     module.describe('broken', () => {
       throw failure;
     });
-    module.it('after', () => {});
+    module.it('after', see);
 
-    await bodyOf(registrations, 'after')();
+    await bodyOf(registrations, 'after')(testContext());
 
     assert.equal(suiteResults[0], failure);
-    assert.deepEqual(
-      tests.map((test) => test.id),
-      [`${TEST_FILE} > after`],
-    );
+    assert.deepEqual(seen, [`${TEST_FILE} > after`]);
   });
 
   it('passes the name, options, receiver and return values through to node:test', async () => {
@@ -189,14 +201,14 @@ describe('wrapNodeTest', () => {
     assert.deepEqual(suiteCall, { self: 'suite this', args: ['suite argument'] });
     assert.equal(suiteResults[0], 'suite body result');
 
-    const result = await bodyOf(registrations, 'case').call('test context', 'done');
+    const result = await bodyOf(registrations, 'case').call('test this', 'test context', 'second argument');
 
-    assert.deepEqual(testCall, { self: 'test context', args: ['done'] });
+    assert.deepEqual(testCall, { self: 'test this', args: ['test context', 'second argument'] });
     assert.equal(result, 'test body result');
   });
 
   it('registers tests and suites without a body unchanged', () => {
-    const { module, registrations, tests } = wrapped();
+    const { module, registrations } = wrapped();
     module.describe('empty suite');
     module.it('empty test', { timeout: 5 });
 
@@ -207,7 +219,6 @@ describe('wrapNodeTest', () => {
         { name: 'empty test', rest: [{ timeout: 5 }] },
       ],
     );
-    assert.deepEqual(tests, []);
   });
 
   it('keeps the other properties of the node:test functions', () => {
@@ -218,38 +229,33 @@ describe('wrapNodeTest', () => {
     }
   });
 
-  it('names tests inside only and todo suites after their suites, also tests registered through only', async () => {
-    const { module, registrations, tests } = wrapped();
+  it('names the tests of only and todo suites and shorthands after their suites', async () => {
+    const { module, registrations, seen, see } = wrapped();
     module.describe.only('describe.only', () => {
-      module.it('first', () => {});
-      module.it.only('it.only', () => {});
+      module.it('first', see);
+      module.it.only('it.only', see);
     });
     module.suite.only('suite.only', () => {
-      module.test.only('test.only', () => {});
+      module.test.only('test.only', see);
     });
     module.describe.todo('describe.todo', () => {
-      module.it('fails', () => {
-        throw new Error('not done yet');
-      });
+      module.it.todo('it.todo', see);
     });
     module.suite.todo('suite.todo', () => {
-      module.test('second', () => {});
+      module.test.todo('test.todo', see);
     });
 
-    for (const name of ['first', 'it.only', 'test.only', 'fails', 'second']) {
-      await bodyOf(registrations, name)().catch(() => {});
+    for (const name of ['first', 'it.only', 'test.only', 'it.todo', 'test.todo']) {
+      await bodyOf(registrations, name)(testContext());
     }
 
-    assert.deepEqual(
-      tests.map(({ id, status }) => ({ id, status })),
-      [
-        { id: `${TEST_FILE} > describe.only > first`, status: 'passed' },
-        { id: `${TEST_FILE} > describe.only > it.only`, status: 'passed' },
-        { id: `${TEST_FILE} > suite.only > test.only`, status: 'passed' },
-        { id: `${TEST_FILE} > describe.todo > fails`, status: 'skipped' },
-        { id: `${TEST_FILE} > suite.todo > second`, status: 'skipped' },
-      ],
-    );
+    assert.deepEqual(seen, [
+      `${TEST_FILE} > describe.only > first`,
+      `${TEST_FILE} > describe.only > it.only`,
+      `${TEST_FILE} > suite.only > test.only`,
+      `${TEST_FILE} > describe.todo > it.todo`,
+      `${TEST_FILE} > suite.todo > test.todo`,
+    ]);
     assert.deepEqual(
       registrations.map(({ kind, name }) => `${kind} ${name}`),
       [
@@ -259,156 +265,35 @@ describe('wrapNodeTest', () => {
         'suite.only suite.only',
         'test.only test.only',
         'describe.todo describe.todo',
-        'it fails',
+        'it.todo it.todo',
         'suite.todo suite.todo',
-        'test second',
+        'test.todo test.todo',
       ],
     );
   });
 
-  it('records a skipped test as skipped when it is registered, and never runs it', () => {
-    const { module, registrations, tests } = wrapped();
-    const run = () => assert.fail('ran a skipped test');
-    module.describe('suite', () => {
-      module.it('option', { skip: true }, run);
-    });
-    module.test('reason', { skip: 'not on this platform' }, run);
-    module.it('skipped todo', { skip: true, todo: true }, run);
-    module.it.skip('it.skip', run);
-    module.test.skip('test.skip', run);
-    module.it('not skipped', { skip: false }, () => {});
-
-    assert.deepEqual(tests, [
-      { id: `${TEST_FILE} > suite > option`, status: 'skipped', timeSpentMs: 0 },
-      { id: `${TEST_FILE} > reason`, status: 'skipped', timeSpentMs: 0 },
-      { id: `${TEST_FILE} > skipped todo`, status: 'skipped', timeSpentMs: 0 },
-      { id: `${TEST_FILE} > it.skip`, status: 'skipped', timeSpentMs: 0 },
-      { id: `${TEST_FILE} > test.skip`, status: 'skipped', timeSpentMs: 0 },
-    ]);
-    assert.deepEqual(
-      registrations.map(({ kind, name }) => `${kind} ${name}`),
-      [
-        'describe suite',
-        'it option',
-        'test reason',
-        'it skipped todo',
-        'it.skip it.skip',
-        'test.skip test.skip',
-        'it not skipped',
-      ],
-    );
-  });
-
-  it('runs a todo test but records it as skipped whatever its outcome, so it never bails', async () => {
-    const { module, registrations, tests } = wrapped(undefined, true);
-    const failure = new Error('not done yet');
-    const ran: string[] = [];
-    const fails = (name: string) => () => {
-      ran.push(name);
-      throw failure;
-    };
-    module.it('option', { todo: 'later' }, fails('option'));
-    module.it.todo('it.todo', fails('it.todo'));
-    module.test.todo('test.todo', () => {
-      ran.push('test.todo');
-    });
-    module.describe('todo suite', { todo: true }, () => {
-      module.it('inside', fails('inside'));
-    });
-    module.it.todo('without a body');
-    module.it('options without a body', { todo: true });
-    module.it('after', () => {
-      ran.push('after');
-    });
-
-    for (const name of ['option', 'it.todo', 'inside']) {
-      await assert.rejects(bodyOf(registrations, name)(), (error) => error === failure);
-    }
-
-    for (const name of ['test.todo', 'after']) {
-      await bodyOf(registrations, name)();
-    }
-
-    assert.deepEqual(ran, ['option', 'it.todo', 'inside', 'test.todo', 'after']);
-    assert.deepEqual(tests, [
-      { id: `${TEST_FILE} > without a body`, status: 'skipped', timeSpentMs: 0 },
-      { id: `${TEST_FILE} > options without a body`, status: 'skipped', timeSpentMs: 0 },
-      { id: `${TEST_FILE} > option`, status: 'skipped', timeSpentMs: 5 },
-      { id: `${TEST_FILE} > it.todo`, status: 'skipped', timeSpentMs: 5 },
-      { id: `${TEST_FILE} > todo suite > inside`, status: 'skipped', timeSpentMs: 5 },
-      { id: `${TEST_FILE} > test.todo`, status: 'skipped', timeSpentMs: 5 },
-      { id: `${TEST_FILE} > after`, status: 'passed', timeSpentMs: 5 },
-    ]);
-  });
-
-  it('records a passing test with the time it took', async () => {
-    const { module, registrations, tests } = wrapped();
-    module.it('passes', () => {});
-
-    await bodyOf(registrations, 'passes')();
-
-    assert.deepEqual(tests, [{ id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 5 }]);
-  });
-
-  it('records a failing test with its message and rethrows the error', async () => {
-    const { module, registrations, tests } = wrapped();
+  it('rethrows what a test body throws or rejects with', async () => {
+    const { module, registrations } = wrapped();
     const failure = new Error('expected 1 to be 2');
     module.it('fails', () => {
       throw failure;
     });
-    module.it('rejects', async () => {
-      throw failure;
-    });
-
-    await assert.rejects(bodyOf(registrations, 'fails')(), (error) => error === failure);
-    await assert.rejects(bodyOf(registrations, 'rejects')(), (error) => error === failure);
-
-    assert.deepEqual(tests, [
-      { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'expected 1 to be 2', timeSpentMs: 5 },
-      { id: `${TEST_FILE} > rejects`, status: 'failed', failureMessage: 'expected 1 to be 2', timeSpentMs: 5 },
-    ]);
-  });
-
-  it('records a thrown value that is not an Error as text', async () => {
-    const { module, registrations, tests } = wrapped();
-    module.it('throws a string', () => {
-      throw 'plain text';
-    });
-
-    await assert.rejects(bodyOf(registrations, 'throws a string')(), (error) => error === 'plain text');
-
-    assert.equal(tests[0]?.failureMessage, 'plain text');
-  });
-
-  it('records a rejection with a falsy value as a failure', async () => {
-    const { module, registrations, tests } = wrapped();
     module.it('rejects with 0', async () => {
       throw 0;
     });
 
-    await assert.rejects(bodyOf(registrations, 'rejects with 0')(), (error) => error === 0);
-
-    assert.deepEqual(tests, [
-      { id: `${TEST_FILE} > rejects with 0`, status: 'failed', failureMessage: '0', timeSpentMs: 5 },
-    ]);
+    await assert.rejects(bodyOf(registrations, 'fails')(testContext()), (error) => error === failure);
+    await assert.rejects(bodyOf(registrations, 'rejects with 0')(testContext()), (error) => error === 0);
   });
 
   describe('callback-style tests', () => {
-    /** The registered body itself, which node:test inspects for a `done` parameter. */
-    function rawBodyOf(registrations: Registration[], name: string): Fn {
-      const registration = registrations.find((candidate) => candidate.name === name);
-      assert.ok(registration, `${name} was not registered`);
-
-      return registration.rest.find((arg) => typeof arg === 'function') as Fn;
-    }
-
-    it('declares `done`, so node:test passes it, and records the test when `done` is called', () => {
-      const { module, registrations, tests, ns, env } = wrapped();
-      const context = {};
+    it('declares `done`, so node:test passes it, and keeps the test current until `done` is called', () => {
+      const { module, registrations, ns, env } = wrapped();
+      const context = testContext();
       const seen: unknown[] = [];
       let finish: ((error?: unknown) => void) | undefined;
       module.it('calls back', function (this: unknown, t: unknown, done: (error?: unknown) => void) {
-        seen.push(this, t, ns.currentTestId, env[ENV.current]);
+        seen.push(this, t);
         finish = done;
       });
       const body = rawBodyOf(registrations, 'calls back');
@@ -419,47 +304,43 @@ describe('wrapNodeTest', () => {
 
       body.call(receiver, context, (...args: unknown[]) => calls.push(args));
 
-      assert.deepEqual(seen, [receiver, context, `${TEST_FILE} > calls back`, `${TEST_FILE} > calls back`]);
-      assert.deepEqual(tests, []);
+      assert.deepEqual(seen, [receiver, context]);
+      assert.deepEqual([ns.currentTestId, env[ENV.current]], [
+        `${TEST_FILE} > calls back`,
+        `${TEST_FILE} > calls back`,
+      ]);
+      assert.deepEqual(calls, []);
 
       finish?.();
 
       assert.deepEqual(calls, [[undefined]]);
-      assert.deepEqual(tests, [{ id: `${TEST_FILE} > calls back`, status: 'passed', timeSpentMs: 5 }]);
       assert.equal(ns.currentTestId, undefined);
       assert.ok(!(ENV.current in env));
+      assert.equal(context.skipped, false);
     });
 
-    it('records the error passed to `done` as a failure and passes it on', () => {
-      const { module, registrations, tests } = wrapped();
+    it('passes the error given to `done` on', () => {
+      const { module, registrations } = wrapped();
       const failure = new Error('called back with an error');
       module.it('fails', (_t: unknown, done: (error?: unknown) => void) => done(failure));
-      module.it('passes with null', (_t: unknown, done: (error?: unknown) => void) => done(null));
       const calls: unknown[][] = [];
 
-      for (const name of ['fails', 'passes with null']) {
-        rawBodyOf(registrations, name)({}, (...args: unknown[]) => calls.push(args));
-      }
+      rawBodyOf(registrations, 'fails')(testContext(), (...args: unknown[]) => calls.push(args));
 
-      assert.deepEqual(calls, [[failure], [null]]);
-      assert.deepEqual(tests, [
-        { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'called back with an error', timeSpentMs: 5 },
-        { id: `${TEST_FILE} > passes with null`, status: 'passed', timeSpentMs: 5 },
-      ]);
+      assert.deepEqual(calls, [[failure]]);
     });
 
-    it('records a synchronous throw as a failure and rethrows it', () => {
-      const { module, registrations, tests, ns } = wrapped();
+    it('rethrows a synchronous throw and leaves the test', () => {
+      const { module, registrations, ns } = wrapped();
       module.it('throws', (_t: unknown, _done: unknown) => {
         throw 0;
       });
 
       assert.throws(
-        () => rawBodyOf(registrations, 'throws')({}, () => {}),
+        () => rawBodyOf(registrations, 'throws')(testContext(), () => {}),
         (error) => error === 0,
       );
 
-      assert.deepEqual(tests, [{ id: `${TEST_FILE} > throws`, status: 'failed', failureMessage: '0', timeSpentMs: 5 }]);
       assert.equal(ns.currentTestId, undefined);
     });
   });
@@ -471,7 +352,7 @@ describe('wrapNodeTest', () => {
       seen.push(ns.currentTestId, env[ENV.current]);
     });
 
-    await bodyOf(registrations, 'observes')();
+    await bodyOf(registrations, 'observes')(testContext());
 
     assert.deepEqual(seen, [`${TEST_FILE} > observes`, `${TEST_FILE} > observes`]);
   });
@@ -489,12 +370,12 @@ describe('wrapNodeTest', () => {
 
     assert.deepEqual([ns.activeMutant, env[ACTIVE_MUTANT_ENV]], [undefined, undefined]);
 
-    await bodyOf(registrations, 'first')();
+    await bodyOf(registrations, 'first')(testContext());
 
     assert.deepEqual([ns.activeMutant, env[ACTIVE_MUTANT_ENV]], ['7', '7']);
 
     ns.activeMutant = undefined;
-    await bodyOf(registrations, 'second')({}, () => {});
+    await bodyOf(registrations, 'second')(testContext(), () => {});
 
     assert.deepEqual(seen, ['7', '7', '7']);
   });
@@ -504,7 +385,7 @@ describe('wrapNodeTest', () => {
     ns.activeMutant = '3';
     module.it('runs', () => {});
 
-    await bodyOf(registrations, 'runs')();
+    await bodyOf(registrations, 'runs')(testContext());
 
     assert.equal(ns.activeMutant, '3');
     assert.ok(!(ACTIVE_MUTANT_ENV in env));
@@ -517,71 +398,62 @@ describe('wrapNodeTest', () => {
       throw new Error('no');
     });
 
-    await bodyOf(registrations, 'passes')();
+    await bodyOf(registrations, 'passes')(testContext());
 
     assert.equal(ns.currentTestId, undefined);
     assert.ok(!(ENV.current in env));
 
-    await assert.rejects(bodyOf(registrations, 'fails')());
+    await assert.rejects(bodyOf(registrations, 'fails')(testContext()));
 
     assert.equal(ns.currentTestId, undefined);
     assert.ok(!(ENV.current in env));
   });
 
-  it('skips the bodies of tests outside the filter and runs the others', async () => {
-    const { module, registrations, tests, ns } = wrapped([`${TEST_FILE} > group > wanted`]);
-    const ran: string[] = [];
+  it('skips the tests outside the filter and runs the others', async () => {
+    const { module, registrations, ns, seen, see } = wrapped([`${TEST_FILE} > group > wanted`]);
     module.describe('group', () => {
-      module.it('wanted', () => {
-        ran.push('wanted');
-      });
-      module.it('unwanted', () => {
-        ran.push('unwanted');
-      });
+      module.it('wanted', see);
+      module.it('unwanted', see);
     });
-    module.test('other', () => {
-      ran.push('other');
+    module.test('other', see);
+    module.test('calls back', (_t: unknown, done: () => void) => {
+      see();
+      done();
+    });
+    const contexts = ['wanted', 'unwanted', 'other', 'calls back'].map((name) => {
+      const context = testContext();
+      void bodyOf(registrations, name)(context, () => {});
+
+      return context.skipped;
     });
 
-    for (const name of ['wanted', 'unwanted', 'other']) {
-      await bodyOf(registrations, name)();
-    }
+    await new Promise((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(ran, ['wanted']);
-    assert.deepEqual(
-      tests.map((test) => test.id),
-      [`${TEST_FILE} > group > wanted`],
-    );
+    assert.deepEqual(contexts, [false, true, true, true]);
+    assert.deepEqual(seen, [`${TEST_FILE} > group > wanted`]);
     assert.equal(ns.currentTestId, undefined);
   });
 
   it('runs every test of the file when the filter names the file itself', async () => {
-    const { module, registrations, tests } = wrapped([TEST_FILE]);
+    const { module, registrations, seen, see } = wrapped([TEST_FILE]);
     module.describe('group', () => {
-      module.it('first', () => {});
+      module.it('first', see);
     });
-    module.test('second', () => {});
+    module.test('second', see);
 
     for (const name of ['first', 'second']) {
-      await bodyOf(registrations, name)();
+      await bodyOf(registrations, name)(testContext());
     }
 
-    assert.deepEqual(
-      tests.map((test) => test.id),
-      [`${TEST_FILE} > group > first`, `${TEST_FILE} > second`],
-    );
+    assert.deepEqual(seen, [`${TEST_FILE} > group > first`, `${TEST_FILE} > second`]);
   });
 
   for (const bail of [true, false]) {
-    it(`${bail ? 'skips' : 'runs'} the tests after a failure with bail ${bail ? 'on' : 'off'}`, async () => {
+    it(`${bail ? 'skips' : 'runs'} the tests after a reported failure with bail ${bail ? 'on' : 'off'}`, async () => {
       const { module, registrations, tests } = wrapped(undefined, bail);
       const ran: string[] = [];
-      module.it('passes', () => {
-        ran.push('passes');
-      });
-      module.it('fails', () => {
-        ran.push('fails');
-        throw new Error('no');
+      module.it('before the failure', () => {
+        ran.push('before the failure');
       });
       module.it('later', () => {
         ran.push('later');
@@ -592,20 +464,134 @@ describe('wrapNodeTest', () => {
       });
       const calls: unknown[][] = [];
 
-      await bodyOf(registrations, 'passes')();
-      await assert.rejects(bodyOf(registrations, 'fails')());
-      await bodyOf(registrations, 'later')();
-      await bodyOf(registrations, 'calls back later')({}, (...args: unknown[]) => calls.push(args));
+      tests.push({ id: `${TEST_FILE} > passed`, status: 'passed', timeSpentMs: 1 });
+      tests.push({ id: `${TEST_FILE} > skipped`, status: 'skipped', timeSpentMs: 1 });
+      await bodyOf(registrations, 'before the failure')(testContext());
+      tests.push({ id: `${TEST_FILE} > failed`, status: 'failed', timeSpentMs: 1 });
+      const later = testContext();
+      await bodyOf(registrations, 'later')(later);
+      const callsBackLater = testContext();
+      await bodyOf(registrations, 'calls back later')(callsBackLater, (...args: unknown[]) => calls.push(args));
 
-      const all = ['passes', 'fails', 'later', 'calls back later'];
-      assert.deepEqual(ran, bail ? all.slice(0, 2) : all);
-      assert.deepEqual(
-        tests.map((test) => test.id),
-        ran.map((name) => `${TEST_FILE} > ${name}`),
-      );
-      assert.deepEqual(calls, [bail ? [] : [undefined]]);
+      assert.deepEqual(ran, bail ? ['before the failure'] : ['before the failure', 'later', 'calls back later']);
+      assert.deepEqual([later.skipped, callsBackLater.skipped], [bail, bail]);
+      assert.deepEqual(calls, bail ? [[]] : [[undefined]]);
     });
   }
+});
+
+/** Reporter events for one test, as node:test reports them: start, then pass or fail. */
+function reported(
+  name: string,
+  nesting: number,
+  outcome: 'pass' | 'fail',
+  details: NonNullable<TestEvent['data']['details']>,
+  flags: { skip?: unknown; todo?: unknown } = {},
+): TestEvent[] {
+  return [
+    { type: 'test:start', data: { name, nesting } },
+    { type: `test:${outcome}`, data: { name, nesting, ...flags, details } },
+  ];
+}
+
+function record(events: TestEvent[]): RecordedTest[] {
+  const tests: RecordedTest[] = [];
+  const recordEvent = recordEvents(TEST_FILE, tests);
+
+  for (const event of events) {
+    recordEvent(event);
+  }
+
+  return tests;
+}
+
+describe('recordEvents', () => {
+  const testDetails = { type: 'test', duration_ms: 1.5 } as const;
+  const suiteDetails = { type: 'suite', duration_ms: 3 } as const;
+
+  it('records each test with its status and time, named after the file, its suites and its parent tests', () => {
+    assert.deepEqual(
+      record([
+        { type: 'test:enqueue', data: { name: 'top', nesting: 0 } },
+        { type: 'test:start', data: { name: 'outer', nesting: 0 } },
+        ...reported('first', 1, 'pass', testDetails),
+        { type: 'test:start', data: { name: 'parent', nesting: 1 } },
+        ...reported('child', 2, 'pass', testDetails),
+        { type: 'test:pass', data: { name: 'parent', nesting: 1, details: { type: 'test', duration_ms: 2 } } },
+        ...reported('second', 1, 'pass', testDetails),
+        { type: 'test:pass', data: { name: 'outer', nesting: 0, details: suiteDetails } },
+        { type: 'test:complete', data: { name: 'outer', nesting: 0, details: suiteDetails } },
+        ...reported('top', 0, 'pass', { type: 'test', duration_ms: 0.25 }),
+        { type: 'test:diagnostic', data: { name: 'tests 5', nesting: 0 } },
+      ]),
+      [
+        { id: `${TEST_FILE} > outer > first`, status: 'passed', timeSpentMs: 1.5 },
+        { id: `${TEST_FILE} > outer > parent > child`, status: 'passed', timeSpentMs: 1.5 },
+        { id: `${TEST_FILE} > outer > parent`, status: 'passed', timeSpentMs: 2 },
+        { id: `${TEST_FILE} > outer > second`, status: 'passed', timeSpentMs: 1.5 },
+        { id: `${TEST_FILE} > top`, status: 'passed', timeSpentMs: 0.25 },
+      ],
+    );
+  });
+
+  it('records a failed test with what it threw, or with the message node:test gives the failure', () => {
+    const failure = (message: string, cause: unknown, failureType = 'testCodeFailure') => ({
+      ...testDetails,
+      error: { failureType, message, cause },
+    });
+
+    assert.deepEqual(
+      record([
+        ...reported('throws', 0, 'fail', failure('wrapped', new Error('expected 1 to be 2'))),
+        ...reported('throws text', 0, 'fail', failure('plain text', 'plain text')),
+        ...reported('times out', 0, 'fail', failure('test timed out after 5ms', 'test timed out after 5ms')),
+        ...reported('hook', 0, 'fail', failure('failed running afterEach hook', new Error('hook'), 'hookFailed')),
+        ...reported('without cause', 0, 'fail', { ...testDetails, error: { message: 'no cause' } }),
+      ]).map(({ id, status, failureMessage }) => ({ id, status, failureMessage })),
+      [
+        { id: `${TEST_FILE} > throws`, status: 'failed', failureMessage: 'expected 1 to be 2' },
+        { id: `${TEST_FILE} > throws text`, status: 'failed', failureMessage: 'plain text' },
+        { id: `${TEST_FILE} > times out`, status: 'failed', failureMessage: 'test timed out after 5ms' },
+        { id: `${TEST_FILE} > hook`, status: 'failed', failureMessage: 'hook' },
+        { id: `${TEST_FILE} > without cause`, status: 'failed', failureMessage: 'no cause' },
+      ],
+    );
+  });
+
+  it('records skipped and todo tests as skipped, whatever their outcome', () => {
+    const error = { failureType: 'testCodeFailure', message: 'not done', cause: new Error('not done') };
+
+    assert.deepEqual(
+      record([
+        ...reported('skipped', 0, 'pass', testDetails, { skip: true }),
+        ...reported('skipped with a reason', 0, 'pass', testDetails, { skip: 'not here' }),
+        ...reported('todo', 0, 'pass', testDetails, { todo: true }),
+        ...reported('failing todo', 0, 'fail', { ...testDetails, error }, { todo: 'later' }),
+      ]),
+      [
+        { id: `${TEST_FILE} > skipped`, status: 'skipped', timeSpentMs: 1.5 },
+        { id: `${TEST_FILE} > skipped with a reason`, status: 'skipped', timeSpentMs: 1.5 },
+        { id: `${TEST_FILE} > todo`, status: 'skipped', timeSpentMs: 1.5 },
+        { id: `${TEST_FILE} > failing todo`, status: 'skipped', timeSpentMs: 1.5 },
+      ],
+    );
+  });
+
+  it('records a suite only when it fails by itself, not when it passes or a test inside it fails', () => {
+    const suiteFailure = (failureType: string, message: string, cause: unknown) => ({
+      ...suiteDetails,
+      error: { failureType, message, cause },
+    });
+
+    assert.deepEqual(
+      record([
+        ...reported('passes', 0, 'pass', suiteDetails),
+        ...reported('fails inside', 0, 'fail', suiteFailure('subtestsFailed', '1 subtest failed', '1 subtest failed')),
+        ...reported('before', 0, 'fail', suiteFailure('hookFailed', 'failed running before hook', new Error('before'))),
+      ]),
+      [{ id: `${TEST_FILE} > before`, status: 'failed', failureMessage: 'before', timeSpentMs: 3 }],
+    );
+  });
 });
 
 interface Harness {
@@ -643,7 +629,6 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     writeRecord: (path, record) => {
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
     },
-    now: () => 0,
     join,
     ...overrides,
   };
@@ -662,6 +647,19 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
 }
 
 const OUT = join('/tmp', 'out');
+
+/** Passes node:test's events for a test to the reporting function the hook installed. */
+function report(deps: HookDependencies, name: string, outcome: 'pass' | 'fail'): void {
+  const recordEvent = deps.global[reporting];
+  assert.ok(recordEvent, 'the hook installed no reporting function');
+  const error = { message: `${name} failed` };
+
+  const details = { type: 'test', duration_ms: 2, ...(outcome === 'fail' && { error }) } as const;
+
+  for (const event of reported(name, 0, outcome, details)) {
+    recordEvent(event);
+  }
+}
 
 describe('install', () => {
   it('does nothing when the runner did not start the process tree', () => {
@@ -689,6 +687,7 @@ describe('install', () => {
 
     assert.equal(deps.global[installed], true);
     assert.equal(installed, Symbol.for('thermos.stryker-node-test-runner.hook'));
+    assert.equal(reporting, Symbol.for('thermos.stryker-node-test-runner.reporting'));
   });
 
   it('keeps an existing Stryker namespace', () => {
@@ -744,10 +743,13 @@ describe('install', () => {
 
     assert.deepEqual(calls, ['nodeTest', 'publishNodeTest', 'onExit']);
 
-    fake.module.it('runs', () => {});
-    await bodyOf(fake.registrations, 'runs')();
+    const seen: unknown[] = [];
+    fake.module.it('runs', () => {
+      seen.push(deps.global.__stryker__?.currentTestId);
+    });
+    await bodyOf(fake.registrations, 'runs')(testContext());
 
-    assert.equal(deps.global.__stryker__?.currentTestId, undefined);
+    assert.deepEqual(seen, [`${TEST_FILE} > runs`]);
   });
 
   for (const [description, env, mainFile] of [
@@ -756,27 +758,20 @@ describe('install', () => {
     ['a run without a test file', {}, undefined],
     ['a run without a test file, from a main file', {}, TEST_FILE],
   ] as const) {
-    it(`leaves node:test alone in ${description}`, () => {
+    it(`leaves node:test and its reporter alone in ${description}`, () => {
       const { deps, calls } = harness({ [ENV.out]: OUT, ...env }, { mainFile });
 
       assert.equal(install(deps), true);
       assert.deepEqual(calls, ['onExit']);
+      assert.equal(deps.global[reporting], undefined);
     });
   }
 
-  it('records the tests of the test file in a file named after the process', async () => {
-    let clock = 0;
-    const { deps, fake, records, exit } = harness(
-      { [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.dryRun]: 'false' },
-      { now: () => (clock += 3) },
-    );
+  it('records the tests node:test reports in a file named after the process', () => {
+    const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.dryRun]: 'false' });
     install(deps);
-    fake.module.it('passes', () => {});
-    fake.module.it('fails', () => {
-      throw new Error('nope');
-    });
-    await bodyOf(fake.registrations, 'passes')();
-    await assert.rejects(bodyOf(fake.registrations, 'fails')());
+    report(deps, 'passes', 'pass');
+    report(deps, 'fails', 'fail');
 
     exit();
 
@@ -785,8 +780,8 @@ describe('install', () => {
         path: join(OUT, '4321.json'),
         record: {
           tests: [
-            { id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 3 },
-            { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'nope', timeSpentMs: 3 },
+            { id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 2 },
+            { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'fails failed', timeSpentMs: 2 },
           ],
         },
       },
@@ -800,13 +795,13 @@ describe('install', () => {
     assert.equal(deps.global.__stryker__?.activeMutant, undefined);
 
     fake.module.it('runs', () => {});
-    await bodyOf(fake.registrations, 'runs')();
+    await bodyOf(fake.registrations, 'runs')(testContext());
 
     assert.equal(deps.global.__stryker__?.activeMutant, '5');
   });
 
   it('runs only the filtered tests', async () => {
-    const { deps, fake, records, exit } = harness({
+    const { deps, fake } = harness({
       [ENV.out]: OUT,
       [ENV.file]: TEST_FILE,
       [ENV.filter]: JSON.stringify([`${TEST_FILE} > wanted`]),
@@ -819,15 +814,10 @@ describe('install', () => {
     fake.module.it('unwanted', () => {
       ran.push('unwanted');
     });
-    await bodyOf(fake.registrations, 'wanted')();
-    await bodyOf(fake.registrations, 'unwanted')();
-    exit();
+    await bodyOf(fake.registrations, 'wanted')(testContext());
+    await bodyOf(fake.registrations, 'unwanted')(testContext());
 
     assert.deepEqual(ran, ['wanted']);
-    assert.deepEqual(
-      records[0]?.record.tests.map((test) => test.id),
-      [`${TEST_FILE} > wanted`],
-    );
   });
 
   for (const bail of ['true', 'false', undefined]) {
@@ -836,14 +826,11 @@ describe('install', () => {
       const { deps, fake } = harness(env);
       const ran: string[] = [];
       install(deps);
-      fake.module.it('fails', () => {
-        throw new Error('no');
-      });
       fake.module.it('later', () => {
         ran.push('later');
       });
-      await assert.rejects(bodyOf(fake.registrations, 'fails')());
-      await bodyOf(fake.registrations, 'later')();
+      report(deps, 'fails', 'fail');
+      await bodyOf(fake.registrations, 'later')(testContext());
 
       assert.deepEqual(ran, bail === 'true' ? [] : ['later']);
       assert.ok(!(ENV.bail in env));

@@ -32,6 +32,7 @@ import { filesFor, mergeCoverage, NodeTestRunner, removeDir, runEnv, toTestResul
 
 const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
+const REPORTER_ARG = `--test-reporter=${pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href}`;
 const FILE = join('/repo', 'a.test.mjs');
 
 describe('mergeCoverage', () => {
@@ -584,8 +585,11 @@ describe('NodeTestRunner', () => {
     };
     const nodeArgs = ['--no-deprecation', '--stack-size=900'];
 
-    assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'], nodeArgs } }), nodeArgs);
-    assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'] } }), []);
+    assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'], nodeArgs } }), [
+      REPORTER_ARG,
+      ...nodeArgs,
+    ]);
+    assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'] } }), [REPORTER_ARG]);
   });
 
   it('runs a test file once when several patterns match it', async (t) => {
@@ -646,7 +650,9 @@ describe('NodeTestRunner', () => {
       return debug;
     };
 
-    assert.deepEqual(await debugOf(true), [`Running: \`node "--no-deprecation" "${file}"\` in ${dir}`]);
+    assert.deepEqual(await debugOf(true), [
+      `Running: \`node "${REPORTER_ARG}" "--no-deprecation" "${file}"\` in ${dir}`,
+    ]);
     assert.deepEqual(await debugOf(false), []);
   });
 
@@ -690,12 +696,59 @@ describe('NodeTestRunner', () => {
     const a = join(dir, 'a.test.mjs');
 
     assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
-      { id: `${a} > is skipped`, status: TestStatus.Skipped, failureMessage: undefined },
       { id: `${a} > passes`, status: TestStatus.Success, failureMessage: undefined },
       { id: `${a} > is not done`, status: TestStatus.Skipped, failureMessage: undefined },
+      { id: `${a} > is skipped`, status: TestStatus.Skipped, failureMessage: undefined },
     ]);
     assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
       status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
+  });
+
+  it('reports a failing hook against the tests it fails, and a test that times out as failed', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { afterEach } from 'node:test';",
+        "describe('each', () => {",
+        "  afterEach(() => { throw new Error('afterEach failure'); });",
+        "  it('passes, then its hook fails', () => {});",
+        '});',
+      ),
+      'b.test.mjs': fixture(
+        "import { after, before } from 'node:test';",
+        "describe('once', () => {",
+        "  before(() => { throw new Error('before failure'); });",
+        "  it('never runs', () => {});",
+        '});',
+        "describe('last', () => {",
+        "  after(() => { throw new Error('after failure'); });",
+        "  it('passes', () => {});",
+        '});',
+        "it('times out', { timeout: 10 }, () => new Promise((resolve) => setTimeout(resolve, 200)));",
+      ),
+    });
+    const runner = await initRunner(['*.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+    const b = join(dir, 'b.test.mjs');
+    const failsInHook = `${a} > each > passes, then its hook fails`;
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun({ ...DRY_RUN, disableBail: true }))).tests), [
+      { id: failsInHook, status: TestStatus.Failed, failureMessage: 'afterEach failure' },
+      {
+        id: `${b} > once > never runs`,
+        status: TestStatus.Failed,
+        failureMessage: 'test did not finish before its parent and was cancelled',
+      },
+      { id: `${b} > once`, status: TestStatus.Failed, failureMessage: 'before failure' },
+      { id: `${b} > last > passes`, status: TestStatus.Success, failureMessage: undefined },
+      { id: `${b} > last`, status: TestStatus.Failed, failureMessage: 'after failure' },
+      { id: `${b} > times out`, status: TestStatus.Failed, failureMessage: 'test timed out after 10ms' },
+    ]);
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [failsInHook] }))), {
+      status: MutantRunStatus.Killed,
+      killedBy: [failsInHook],
+      failureMessage: 'afterEach failure',
       nrOfTests: 1,
     });
   });
@@ -731,8 +784,8 @@ describe('NodeTestRunner', () => {
     assert.deepEqual(fixtureCoverage(mutantCoverage), { static: { s: 1 }, perTest: {} });
   });
 
-  it('keeps the tests that ran before a test file exits with code 0 from inside a test', async (t) => {
-    const dir = project(t, {
+  it('loses the tests that a file exiting with code 0 ran before node:test reported them', async (t) => {
+    project(t, {
       'a.test.mjs': fixture(
         "it('passes', () => {});",
         "it('exits', () => { process.exit(0); });",
@@ -743,9 +796,7 @@ describe('NodeTestRunner', () => {
 
     const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
 
-    assert.deepEqual(summary(tests), [
-      { id: `${join(dir, 'a.test.mjs')} > passes`, status: TestStatus.Success, failureMessage: undefined },
-    ]);
+    assert.deepEqual(tests, []);
   });
 
   it('reports a test file whose process is killed as failed, losing the tests it ran', async (t) => {
@@ -769,7 +820,9 @@ describe('NodeTestRunner', () => {
   it('stops after the first file with a failure, and a mutant run after any failure, unless bail is off', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
-        "it('passes', () => {});",
+        // node:test reports the first tests of a file once its reporters have started, and bailing acts on reported
+        // failures; waiting a turn lets the reporters start before the first failure.
+        "it('passes', async () => { await new Promise((resolve) => setImmediate(resolve)); });",
         "it('fails', () => { throw new Error('expected failure'); });",
         "it('fails later', () => { throw new Error('later failure'); });",
         "it('calls back later', (t, done) => { done(new Error('callback failure')); });",

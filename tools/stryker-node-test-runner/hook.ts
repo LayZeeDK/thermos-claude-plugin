@@ -2,7 +2,6 @@
 import { writeFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { join, resolve } from 'node:path';
-import { performance } from 'node:perf_hooks';
 
 import { install, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 
@@ -17,6 +16,5 @@ install({
   publishNodeTest: syncBuiltinESMExports,
   onExit: (listener) => process.on('exit', listener),
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
-  now: () => performance.now(),
   join,
 });

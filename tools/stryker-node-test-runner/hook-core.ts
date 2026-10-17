@@ -39,10 +39,27 @@ type Body = (this: unknown, ...args: unknown[]) => unknown;
 type Registrar = (this: unknown, name: string, ...rest: unknown[]) => unknown;
 /** A node:test function with its shorthands, which do not call the function itself. */
 type Register = Registrar & { skip: Registrar; todo: Registrar; only: Registrar };
-/** The options of a test or suite, as node:test reads them. */
-interface Flags {
-  skip?: unknown;
-  todo?: unknown;
+/** The part of the context node:test passes to a test's body that the hook uses. */
+interface TestContext {
+  skip(): void;
+}
+
+/** The part of a node:test reporter event that the hook reads. */
+export interface TestEvent {
+  type: string;
+  data: {
+    name: string;
+    /** How many suites and tests enclose the test. */
+    nesting: number;
+    skip?: unknown;
+    todo?: unknown;
+    /** Present on `test:pass` and `test:fail`. */
+    details?: {
+      type?: 'suite' | 'test';
+      duration_ms: number;
+      error?: { failureType?: string; message: string; cause?: unknown };
+    };
+  };
 }
 
 /** The node:test functions the hook wraps. */
@@ -74,17 +91,19 @@ export interface HookDependencies {
   /** `process.argv[1]`, resolved to an absolute path. */
   mainFile: string | undefined;
   pid: number;
-  global: { __stryker__?: StrykerNamespace; [installed]?: true };
+  global: { __stryker__?: StrykerNamespace; [installed]?: true; [reporting]?: (event: TestEvent) => void };
   nodeTest: () => NodeTestModule;
   publishNodeTest: () => void;
   onExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
-  now: () => number;
   join: (...parts: string[]) => string;
 }
 
 /** Marks a process whose hook is installed, so a second copy of the hook (a runner under test) stays inactive. */
 export const installed = Symbol.for('thermos.stryker-node-test-runner.hook');
+
+/** Where the hook of a test file's process leaves the function that the runner's reporter passes events to. */
+export const reporting = Symbol.for('thermos.stryker-node-test-runner.reporting');
 
 /**
  * Installs the hook when the runner started this process tree. Returns whether it installed.
@@ -113,6 +132,7 @@ export function install(deps: HookDependencies): boolean {
   const testFile = deps.env[ENV.file];
 
   if (testFile && deps.mainFile === testFile) {
+    deps.global[reporting] = recordEvents(testFile, tests);
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
     wrapNodeTest({
@@ -123,7 +143,6 @@ export function install(deps: HookDependencies): boolean {
       bail,
       activeMutant: deps.env[ENV.activeMutant],
       env: deps.env,
-      now: deps.now,
       nodeTest: deps.nodeTest(),
     });
     deps.publishNodeTest();
@@ -141,50 +160,81 @@ export function install(deps: HookDependencies): boolean {
   return true;
 }
 
+/**
+ * Returns a function that records the tests of one test file from node:test's reporter events, with ids built the
+ * way the wrapper builds them. A suite is recorded only when it fails by itself, such as in a `before` hook.
+ */
+export function recordEvents(testFile: string, tests: RecordedTest[]): (event: TestEvent) => void {
+  /** The name of the test or suite that started last at each nesting level. */
+  const names = new Map<number, string>();
+
+  return ({ type, data }) => {
+    if (type === 'test:start') {
+      names.set(data.nesting, data.name);
+
+      return;
+    }
+
+    if (type !== 'test:pass' && type !== 'test:fail') {
+      return;
+    }
+
+    const { type: kind, duration_ms: timeSpentMs, error } = data.details!;
+
+    if (kind === 'suite' && (type === 'test:pass' || error?.failureType === 'subtestsFailed')) {
+      return;
+    }
+
+    const enclosing = Array.from({ length: data.nesting }, (_, level) => names.get(level));
+    const id = [testFile, ...enclosing, data.name].join(' > ');
+
+    // node:test runs a todo test but ignores its outcome.
+    if (data.skip !== undefined || data.todo !== undefined) {
+      tests.push({ id, status: 'skipped', timeSpentMs });
+    } else if (error) {
+      // The cause is what the test threw; a hook failure, a timeout or an unmet expectFailure has a message only.
+      const failureMessage = error.cause instanceof Error ? error.cause.message : error.message;
+      tests.push({ id, status: 'failed', failureMessage, timeSpentMs });
+    } else {
+      tests.push({ id, status: 'passed', timeSpentMs });
+    }
+  };
+}
+
 export interface WrapOptions {
   ns: StrykerNamespace;
   testFile: string;
+  /** The tests node:test has reported so far. */
   tests: RecordedTest[];
-  /** Test ids to run; the bodies of all other tests are skipped. Runs every test when absent. */
+  /** Test ids to run; all other tests are skipped. Runs every test when absent. */
   filter: Set<string> | undefined;
-  /** Whether the bodies of tests that start after a test of this process failed are skipped. */
+  /** Whether tests that start after a test of this process failed are skipped. */
   bail: boolean;
   /** The mutant to activate when the first test starts; it stays active for the rest of the process. */
   activeMutant: string | undefined;
   env: Record<string, string | undefined>;
-  now: () => number;
   nodeTest: NodeTestModule;
 }
 
 /**
- * Wraps node:test's suite and test functions so each test's id is known while it runs.
+ * Wraps node:test's suite and test functions so each test's id is known while it runs, and so tests outside the
+ * filter, or after a failure when bailing, are skipped. The test results come from node:test's reporter events.
  *
  * ponytail: supports `(name, [options], fn)` calls with synchronous suite bodies, and test bodies that return a
  * value or a promise or that take node:test's `done` callback. Tests through the default export
  * (`import test from 'node:test'`) and `t.test` subtests are not attributed; add them when a test needs them.
+ * Bailing acts on the results node:test has reported, and node:test reports the first tests of a file only once its
+ * reporters start, so a few quick tests can still run after the first failure.
  */
-export function wrapNodeTest({
-  ns,
-  testFile,
-  tests,
-  filter,
-  bail,
-  activeMutant,
-  env,
-  now,
-  nodeTest,
-}: WrapOptions): void {
-  const suites: { name: string; todo: unknown }[] = [];
+export function wrapNodeTest({ ns, testFile, tests, filter, bail, activeMutant, env, nodeTest }: WrapOptions): void {
+  const suites: string[] = [];
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
-  /** The flags of a registration's options, `rest[0]` unless that is the body, which has none, and its shorthand's. */
-  const flagsOf = (rest: unknown[], shorthand?: Flags): Flags => ({ ...(rest[0] as object), ...shorthand });
 
-  const wrapSuite = (register: Registrar, shorthand?: Flags): Registrar =>
+  const wrapSuite = (register: Registrar): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
-      const suite = { name: String(name), todo: flagsOf(rest, shorthand).todo };
       const wrap = (body: Body) =>
         function (this: unknown, ...args: unknown[]) {
-          suites.push(suite);
+          suites.push(String(name));
 
           try {
             return body.apply(this, args);
@@ -196,17 +246,9 @@ export function wrapNodeTest({
       return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
     };
 
-  const wrapTest = (register: Registrar, shorthand?: Flags): Registrar =>
+  const wrapTest = (register: Registrar): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
-      const id = [testFile, ...suites.map((suite) => suite.name), String(name)].join(' > ');
-      const flags = flagsOf(rest, shorthand);
-      // node:test runs a todo test, and the tests of a todo suite, but ignores their outcome.
-      const todo = flags.todo || suites.some((suite) => suite.todo);
-
-      // A skipped test, and a todo test without a body, never runs, so it is recorded when it is registered.
-      if (flags.skip || (todo && !rest.some((arg) => typeof arg === 'function'))) {
-        tests.push({ id, status: 'skipped', timeSpentMs: 0 });
-      }
+      const id = [testFile, ...suites, String(name)].join(' > ');
 
       const enter = () => {
         ns.currentTestId = id;
@@ -217,75 +259,54 @@ export function wrapNodeTest({
           ns.activeMutant = activeMutant;
           env[ACTIVE_MUTANT_ENV] = activeMutant;
         }
-
-        return now();
       };
-      /** Records the test as skipped if it is a todo test, else as passed or as failed with `failure.error`. */
-      const leave = (start: number, failure?: { error: unknown }) => {
-        const timeSpentMs = now() - start;
-        const error = failure?.error;
-
-        if (todo) {
-          tests.push({ id, status: 'skipped', timeSpentMs });
-        } else if (failure) {
-          tests.push({
-            id,
-            status: 'failed',
-            failureMessage: error instanceof Error ? error.message : String(error),
-            timeSpentMs,
-          });
-        } else {
-          tests.push({ id, status: 'passed', timeSpentMs });
-        }
-
+      const leave = () => {
         ns.currentTestId = undefined;
         delete env[ENV.current];
       };
-      const wrap = (body: Body) => {
+      const wrap = (body: Body): Body => {
         // Stryker names a whole test file in the filter when --testFiles limits the run.
         if (filter && !filter.has(id) && !filter.has(testFile)) {
-          return () => {};
+          return (context) => (context as TestContext).skip();
         }
 
         // node:test passes a `done` callback only to a function that declares a second parameter.
         if (body.length >= 2) {
           return function (this: unknown, context: unknown, done: (error?: unknown) => void) {
             if (bailed()) {
+              (context as TestContext).skip();
               done();
 
               return;
             }
 
-            const start = enter();
-            const finish = (error?: unknown) => {
-              leave(start, error ? { error } : undefined);
-              done(error);
-            };
+            enter();
 
             try {
-              body.call(this, context, finish);
+              body.call(this, context, (error?: unknown) => {
+                leave();
+                done(error);
+              });
             } catch (error) {
-              leave(start, { error });
+              leave();
               throw error;
             }
-          };
+          } as Body;
         }
 
         return async function (this: unknown, ...args: unknown[]) {
           if (bailed()) {
+            (args[0] as TestContext).skip();
+
             return;
           }
 
-          const start = enter();
+          enter();
 
           try {
-            const result = await body.apply(this, args);
-            leave(start);
-
-            return result;
-          } catch (error) {
-            leave(start, { error });
-            throw error;
+            return await body.apply(this, args);
+          } finally {
+            leave();
           }
         };
       };
@@ -293,11 +314,11 @@ export function wrapNodeTest({
       return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
     };
 
-  // The body of a skipped suite never runs, so describe.skip needs no wrapper.
+  // The bodies of skipped suites and tests never run, so `skip` needs no wrapper.
   for (const key of ['describe', 'suite'] as const) {
     const original = nodeTest[key];
     nodeTest[key] = Object.assign(wrapSuite(original), original, {
-      todo: wrapSuite(original.todo, { todo: true }),
+      todo: wrapSuite(original.todo),
       only: wrapSuite(original.only),
     });
   }
@@ -305,9 +326,9 @@ export function wrapNodeTest({
   for (const key of ['it', 'test'] as const) {
     const original = nodeTest[key];
     nodeTest[key] = Object.assign(wrapTest(original), original, {
-      skip: wrapTest(original.skip, { skip: true }),
-      todo: wrapTest(original.todo, { todo: true }),
+      todo: wrapTest(original.todo),
       only: wrapTest(original.only),
     });
   }
 }
+
