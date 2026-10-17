@@ -78,8 +78,8 @@ function bodyOf(registrations: Registration[], name: string): (this: unknown, ..
   };
 }
 
-/** Wraps a fake node:test with the given filter and a clock that advances 5 ms per reading. */
-function wrapped(filter?: string[]) {
+/** Wraps a fake node:test with the given filter and bail setting and a clock that advances 5 ms per reading. */
+function wrapped(filter?: string[], bail = false) {
   const fake = fakeNodeTest();
   const ns: StrykerNamespace = {};
   const env: Record<string, string | undefined> = {};
@@ -90,6 +90,7 @@ function wrapped(filter?: string[]) {
     testFile: TEST_FILE,
     tests,
     filter: filter && new Set(filter),
+    bail,
     env,
     now: () => (clock += 5),
     nodeTest: fake.module,
@@ -386,6 +387,41 @@ describe('wrapNodeTest', () => {
     );
     assert.equal(ns.currentTestId, undefined);
   });
+
+  for (const bail of [true, false]) {
+    it(`${bail ? 'skips' : 'runs'} the tests after a failure with bail ${bail ? 'on' : 'off'}`, async () => {
+      const { module, registrations, tests } = wrapped(undefined, bail);
+      const ran: string[] = [];
+      module.it('passes', () => {
+        ran.push('passes');
+      });
+      module.it('fails', () => {
+        ran.push('fails');
+        throw new Error('no');
+      });
+      module.it('later', () => {
+        ran.push('later');
+      });
+      module.it('calls back later', (_t: unknown, done: () => void) => {
+        ran.push('calls back later');
+        done();
+      });
+      const calls: unknown[][] = [];
+
+      await bodyOf(registrations, 'passes')();
+      await assert.rejects(bodyOf(registrations, 'fails')());
+      await bodyOf(registrations, 'later')();
+      await bodyOf(registrations, 'calls back later')({}, (...args: unknown[]) => calls.push(args));
+
+      const all = ['passes', 'fails', 'later', 'calls back later'];
+      assert.deepEqual(ran, bail ? all.slice(0, 2) : all);
+      assert.deepEqual(
+        tests.map((test) => test.id),
+        ran.map((name) => `${TEST_FILE} > ${name}`),
+      );
+      assert.deepEqual(calls, [bail ? [] : [undefined]]);
+    });
+  }
 });
 
 interface Harness {
@@ -597,6 +633,26 @@ describe('install', () => {
       [`${TEST_FILE} > wanted`],
     );
   });
+
+  for (const bail of ['true', 'false', undefined]) {
+    it(`${bail === 'true' ? 'skips' : 'runs'} later tests with bail ${String(bail)}; children never bail`, async () => {
+      const env = { [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.bail]: bail };
+      const { deps, fake } = harness(env);
+      const ran: string[] = [];
+      install(deps);
+      fake.module.it('fails', () => {
+        throw new Error('no');
+      });
+      fake.module.it('later', () => {
+        ran.push('later');
+      });
+      await assert.rejects(bodyOf(fake.registrations, 'fails')());
+      await bodyOf(fake.registrations, 'later')();
+
+      assert.deepEqual(ran, bail === 'true' ? [] : ['later']);
+      assert.ok(!(ENV.bail in env));
+    });
+  }
 
   it('writes the hit count and, only in the dry run, the mutant coverage', () => {
     const coverage = { static: { 1: 2 }, perTest: { [`${TEST_FILE} > t`]: { 3: 1 } } };

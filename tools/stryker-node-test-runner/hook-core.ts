@@ -52,6 +52,7 @@ export const ENV = {
   hitLimit: 'STRYKER_NODE_TEST_HIT_LIMIT',
   current: 'STRYKER_NODE_TEST_CURRENT',
   filter: 'STRYKER_NODE_TEST_FILTER',
+  bail: 'STRYKER_NODE_TEST_BAIL',
 } as const;
 
 export interface HookDependencies {
@@ -91,13 +92,16 @@ export function install(deps: HookDependencies): boolean {
   }
 
   ns.currentTestId = deps.env[ENV.current] || undefined;
+  const bail = deps.env[ENV.bail] === 'true';
+  // Processes the tests start never bail: skipping tests there would change results that the parent test checks.
+  delete deps.env[ENV.bail];
   const tests: RecordedTest[] = [];
   const testFile = deps.env[ENV.file];
 
   if (testFile && deps.mainFile === testFile) {
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
-    wrapNodeTest({ ns, testFile, tests, filter, env: deps.env, now: deps.now, nodeTest: deps.nodeTest() });
+    wrapNodeTest({ ns, testFile, tests, filter, bail, env: deps.env, now: deps.now, nodeTest: deps.nodeTest() });
     deps.publishNodeTest();
   }
 
@@ -119,6 +123,8 @@ export interface WrapOptions {
   tests: RecordedTest[];
   /** Test ids to run; the bodies of all other tests are skipped. Runs every test when absent. */
   filter: Set<string> | undefined;
+  /** Whether the bodies of tests that start after a test of this process failed are skipped. */
+  bail: boolean;
   env: Record<string, string | undefined>;
   now: () => number;
   nodeTest: NodeTestModule;
@@ -131,8 +137,9 @@ export interface WrapOptions {
  * value or a promise or that take node:test's `done` callback. Tests through the default export
  * (`import test from 'node:test'`) and `t.test` subtests are not attributed; add them when a test needs them.
  */
-export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }: WrapOptions): void {
+export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, nodeTest }: WrapOptions): void {
   const suites: string[] = [];
+  const bailed = () => bail && tests.some((test) => test.status === 'failed');
 
   for (const key of ['describe', 'suite'] as const) {
     const original = nodeTest[key];
@@ -186,6 +193,12 @@ export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }
         // node:test passes a `done` callback only to a function that declares a second parameter.
         if (body.length >= 2) {
           return function (this: unknown, context: unknown, done: (error?: unknown) => void) {
+            if (bailed()) {
+              done();
+
+              return;
+            }
+
             const start = enter();
             const finish = (error?: unknown) => {
               leave(start, error ? { error } : undefined);
@@ -202,6 +215,10 @@ export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }
         }
 
         return async function (this: unknown, ...args: unknown[]) {
+          if (bailed()) {
+            return;
+          }
+
           const start = enter();
 
           try {

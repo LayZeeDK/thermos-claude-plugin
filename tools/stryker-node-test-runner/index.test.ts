@@ -186,11 +186,12 @@ describe('runEnv', () => {
       [ENV.current]: 'outer test',
       [ENV.hitLimit]: '5',
       [ENV.filter]: '["outer"]',
+      [ENV.bail]: 'true',
       [ACTIVE_MUTANT]: '9',
     };
     const before = { ...base };
 
-    assert.deepEqual(runEnv(base, FILE, OUT, TMP, { dryRun: false, disableBail: false }, undefined), {
+    assert.deepEqual(runEnv(base, FILE, OUT, TMP, { dryRun: false, disableBail: true }, undefined), {
       PATH: 'path',
       NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)} --max-old-space-size=100`,
       [ENV.out]: OUT,
@@ -236,6 +237,17 @@ describe('runEnv', () => {
         [ENV.filter]: JSON.stringify([`${FILE} > test`]),
       },
     );
+  });
+
+  it('asks the test file to bail only in a mutant run with bail enabled', () => {
+    const bails = [
+      { dryRun: false, disableBail: false },
+      { dryRun: false, disableBail: true },
+      { dryRun: true, disableBail: false },
+      { dryRun: true, disableBail: true },
+    ].map((run) => runEnv({}, FILE, OUT, TMP, run, undefined)[ENV.bail]);
+
+    assert.deepEqual(bails, ['true', undefined, undefined, undefined]);
   });
 });
 
@@ -540,25 +552,35 @@ describe('NodeTestRunner', () => {
     });
   }
 
-  it('stops after the first file with a failure unless bail is disabled', async (t) => {
+  it('stops after the first file with a failure, and a mutant run after any failure, unless bail is off', async (t) => {
     const dir = project(t, {
-      'a.test.mjs': fixture("it('passes', () => {});", "it('fails', () => { throw new Error('expected failure'); });"),
+      'a.test.mjs': fixture(
+        "it('passes', () => {});",
+        "it('fails', () => { throw new Error('expected failure'); });",
+        "it('fails later', () => { throw new Error('later failure'); });",
+        "it('calls back later', (t, done) => { done(new Error('callback failure')); });",
+      ),
       'b.test.mjs': PASSING,
     });
     const runner = await initRunner(['b.test.mjs', 'a.test.mjs']);
     const a = join(dir, 'a.test.mjs');
     const passedA = { id: `${a} > passes`, status: TestStatus.Success, failureMessage: undefined };
     const failedA = { id: `${a} > fails`, status: TestStatus.Failed, failureMessage: 'expected failure' };
+    const laterA = [
+      { id: `${a} > fails later`, status: TestStatus.Failed, failureMessage: 'later failure' },
+      { id: `${a} > calls back later`, status: TestStatus.Failed, failureMessage: 'callback failure' },
+    ];
     const passedB = {
       id: `${join(dir, 'b.test.mjs')} > passes`,
       status: TestStatus.Success,
       failureMessage: undefined,
     };
 
-    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [passedA, failedA]);
+    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [passedA, failedA, ...laterA]);
     assert.deepEqual(summary(complete(await settle(runner.dryRun({ ...DRY_RUN, disableBail: true }))).tests), [
       passedA,
       failedA,
+      ...laterA,
       passedB,
     ]);
     assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
@@ -566,6 +588,12 @@ describe('NodeTestRunner', () => {
       killedBy: [failedA.id],
       failureMessage: 'expected failure',
       nrOfTests: 2,
+    });
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ disableBail: true }))), {
+      status: MutantRunStatus.Killed,
+      killedBy: [failedA.id, ...laterA.map((test) => test.id)],
+      failureMessage: 'expected failure',
+      nrOfTests: 5,
     });
   });
 

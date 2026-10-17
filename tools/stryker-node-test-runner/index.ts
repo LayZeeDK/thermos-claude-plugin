@@ -142,7 +142,9 @@ export function runEnv(
     TMP: tmpDir,
   };
 
-  for (const key of [ENV.current, ENV.hitLimit, ENV.filter, INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE]) {
+  const runState = [ENV.current, ENV.hitLimit, ENV.filter, ENV.bail, INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE];
+
+  for (const key of runState) {
     delete env[key];
   }
 
@@ -160,6 +162,11 @@ export function runEnv(
 
   if (run.testFilter) {
     env[ENV.filter] = JSON.stringify(run.testFilter);
+  }
+
+  // The dry run must run every test to collect each one's coverage.
+  if (!run.dryRun && !run.disableBail) {
+    env[ENV.bail] = 'true';
   }
 
   return env;
