@@ -168,6 +168,27 @@ describe('recordEvents', () => {
       ],
     );
   });
+
+  it("records where node:test found the test file's failing `after` hook, and the wrapper found everything else", () => {
+    const error = { failureType: 'hookFailed', message: 'after failure' };
+    const at = (file: string) => ({ file, line: 3, column: 5 });
+    const hookIn = (file: string): TestEvent => ({
+      type: 'test:fail',
+      data: { name: TEST_FILE, nesting: 0, ...at(file), details: { duration_ms: 4, error } },
+    });
+
+    assert.deepEqual(
+      [
+        record([
+          { type: 'test:start', data: { name: 'wrapped', nesting: 0 } },
+          { type: 'test:pass', data: { name: 'wrapped', nesting: 0, ...at(TEST_FILE), details: testDetails } },
+          hookIn(TEST_FILE),
+        ]),
+        record([hookIn(join('/repo', 'helper.ts'))]),
+      ].map((tests) => tests.map(({ startPosition }) => startPosition)),
+      [[undefined, { line: 2, column: 4 }], [undefined]],
+    );
+  });
 });
 
 let imports = 0;

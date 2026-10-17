@@ -90,6 +90,10 @@ export interface TestEvent {
     nesting: number;
     skip?: unknown;
     todo?: unknown;
+    /** Where the suite, test or hook is declared, 1-based; for those the wrapper registers, that is the wrapper. */
+    file?: string;
+    line?: number;
+    column?: number;
     /** Present on `test:pass` and `test:fail`. */
     details?: {
       /** Absent when the test file itself fails. */
@@ -260,11 +264,14 @@ export function recordEvents(
 
     const enclosing = Array.from({ length: data.nesting }, (_, level) => names.get(level) as string);
     // node:test reports a failing `after` hook of the test file as a failure of the file itself, which has no type.
-    const name = kind === undefined ? '"after" hook' : data.name;
+    const fileHook = kind === undefined;
+    const name = fileHook ? '"after" hook' : data.name;
     const id = [...enclosing, name].reduce(testId, testFile);
 
     const test: RecordedTest = { id, status: 'passed', timeSpentMs };
-    const startPosition = positions.get(id);
+    // The wrapper leaves `after` alone, so node:test's position of the hook is where the test file declares it.
+    const startPosition =
+      fileHook && data.file === testFile ? { line: data.line! - 1, column: data.column! - 1 } : positions.get(id);
 
     if (startPosition) {
       test.startPosition = startPosition;

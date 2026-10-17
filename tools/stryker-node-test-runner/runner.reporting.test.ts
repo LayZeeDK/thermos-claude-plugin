@@ -118,7 +118,7 @@ describe('NodeTestRunner results', () => {
     assert.deepEqual(fixtureCoverage(mutantCoverage), { static: {}, perTest: {} });
   });
 
-  it("names a failing `after` hook outside any suite as the test file's hook, which kills a mutant", async (t) => {
+  it("reports a failing `after` hook outside any suite as the test file's hook, where it is declared", async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
         "import { after } from 'node:test';",
@@ -133,10 +133,10 @@ describe('NodeTestRunner results', () => {
     const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
 
     assert.deepEqual(
-      tests.map(({ id, name, status }) => ({ id, name, status })),
+      tests.map(({ id, name, status, startPosition }) => ({ id, name, status, startPosition })),
       [
-        { id: `${a} > passes`, name: 'passes', status: TestStatus.Success },
-        { id: hook, name: '"after" hook', status: TestStatus.Failed },
+        { id: `${a} > passes`, name: 'passes', status: TestStatus.Success, startPosition: { line: 5, column: 0 } },
+        { id: hook, name: '"after" hook', status: TestStatus.Failed, startPosition: { line: 6, column: 0 } },
       ],
     );
     assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
