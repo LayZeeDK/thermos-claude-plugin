@@ -208,6 +208,7 @@ describe('runEnv', () => {
       PATH: 'path',
       NODE_OPTIONS: '--max-old-space-size=100',
       [ENV.out]: 'outer out',
+      NODE_TEST_CONTEXT: 'child-v8',
       TEMP: 'outer temp',
       [ENV.current]: 'outer test',
       [ENV.hitLimit]: '5',

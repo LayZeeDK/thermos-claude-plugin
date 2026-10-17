@@ -160,6 +160,9 @@ export function runEnv(
   };
 
   const runState = [
+    // Set when Stryker itself runs under `node --test`; node:test in the test file would then ignore `.only` and
+    // write its report to stdout for an outer runner instead of using its reporters.
+    'NODE_TEST_CONTEXT',
     ENV.current,
     ENV.hitLimit,
     ENV.filter,
