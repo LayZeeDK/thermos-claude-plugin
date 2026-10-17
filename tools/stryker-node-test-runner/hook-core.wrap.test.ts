@@ -372,7 +372,7 @@ describe('wrapNodeTest', () => {
     assert.deepEqual([node22.it.expectFailure, node22.expectFailure], [undefined, undefined]);
   });
 
-  it('notes where the test file declares each test, 0-based, from the innermost call in the test file', () => {
+  it('notes where the test file declares each suite and test, 0-based, from the innermost call in the test file', () => {
     const { module, positions, sites, registrations } = wrapped();
     const helper = join('/repo', 'helper.ts');
     sites.push({ file: helper, line: 2, column: 3 }, { file: TEST_FILE, line: 8, column: 5 });
@@ -388,6 +388,7 @@ describe('wrapNodeTest', () => {
 
     assert.deepEqual(Object.fromEntries(positions), {
       [`${TEST_FILE} > through a helper`]: { line: 7, column: 4 },
+      [`${TEST_FILE} > suite`]: { line: 0, column: 0 },
       [`${TEST_FILE} > suite > directly`]: { line: 0, column: 0 },
       [`${TEST_FILE} > suite > directly > subtest`]: { line: 0, column: 0 },
     });

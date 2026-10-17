@@ -23,7 +23,7 @@ export interface RecordedTest {
   status: 'passed' | 'failed' | 'skipped';
   failureMessage?: string;
   timeSpentMs: number;
-  /** Where the test file declares the test, directly or through a helper it calls. */
+  /** Where the test file declares the suite or test, directly or through a helper it calls. */
   startPosition?: Position;
 }
 
@@ -290,7 +290,7 @@ export interface WrapOptions {
    */
   activeMutant: string | undefined;
   env: Record<string, string | undefined>;
-  /** Where the test file declares each test, by id, for the wrapper to fill. */
+  /** Where the test file declares each suite and test, by id, for the wrapper to fill. */
   positions: Map<string, Position>;
   callSites: () => CallSite[];
   nodeTest: NodeTestModule;
@@ -353,6 +353,18 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     };
 
   /**
+   * Notes where the test file declares the suite or test with this id. node:test takes the position from its caller,
+   * which is a wrapper, so the wrapper finds it itself.
+   */
+  const declare = (id: string) => {
+    const site = callSites().find(({ file }) => file === testFile);
+
+    if (site) {
+      positions.set(id, { line: site.line - 1, column: site.column - 1 });
+    }
+  };
+
+  /**
    * A suite's or test's arguments as node:test reads them: an optional name, options and body. node:test names one
    * without a non-empty name after its body, or `<anonymous>`; the wrapper passes the name on, as the body it passes
    * is its own.
@@ -371,6 +383,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
       const id = testId(parentId(), name);
+      declare(id);
       const wrap = (suiteBody: Body) =>
         function (this: unknown, ...bodyArgs: unknown[]) {
           return running.run(id, () => suiteBody.apply(this, bodyArgs));
@@ -384,12 +397,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
       const id = testId(parent(), name);
-      // node:test takes a test's position from its caller, which is this wrapper, so the wrapper finds it itself.
-      const site = callSites().find(({ file }) => file === testFile);
-
-      if (site) {
-        positions.set(id, { line: site.line - 1, column: site.column - 1 });
-      }
+      declare(id);
       /** The test that was current when this one started, which is current again once this one ends. */
       let previous: string | undefined;
 
