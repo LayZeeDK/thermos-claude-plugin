@@ -996,6 +996,35 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('activates a runtime mutant before the before hooks of suites and before beforeEach hooks', async (t) => {
+    const active = `const active = () => process.env.${ACTIVE_MUTANT} || globalThis.__stryker__.activeMutant;`;
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { before } from 'node:test';",
+        active,
+        "before(() => { if (active()) throw new Error('top-level before hook ran mutated'); });",
+        "describe('suite', () => {",
+        "  before(() => { if (!active()) throw new Error('before hook ran unmutated'); });",
+        "  it('runs', () => {});",
+        '});',
+      ),
+      'b.test.mjs': fixture(
+        "import { beforeEach } from 'node:test';",
+        active,
+        "beforeEach((t, done) => done(active() ? undefined : new Error('beforeEach hook ran unmutated')));",
+        "it('runs', () => {});",
+      ),
+    });
+    const runner = await initRunner(['*.test.mjs']);
+
+    for (const testFilter of [[`${join(dir, 'a.test.mjs')} > suite > runs`], [`${join(dir, 'b.test.mjs')} > runs`]]) {
+      assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter }))), {
+        status: MutantRunStatus.Survived,
+        nrOfTests: 1,
+      });
+    }
+  });
+
   it('times out a mutant run that exceeds the hit limit', async (t) => {
     project(t, {
       'a.test.mjs': fixture(

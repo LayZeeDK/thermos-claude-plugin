@@ -62,6 +62,13 @@ function fakeNodeTest(expectFailure = true) {
 
       return `${kind} ${name}`;
     };
+  /** Registers a hook, recorded with its kind as its name and the hook as the first argument after it. */
+  const hook = (kind: string) =>
+    function (this: unknown, ...rest: unknown[]) {
+      registrations.push({ kind, name: kind, rest, self: this });
+
+      return kind;
+    };
   const withShorthands = (kind: string, tests = true) =>
     Object.assign(register(kind), {
       skip: register(`${kind}.skip`),
@@ -77,6 +84,8 @@ function fakeNodeTest(expectFailure = true) {
     suite: withShorthands('suite', false),
     it: withShorthands('it'),
     test,
+    before: hook('before'),
+    beforeEach: hook('beforeEach'),
     run: 'run',
   });
 
@@ -505,6 +514,44 @@ describe('wrapNodeTest', () => {
     await bodyOf(registrations, 'second')(testContext(), () => {});
 
     assert.deepEqual(seen, ['7', '7', '7']);
+  });
+
+  it('activates the runtime mutant before beforeEach hooks and the before hooks of suites run', () => {
+    const { module, registrations, ns, env } = wrapped(undefined, false, '7');
+    const seen: unknown[] = [];
+    const observe = function (this: unknown, ...args: unknown[]) {
+      seen.push(ns.activeMutant, env[ACTIVE_MUTANT_ENV], this, args);
+
+      return 'hook result';
+    };
+    const withDone = (_t: unknown, done: unknown) => (done as () => void)();
+    const topLevelBefore = () => {};
+    module.before(topLevelBefore, { timeout: 5 });
+    module.beforeEach(observe, { timeout: 6 });
+    module.beforeEach(withDone);
+    module.describe('suite', () => {
+      module.before(observe);
+    });
+    const hooks = registrations.filter(({ kind }) => kind !== 'describe').map(({ kind, rest }) => ({ kind, rest }));
+
+    assert.deepEqual(
+      hooks.map(({ kind, rest }) => [kind, rest.slice(1), (rest[0] as Fn).length]),
+      [
+        ['before', [{ timeout: 5 }], 0],
+        ['beforeEach', [{ timeout: 6 }], 0],
+        ['beforeEach', [], 2],
+        ['before', [], 0],
+      ],
+    );
+    assert.equal(hooks[0]?.rest[0], topLevelBefore);
+    assert.deepEqual([ns.activeMutant, env[ACTIVE_MUTANT_ENV]], [undefined, undefined]);
+
+    for (const index of [1, 3]) {
+      assert.equal((hooks[index]?.rest[0] as Fn).call('hook this', 'context'), 'hook result');
+      ns.activeMutant = undefined;
+    }
+
+    assert.deepEqual(seen, ['7', '7', 'hook this', ['context'], '7', '7', 'hook this', ['context']]);
   });
 
   it('leaves a statically activated mutant alone', async () => {

@@ -37,6 +37,7 @@ export interface StrykerNamespace {
 
 type Body = (this: unknown, ...args: unknown[]) => unknown;
 type Registrar = (this: unknown, name: string, ...rest: unknown[]) => unknown;
+type HookRegistrar = (this: unknown, hook: Body, ...rest: unknown[]) => unknown;
 /**
  * A node:test function with its shorthands, which do not call the function itself. Tests have `expectFailure` from
  * Node.js 24.
@@ -73,6 +74,8 @@ export type NodeTestModule = Register & {
   suite: Register;
   it: Register;
   test: Register;
+  before: HookRegistrar;
+  beforeEach: HookRegistrar;
 };
 
 /** Environment variables shared between the runner and the hook. */
@@ -224,7 +227,10 @@ export interface WrapOptions {
   filter: Set<string> | undefined;
   /** Whether tests that start after a test of this process failed are skipped. */
   bail: boolean;
-  /** The mutant to activate when the first test starts; it stays active for the rest of the process. */
+  /**
+   * The mutant to activate when the first test, or a `before` or `beforeEach` hook ahead of it, starts; it stays
+   * active for the rest of the process.
+   */
   activeMutant: string | undefined;
   env: Record<string, string | undefined>;
   nodeTest: NodeTestModule;
@@ -259,6 +265,27 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
    */
   const selected = (id: string) =>
     !filter || filter.has(testFile) || [...filter].some((test) => test === id || test.startsWith(`${id} > `));
+  /** Activates the runtime mutant, if any, for the rest of the process. */
+  const activate = () => {
+    // The environment variable makes the processes started from now on load with the mutant active.
+    if (activeMutant !== undefined) {
+      ns.activeMutant = activeMutant;
+      env[ACTIVE_MUTANT_ENV] = activeMutant;
+    }
+  };
+  /** Wraps a hook registrar so its hooks activate the mutant before they run, when `activates()` at registration. */
+  const wrapHook = (register: HookRegistrar, activates = () => true): HookRegistrar =>
+    function (this: unknown, hook: Body, ...rest: unknown[]) {
+      const activating = function (this: unknown, ...args: unknown[]) {
+        activate();
+
+        return hook.apply(this, args);
+      };
+      // node:test passes a `done` callback to a hook that declares a parameter for it.
+      Object.defineProperty(activating, 'length', { value: hook.length });
+
+      return register.call(this, activates() ? activating : hook, ...rest);
+    };
 
   const wrapSuite = (register: Registrar): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
@@ -287,12 +314,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
         parent = ns.currentTestId;
         setCurrent(id);
         context.test = wrapTest(context.test, () => [id]);
-
-        // The environment variable makes the processes the test starts load with the mutant active.
-        if (activeMutant !== undefined) {
-          ns.activeMutant = activeMutant;
-          env[ACTIVE_MUTANT_ENV] = activeMutant;
-        }
+        activate();
       };
       const leave = () => setCurrent(parent);
       const wrap = (body: Body): Body => {
@@ -359,6 +381,10 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     suite: withShorthands(nodeTest.suite, wrapSuite),
     it: withShorthands(nodeTest.it, wrapTest),
     test,
+    // A `before` hook outside any suite runs as soon as it is registered, while the file loads, like the rest of the
+    // file's top level; it runs before the mutant is active.
+    before: wrapHook(nodeTest.before, () => suites.length > 0),
+    beforeEach: wrapHook(nodeTest.beforeEach),
   });
 }
 
