@@ -246,6 +246,90 @@ describe('wrapNodeTest', () => {
     assert.equal(tests[0]?.failureMessage, 'plain text');
   });
 
+  it('records a rejection with a falsy value as a failure', async () => {
+    const { module, registrations, tests } = wrapped();
+    module.it('rejects with 0', async () => {
+      throw 0;
+    });
+
+    await assert.rejects(bodyOf(registrations, 'rejects with 0')(), (error) => error === 0);
+
+    assert.deepEqual(tests, [
+      { id: `${TEST_FILE} > rejects with 0`, status: 'failed', failureMessage: '0', timeSpentMs: 5 },
+    ]);
+  });
+
+  describe('callback-style tests', () => {
+    /** The registered body itself, which node:test inspects for a `done` parameter. */
+    function rawBodyOf(registrations: Registration[], name: string): Fn {
+      const registration = registrations.find((candidate) => candidate.name === name);
+      assert.ok(registration, `${name} was not registered`);
+
+      return registration.rest.find((arg) => typeof arg === 'function') as Fn;
+    }
+
+    it('declares `done`, so node:test passes it, and records the test when `done` is called', () => {
+      const { module, registrations, tests, ns, env } = wrapped();
+      const context = {};
+      const seen: unknown[] = [];
+      let finish: ((error?: unknown) => void) | undefined;
+      module.it('calls back', function (this: unknown, t: unknown, done: (error?: unknown) => void) {
+        seen.push(this, t, ns.currentTestId, env[ENV.current]);
+        finish = done;
+      });
+      const body = rawBodyOf(registrations, 'calls back');
+      const receiver = {};
+      const calls: unknown[][] = [];
+
+      assert.equal(body.length, 2);
+
+      body.call(receiver, context, (...args: unknown[]) => calls.push(args));
+
+      assert.deepEqual(seen, [receiver, context, `${TEST_FILE} > calls back`, `${TEST_FILE} > calls back`]);
+      assert.deepEqual(tests, []);
+
+      finish?.();
+
+      assert.deepEqual(calls, [[undefined]]);
+      assert.deepEqual(tests, [{ id: `${TEST_FILE} > calls back`, status: 'passed', timeSpentMs: 5 }]);
+      assert.equal(ns.currentTestId, undefined);
+      assert.ok(!(ENV.current in env));
+    });
+
+    it('records the error passed to `done` as a failure and passes it on', () => {
+      const { module, registrations, tests } = wrapped();
+      const failure = new Error('called back with an error');
+      module.it('fails', (_t: unknown, done: (error?: unknown) => void) => done(failure));
+      module.it('passes with null', (_t: unknown, done: (error?: unknown) => void) => done(null));
+      const calls: unknown[][] = [];
+
+      for (const name of ['fails', 'passes with null']) {
+        rawBodyOf(registrations, name)({}, (...args: unknown[]) => calls.push(args));
+      }
+
+      assert.deepEqual(calls, [[failure], [null]]);
+      assert.deepEqual(tests, [
+        { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'called back with an error', timeSpentMs: 5 },
+        { id: `${TEST_FILE} > passes with null`, status: 'passed', timeSpentMs: 5 },
+      ]);
+    });
+
+    it('records a synchronous throw as a failure and rethrows it', () => {
+      const { module, registrations, tests, ns } = wrapped();
+      module.it('throws', (_t: unknown, _done: unknown) => {
+        throw 0;
+      });
+
+      assert.throws(
+        () => rawBodyOf(registrations, 'throws')({}, () => {}),
+        (error) => error === 0,
+      );
+
+      assert.deepEqual(tests, [{ id: `${TEST_FILE} > throws`, status: 'failed', failureMessage: '0', timeSpentMs: 5 }]);
+      assert.equal(ns.currentTestId, undefined);
+    });
+  });
+
   it('sets the current test id in the namespace and the environment while the test runs', async () => {
     const { module, registrations, ns, env } = wrapped();
     const seen: unknown[] = [];

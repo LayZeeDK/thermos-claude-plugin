@@ -127,10 +127,9 @@ export interface WrapOptions {
 /**
  * Wraps node:test's suite and test functions so each test's id is known while it runs.
  *
- * ponytail: supports `(name, [options], fn)` calls with synchronous suite bodies and promise-or-sync test bodies,
- * which is what this repository's tests use. Callback-style tests (`(t, done)`) fail, because the wrapper declares
- * no `done` parameter, and tests through the default export (`import test from 'node:test'`) or `t.test` subtests
- * are not attributed; add them when a test needs them.
+ * ponytail: supports `(name, [options], fn)` calls with synchronous suite bodies, and test bodies that return a
+ * value or a promise or that take node:test's `done` callback. Tests through the default export
+ * (`import test from 'node:test'`) and `t.test` subtests are not attributed; add them when a test needs them.
  */
 export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }: WrapOptions): void {
   const suites: string[] = [];
@@ -157,28 +156,65 @@ export function wrapNodeTest({ ns, testFile, tests, filter, env, now, nodeTest }
     const original = nodeTest[key];
     nodeTest[key] = Object.assign(function (this: unknown, name: string, ...rest: unknown[]) {
       const id = [testFile, ...suites, String(name)].join(' > ');
-      const wrap = (body: Body) =>
-        filter && !filter.has(id)
-          ? () => {}
-          : async function (this: unknown, ...args: unknown[]) {
-              ns.currentTestId = id;
-              env[ENV.current] = id;
-              const start = now();
+      const enter = () => {
+        ns.currentTestId = id;
+        env[ENV.current] = id;
 
-              try {
-                const result = await body.apply(this, args);
-                tests.push({ id, status: 'passed', timeSpentMs: now() - start });
-
-                return result;
-              } catch (error) {
-                const failureMessage = error instanceof Error ? error.message : String(error);
-                tests.push({ id, status: 'failed', failureMessage, timeSpentMs: now() - start });
-                throw error;
-              } finally {
-                ns.currentTestId = undefined;
-                delete env[ENV.current];
+        return now();
+      };
+      /** Records the test as passed, or as failed with `failure.error`, and leaves it. */
+      const leave = (start: number, failure?: { error: unknown }) => {
+        const error = failure?.error;
+        tests.push(
+          failure
+            ? {
+                id,
+                status: 'failed',
+                failureMessage: error instanceof Error ? error.message : String(error),
+                timeSpentMs: now() - start,
               }
+            : { id, status: 'passed', timeSpentMs: now() - start },
+        );
+        ns.currentTestId = undefined;
+        delete env[ENV.current];
+      };
+      const wrap = (body: Body) => {
+        if (filter && !filter.has(id)) {
+          return () => {};
+        }
+
+        // node:test passes a `done` callback only to a function that declares a second parameter.
+        if (body.length >= 2) {
+          return function (this: unknown, context: unknown, done: (error?: unknown) => void) {
+            const start = enter();
+            const finish = (error?: unknown) => {
+              leave(start, error ? { error } : undefined);
+              done(error);
             };
+
+            try {
+              body.call(this, context, finish);
+            } catch (error) {
+              leave(start, { error });
+              throw error;
+            }
+          };
+        }
+
+        return async function (this: unknown, ...args: unknown[]) {
+          const start = enter();
+
+          try {
+            const result = await body.apply(this, args);
+            leave(start);
+
+            return result;
+          } catch (error) {
+            leave(start, { error });
+            throw error;
+          }
+        };
+      };
 
       return original.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
     }, original);

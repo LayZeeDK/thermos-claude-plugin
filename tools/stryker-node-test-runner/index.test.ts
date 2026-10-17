@@ -447,6 +447,27 @@ describe('NodeTestRunner', () => {
     assert.equal(exitCode, 0);
   });
 
+  it('reports callback-style tests once node:test calls them back', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('calls back', (t, done) => { setImmediate(done); });",
+        "it('calls back with an error', (t, done) => { setImmediate(() => done(new Error('late failure'))); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(summary(tests), [
+      { id: `${join(dir, 'a.test.mjs')} > calls back`, status: TestStatus.Success, failureMessage: undefined },
+      {
+        id: `${join(dir, 'a.test.mjs')} > calls back with an error`,
+        status: TestStatus.Failed,
+        failureMessage: 'late failure',
+      },
+    ]);
+  });
+
   it('runs the TypeScript test files outside node_modules by default', async (t) => {
     const dir = project(t, {
       'a.test.ts': PASSING,
