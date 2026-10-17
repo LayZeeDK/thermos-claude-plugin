@@ -1,4 +1,4 @@
-// Kept apart from index.test.ts: the runner runs test files in path order and stops at the first failing file, so
+// Kept apart from runner.test.ts: the runner runs test files in path order and stops at the first failing file, so
 // mutants in these module-level declarations, which run every test, are killed before the slow runner tests start.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';

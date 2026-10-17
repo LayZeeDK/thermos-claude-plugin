@@ -5,6 +5,7 @@ export default {
     'tools/**/*.ts',
     '!.claude/skills/**/*.test.ts',
     '!tools/**/*.test.ts',
+    '!tools/**/*.fixtures.ts',
     '!tools/**/*.bench.ts',
     '!tools/**/*.types.ts',
   ],
