@@ -1080,7 +1080,7 @@ describe('install', () => {
     });
   }
 
-  it('records the tests node:test reports in a file named after the process', () => {
+  it("records the tests node:test reports in a file named after the process, marked as the test file's", () => {
     const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.dryRun]: 'false' });
     install(deps);
     report(deps, 'passes', 'pass');
@@ -1092,6 +1092,7 @@ describe('install', () => {
       {
         path: join(OUT, '4321.json'),
         record: {
+          main: true,
           tests: [
             { id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 2 },
             { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'fails failed', timeSpentMs: 2 },

@@ -34,6 +34,8 @@ export interface Coverage {
 
 /** What the hook writes for one process when it exits. */
 export interface ProcessRecord {
+  /** Set for the process that runs the test file. */
+  main?: true;
   /** Tests this process ran; empty for processes the tests spawned. */
   tests: RecordedTest[];
   hitCount?: number;
@@ -164,8 +166,9 @@ export function install(deps: HookDependencies): boolean {
   delete deps.env[ENV.bail];
   const tests: RecordedTest[] = [];
   const testFile = deps.env[ENV.file];
+  const main = testFile !== undefined && deps.mainFile === testFile;
 
-  if (testFile && deps.mainFile === testFile) {
+  if (main) {
     const positions = new Map<string, Position>();
     deps.global[reporting] = recordEvents(testFile, tests, positions);
     const filterJson = deps.env[ENV.filter];
@@ -195,6 +198,7 @@ export function install(deps: HookDependencies): boolean {
   deps.onExit(() => {
     const dryRun = deps.env[ENV.dryRun] === 'true';
     deps.writeRecord(deps.join(outDir, `${deps.pid}.json`), {
+      ...(main && { main }),
       tests,
       hitCount: ns.hitCount,
       mutantCoverage: dryRun ? ns.mutantCoverage : undefined,

@@ -894,6 +894,19 @@ describe('NodeTestRunner', () => {
     assert.deepEqual(tests, []);
   });
 
+  it('reports a test file whose process exits without the record of its results as an error', async (t) => {
+    const dir = project(t, { 'a.test.mjs': PASSING, 'b.test.mjs': fixture('process.reallyExit(0);') });
+    const runner = await initRunner(['*.test.mjs']);
+
+    assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), {
+      status: DryRunStatus.Error,
+      errorMessage:
+        `Missing test results for "${join(dir, 'b.test.mjs')}": its process ended without writing them. ` +
+        'Either the Stryker hook did not run in it, or it left without running exit listeners ' +
+        '(process.reallyExit, process.abort).',
+    });
+  });
+
   it('reports a test file whose process is killed as an error, losing the tests it ran', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(

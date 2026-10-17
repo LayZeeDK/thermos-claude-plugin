@@ -326,6 +326,15 @@ export class NodeTestRunner implements TestRunner {
         return { status: DryRunStatus.Error, errorMessage };
       }
 
+      // Without its record the file's results are unknown, as when jest's runner misses a file's coverage.
+      if (!records.some((record) => record.main)) {
+        const errorMessage =
+          `Missing test results for "${file}": its process ended without writing them. Either the Stryker hook ` +
+          'did not run in it, or it left without running exit listeners (process.reallyExit, process.abort).';
+
+        return { status: DryRunStatus.Error, errorMessage };
+      }
+
       tests.push(...results);
 
       if (!run.disableBail && failed) {
