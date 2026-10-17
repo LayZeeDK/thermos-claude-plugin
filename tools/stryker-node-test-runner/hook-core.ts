@@ -5,7 +5,8 @@
 export interface RecordedTest {
   /** The test file's absolute path, the enclosing suite names, and the test name, joined by ` > `. */
   id: string;
-  status: 'passed' | 'failed';
+  /** Skipped tests include todo tests, which run but whose outcome node:test ignores. */
+  status: 'passed' | 'failed' | 'skipped';
   failureMessage?: string;
   timeSpentMs: number;
 }
@@ -34,7 +35,14 @@ export interface StrykerNamespace {
 }
 
 type Body = (this: unknown, ...args: unknown[]) => unknown;
-type Register = (this: unknown, name: string, ...rest: unknown[]) => unknown;
+type Registrar = (this: unknown, name: string, ...rest: unknown[]) => unknown;
+/** A node:test function with its shorthands, which do not call the function itself. */
+type Register = Registrar & { skip: Registrar; todo: Registrar; only: Registrar };
+/** The options of a test or suite, as node:test reads them. */
+interface Flags {
+  skip?: unknown;
+  todo?: unknown;
+}
 
 /** The node:test functions the hook wraps. */
 export interface NodeTestModule {
@@ -138,15 +146,18 @@ export interface WrapOptions {
  * (`import test from 'node:test'`) and `t.test` subtests are not attributed; add them when a test needs them.
  */
 export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, nodeTest }: WrapOptions): void {
-  const suites: string[] = [];
+  const suites: { name: string; todo: unknown }[] = [];
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
+  /** The flags of a registration's options, `rest[0]` unless that is the body, which has none, and its shorthand's. */
+  const flagsOf = (rest: unknown[], shorthand?: Flags): Flags => ({ ...(rest[0] as object), ...shorthand });
 
   for (const key of ['describe', 'suite'] as const) {
     const original = nodeTest[key];
     nodeTest[key] = Object.assign(function (this: unknown, name: string, ...rest: unknown[]) {
+      const suite = { name: String(name), todo: flagsOf(rest).todo };
       const wrap = (body: Body) =>
         function (this: unknown, ...args: unknown[]) {
-          suites.push(String(name));
+          suites.push(suite);
 
           try {
             return body.apply(this, args);
@@ -159,29 +170,42 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, node
     }, original);
   }
 
-  for (const key of ['it', 'test'] as const) {
-    const original = nodeTest[key];
-    nodeTest[key] = Object.assign(function (this: unknown, name: string, ...rest: unknown[]) {
-      const id = [testFile, ...suites, String(name)].join(' > ');
+  const wrapTest = (register: Registrar, shorthand?: Flags): Registrar =>
+    function (this: unknown, name: string, ...rest: unknown[]) {
+      const id = [testFile, ...suites.map((suite) => suite.name), String(name)].join(' > ');
+      const flags = flagsOf(rest, shorthand);
+      // node:test runs a todo test, and the tests of a todo suite, but ignores their outcome.
+      const todo = flags.todo || suites.some((suite) => suite.todo);
+
+      // A skipped test, and a todo test without a body, never runs, so it is recorded when it is registered.
+      if (flags.skip || (todo && !rest.some((arg) => typeof arg === 'function'))) {
+        tests.push({ id, status: 'skipped', timeSpentMs: 0 });
+      }
+
       const enter = () => {
         ns.currentTestId = id;
         env[ENV.current] = id;
 
         return now();
       };
-      /** Records the test as passed, or as failed with `failure.error`, and leaves it. */
+      /** Records the test as skipped if it is a todo test, else as passed or as failed with `failure.error`. */
       const leave = (start: number, failure?: { error: unknown }) => {
+        const timeSpentMs = now() - start;
         const error = failure?.error;
-        tests.push(
-          failure
-            ? {
-                id,
-                status: 'failed',
-                failureMessage: error instanceof Error ? error.message : String(error),
-                timeSpentMs: now() - start,
-              }
-            : { id, status: 'passed', timeSpentMs: now() - start },
-        );
+
+        if (todo) {
+          tests.push({ id, status: 'skipped', timeSpentMs });
+        } else if (failure) {
+          tests.push({
+            id,
+            status: 'failed',
+            failureMessage: error instanceof Error ? error.message : String(error),
+            timeSpentMs,
+          });
+        } else {
+          tests.push({ id, status: 'passed', timeSpentMs });
+        }
+
         ns.currentTestId = undefined;
         delete env[ENV.current];
       };
@@ -234,7 +258,14 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, node
         };
       };
 
-      return original.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
-    }, original);
+      return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
+    };
+
+  for (const key of ['it', 'test'] as const) {
+    const original = nodeTest[key];
+    nodeTest[key] = Object.assign(wrapTest(original), original, {
+      skip: wrapTest(original.skip, { skip: true }),
+      todo: wrapTest(original.todo, { todo: true }),
+    });
   }
 }

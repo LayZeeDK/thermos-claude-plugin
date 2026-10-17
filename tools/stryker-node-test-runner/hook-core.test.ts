@@ -14,11 +14,11 @@ import {
   type StrykerNamespace,
 } from './hook-core.ts';
 
-type Kind = keyof NodeTestModule;
 type Fn = (this: unknown, ...args: unknown[]) => unknown;
 
 interface Registration {
-  kind: Kind;
+  /** The node:test function, such as `it` or `it.skip`. */
+  kind: string;
   name: string;
   /** The arguments after the name, as the wrapper passed them on. */
   rest: unknown[];
@@ -33,35 +33,40 @@ interface SuiteCall {
 const TEST_FILE = join('/repo', 'a.test.ts');
 
 /**
- * A stand-in for node:test that records registrations. Like node:test, it runs suite bodies while they are
- * registered (with a recognisable `this` and argument) and reports a suite body that throws instead of throwing.
+ * A stand-in for node:test that records registrations. Like node:test, it runs suite bodies, except those of skipped
+ * suites, while they are registered (with a recognisable `this` and argument) and reports a suite body that throws
+ * instead of throwing.
  */
 function fakeNodeTest() {
   const registrations: Registration[] = [];
   const suiteResults: unknown[] = [];
-  const register = (kind: Kind) =>
-    Object.assign(
-      function (this: unknown, name: string, ...rest: unknown[]) {
-        registrations.push({ kind, name, rest, self: this });
-        const body = rest.find((arg) => typeof arg === 'function') as Fn | undefined;
+  const register = (kind: string) =>
+    function (this: unknown, name: string, ...rest: unknown[]) {
+      registrations.push({ kind, name, rest, self: this });
+      const body = rest.find((arg) => typeof arg === 'function') as Fn | undefined;
 
-        if ((kind === 'describe' || kind === 'suite') && body) {
-          try {
-            suiteResults.push(body.call('suite this', 'suite argument'));
-          } catch (error) {
-            suiteResults.push(error);
-          }
+      if (/^(describe|suite)(\.only|\.todo)?$/.test(kind) && body) {
+        try {
+          suiteResults.push(body.call('suite this', 'suite argument'));
+        } catch (error) {
+          suiteResults.push(error);
         }
+      }
 
-        return `${kind} ${name}`;
-      },
-      { skip: `${kind}.skip` },
-    );
+      return `${kind} ${name}`;
+    };
+  const withShorthands = (kind: string) =>
+    Object.assign(register(kind), {
+      skip: register(`${kind}.skip`),
+      todo: register(`${kind}.todo`),
+      only: register(`${kind}.only`),
+      mock: `${kind}.mock`,
+    });
   const module: NodeTestModule = {
-    describe: register('describe'),
-    suite: register('suite'),
-    it: register('it'),
-    test: register('test'),
+    describe: withShorthands('describe'),
+    suite: withShorthands('suite'),
+    it: withShorthands('it'),
+    test: withShorthands('test'),
   };
 
   return { module, registrations, suiteResults };
@@ -187,25 +192,100 @@ describe('wrapNodeTest', () => {
 
   it('registers tests and suites without a body unchanged', () => {
     const { module, registrations, tests } = wrapped();
-    module.describe('todo suite');
-    module.it('todo test', { todo: true });
+    module.describe('empty suite');
+    module.it('empty test', { timeout: 5 });
 
     assert.deepEqual(
       registrations.map(({ name, rest }) => ({ name, rest })),
       [
-        { name: 'todo suite', rest: [] },
-        { name: 'todo test', rest: [{ todo: true }] },
+        { name: 'empty suite', rest: [] },
+        { name: 'empty test', rest: [{ timeout: 5 }] },
       ],
     );
     assert.deepEqual(tests, []);
   });
 
-  it('keeps the properties of the node:test functions, such as skip', () => {
+  it('keeps the other properties of the node:test functions', () => {
     const { module } = wrapped();
 
     for (const kind of ['describe', 'suite', 'it', 'test'] as const) {
-      assert.equal((module[kind] as unknown as { skip: string }).skip, `${kind}.skip`);
+      assert.equal((module[kind] as unknown as { mock: string }).mock, `${kind}.mock`);
     }
+  });
+
+  it('records a skipped test as skipped when it is registered, and never runs it', () => {
+    const { module, registrations, tests } = wrapped();
+    const run = () => assert.fail('ran a skipped test');
+    module.describe('suite', () => {
+      module.it('option', { skip: true }, run);
+    });
+    module.test('reason', { skip: 'not on this platform' }, run);
+    module.it('skipped todo', { skip: true, todo: true }, run);
+    module.it.skip('it.skip', run);
+    module.test.skip('test.skip', run);
+    module.it('not skipped', { skip: false }, () => {});
+
+    assert.deepEqual(tests, [
+      { id: `${TEST_FILE} > suite > option`, status: 'skipped', timeSpentMs: 0 },
+      { id: `${TEST_FILE} > reason`, status: 'skipped', timeSpentMs: 0 },
+      { id: `${TEST_FILE} > skipped todo`, status: 'skipped', timeSpentMs: 0 },
+      { id: `${TEST_FILE} > it.skip`, status: 'skipped', timeSpentMs: 0 },
+      { id: `${TEST_FILE} > test.skip`, status: 'skipped', timeSpentMs: 0 },
+    ]);
+    assert.deepEqual(
+      registrations.map(({ kind, name }) => `${kind} ${name}`),
+      [
+        'describe suite',
+        'it option',
+        'test reason',
+        'it skipped todo',
+        'it.skip it.skip',
+        'test.skip test.skip',
+        'it not skipped',
+      ],
+    );
+  });
+
+  it('runs a todo test but records it as skipped whatever its outcome, so it never bails', async () => {
+    const { module, registrations, tests } = wrapped(undefined, true);
+    const failure = new Error('not done yet');
+    const ran: string[] = [];
+    const fails = (name: string) => () => {
+      ran.push(name);
+      throw failure;
+    };
+    module.it('option', { todo: 'later' }, fails('option'));
+    module.it.todo('it.todo', fails('it.todo'));
+    module.test.todo('test.todo', () => {
+      ran.push('test.todo');
+    });
+    module.describe('todo suite', { todo: true }, () => {
+      module.it('inside', fails('inside'));
+    });
+    module.it.todo('without a body');
+    module.it('options without a body', { todo: true });
+    module.it('after', () => {
+      ran.push('after');
+    });
+
+    for (const name of ['option', 'it.todo', 'inside']) {
+      await assert.rejects(bodyOf(registrations, name)(), (error) => error === failure);
+    }
+
+    for (const name of ['test.todo', 'after']) {
+      await bodyOf(registrations, name)();
+    }
+
+    assert.deepEqual(ran, ['option', 'it.todo', 'inside', 'test.todo', 'after']);
+    assert.deepEqual(tests, [
+      { id: `${TEST_FILE} > without a body`, status: 'skipped', timeSpentMs: 0 },
+      { id: `${TEST_FILE} > options without a body`, status: 'skipped', timeSpentMs: 0 },
+      { id: `${TEST_FILE} > option`, status: 'skipped', timeSpentMs: 5 },
+      { id: `${TEST_FILE} > it.todo`, status: 'skipped', timeSpentMs: 5 },
+      { id: `${TEST_FILE} > todo suite > inside`, status: 'skipped', timeSpentMs: 5 },
+      { id: `${TEST_FILE} > test.todo`, status: 'skipped', timeSpentMs: 5 },
+      { id: `${TEST_FILE} > after`, status: 'passed', timeSpentMs: 5 },
+    ]);
   });
 
   it('records a passing test with the time it took', async () => {

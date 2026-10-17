@@ -75,6 +75,7 @@ describe('toTestResults', () => {
           { id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1.6 },
           { id: `${FILE} > fails`, status: 'failed', failureMessage: 'boom', timeSpentMs: 2.4 },
           { id: `${FILE} > fails silently`, status: 'failed', timeSpentMs: 0 },
+          { id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0.4 },
         ],
         1,
         'stderr of a failing run',
@@ -88,8 +89,16 @@ describe('toTestResults', () => {
           status: TestStatus.Failed,
           failureMessage: 'Test failed',
         },
+        { ...base(`${FILE} > skipped`), timeSpentMs: 0, status: TestStatus.Skipped },
       ],
     );
+  });
+
+  it('reports a failed exit with only skipped tests as a failure of the file', () => {
+    assert.deepEqual(toTestResults(FILE, [{ id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0 }], 1, ''), [
+      { ...base(`${FILE} > skipped`), timeSpentMs: 0, status: TestStatus.Skipped },
+      { ...base(FILE), timeSpentMs: 0, status: TestStatus.Failed, failureMessage: 'node exited with code 1' },
+    ]);
   });
 
   it('adds nothing for a clean exit', () => {
@@ -613,6 +622,28 @@ describe('NodeTestRunner', () => {
       assert.deepEqual(summary(tests), [{ id: join(dir, 'a.test.mjs'), status: TestStatus.Failed, failureMessage }]);
     });
   }
+
+  it('reports skipped and todo tests as skipped, so a failing todo test kills no mutant', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('passes', () => {});",
+        "it('is not done', { todo: true }, () => { throw new Error('todo failure'); });",
+        "it.skip('is skipped', () => { throw new Error('ran a skipped test'); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
+      { id: `${a} > is skipped`, status: TestStatus.Skipped, failureMessage: undefined },
+      { id: `${a} > passes`, status: TestStatus.Success, failureMessage: undefined },
+      { id: `${a} > is not done`, status: TestStatus.Skipped, failureMessage: undefined },
+    ]);
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
+  });
 
   it('reports no tests for a test file that declares none', async (t) => {
     project(t, { 'a.test.mjs': fixture("cover('s');") });

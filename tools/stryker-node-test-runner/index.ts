@@ -99,9 +99,11 @@ export function toTestResults(
   const results: TestResult[] = recorded.map((test) => {
     const base = { id: test.id, name: test.id, fileName: testFile, timeSpentMs: Math.round(test.timeSpentMs) };
 
-    return test.status === 'passed'
-      ? { ...base, status: TestStatus.Success }
-      : { ...base, status: TestStatus.Failed, failureMessage: test.failureMessage ?? 'Test failed' };
+    if (test.status === 'failed') {
+      return { ...base, status: TestStatus.Failed, failureMessage: test.failureMessage ?? 'Test failed' };
+    }
+
+    return { ...base, status: test.status === 'passed' ? TestStatus.Success : TestStatus.Skipped };
   });
 
   if (exitCode !== 0 && !results.some((result) => result.status === TestStatus.Failed)) {
