@@ -8,7 +8,12 @@ import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
-import { INSTRUMENTER_CONSTANTS, type MutantCoverage, type StrykerOptions } from '@stryker-mutator/api/core';
+import {
+  INSTRUMENTER_CONSTANTS,
+  type CoverageAnalysis,
+  type MutantCoverage,
+  type StrykerOptions,
+} from '@stryker-mutator/api/core';
 import type { Logger } from '@stryker-mutator/api/logging';
 import { commonTokens, declareClassPlugin, PluginKind, tokens } from '@stryker-mutator/api/plugin';
 import {
@@ -36,6 +41,8 @@ export interface NodeTestOptions {
 interface RunOptions {
   dryRun: boolean;
   disableBail: boolean;
+  /** Set in the dry run only. */
+  coverageAnalysis?: CoverageAnalysis;
   activeMutant?: string;
   hitLimit?: number;
   /** Test ids to run; every test runs when absent. */
@@ -51,8 +58,11 @@ export interface FileRun {
 
 const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
 
-/** Merges the mutant coverage of several processes by adding up the hit counts. */
-export function mergeCoverage(coverages: (MutantCoverage | undefined)[]): MutantCoverage {
+/**
+ * Merges the mutant coverage of several processes by adding up the hit counts. Without `perTest`, the hits inside
+ * tests count as static, as Stryker's coverage analysis `all` expects.
+ */
+export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest = true): MutantCoverage {
   const total: MutantCoverage = { static: {}, perTest: {} };
   const add = (into: Record<string, number>, from: Record<string, number>) => {
     for (const [mutantId, hits] of Object.entries(from)) {
@@ -68,7 +78,7 @@ export function mergeCoverage(coverages: (MutantCoverage | undefined)[]): Mutant
     add(total.static, coverage.static);
 
     for (const [testId, hits] of Object.entries(coverage.perTest)) {
-      add((total.perTest[testId] ??= {}), hits);
+      add(perTest ? (total.perTest[testId] ??= {}) : total.static, hits);
     }
   }
 
@@ -246,7 +256,11 @@ export class NodeTestRunner implements TestRunner {
   dryRun(options: DryRunOptions): Promise<DryRunResult> {
     const files = options.testFiles?.length ? options.testFiles.map((file) => resolve(file)) : this.#testFiles;
 
-    return this.#run(files, { dryRun: true, disableBail: options.disableBail });
+    return this.#run(files, {
+      dryRun: true,
+      disableBail: options.disableBail,
+      coverageAnalysis: options.coverageAnalysis,
+    });
   }
 
   async mutantRun(options: MutantRunOptions): Promise<MutantRunResult> {
@@ -286,9 +300,16 @@ export class NodeTestRunner implements TestRunner {
       }
     }
 
-    return run.dryRun
-      ? { status: DryRunStatus.Complete, tests, mutantCoverage: mergeCoverage(coverages) }
-      : { status: DryRunStatus.Complete, tests };
+    // A mutant run's result drops the coverage, which is empty there anyway.
+    if (run.coverageAnalysis === 'off') {
+      return { status: DryRunStatus.Complete, tests };
+    }
+
+    return {
+      status: DryRunStatus.Complete,
+      tests,
+      mutantCoverage: mergeCoverage(coverages, run.coverageAnalysis !== 'all'),
+    };
   }
 
   /**

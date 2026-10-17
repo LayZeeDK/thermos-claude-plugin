@@ -14,7 +14,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { after, describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { INSTRUMENTER_CONSTANTS, type Mutant, type StrykerOptions } from '@stryker-mutator/api/core';
+import { INSTRUMENTER_CONSTANTS, type Mutant, type MutantCoverage, type StrykerOptions } from '@stryker-mutator/api/core';
 import type { Logger } from '@stryker-mutator/api/logging';
 import {
   DryRunStatus,
@@ -48,6 +48,19 @@ describe('mergeCoverage', () => {
 
   it('is empty without coverage', () => {
     assert.deepEqual(mergeCoverage([]), { static: {}, perTest: {} });
+  });
+
+  it('counts the hits inside tests as static when asked to drop the tests', () => {
+    assert.deepEqual(
+      mergeCoverage(
+        [
+          { static: { 1: 1 }, perTest: { first: { 1: 1, 2: 1 } } },
+          { static: {}, perTest: { first: { 2: 3 }, second: { 4: 1 } } },
+        ],
+        false,
+      ),
+      { static: { 1: 2, 2: 4, 4: 1 }, perTest: {} },
+    );
   });
 });
 
@@ -345,6 +358,26 @@ function complete(result: DryRunResult): CompleteDryRunResult {
   return result as CompleteDryRunResult;
 }
 
+/**
+ * The fixture's own coverage. Under Stryker the runner under test is instrumented too, so its numeric mutant ids
+ * reach the coverage that the fixture's processes report.
+ */
+function fixtureCoverage(coverage: MutantCoverage | undefined): MutantCoverage | undefined {
+  const own = (hits: Record<string, number>) =>
+    Object.fromEntries(Object.entries(hits).filter(([id]) => !/^\d+$/.test(id)));
+
+  return (
+    coverage && {
+      static: own(coverage.static),
+      perTest: Object.fromEntries(
+        Object.entries(coverage.perTest)
+          .map(([test, hits]) => [test, own(hits)] as const)
+          .filter(([, hits]) => Object.keys(hits).length > 0),
+      ),
+    }
+  );
+}
+
 let stalled = false;
 
 // The runners under test and every process they start share this compile cache, so none of them creates its own.
@@ -538,8 +571,22 @@ describe('NodeTestRunner', () => {
     assert.deepEqual(debug, [`Running node ${file}`]);
   });
 
+  it('reports coverage as the coverage analysis asks: per test, all as static, or none', async (t) => {
+    const dir = project(t, { 'a.test.mjs': fixture("cover('s');", "it('covers', () => { cover('t'); });") });
+    const runner = await initRunner(['a.test.mjs']);
+    const coverage = async (coverageAnalysis: DryRunOptions['coverageAnalysis']) =>
+      fixtureCoverage(complete(await settle(runner.dryRun({ ...DRY_RUN, coverageAnalysis }))).mutantCoverage);
+
+    assert.deepEqual(await coverage('perTest'), {
+      static: { s: 1 },
+      perTest: { [`${join(dir, 'a.test.mjs')} > covers`]: { t: 1 } },
+    });
+    assert.deepEqual(await coverage('all'), { static: { s: 1, t: 1 }, perTest: {} });
+    assert.equal(await coverage('off'), undefined);
+  });
+
   for (const [description, source, failureMessage] of [
-    ['its stderr', fixture("process.stderr.write('first\\nsecond\\n');", 'process.exitCode = 3;'), 'first\nsecond'],
+    ['its stderr',fixture("process.stderr.write('first\\nsecond\\n');", 'process.exitCode = 3;'), 'first\nsecond'],
     ['its exit code', fixture('process.exitCode = 4;'), 'node exited with code 4'],
   ] as const) {
     it(`reports a test file that exits with an error outside any test as failed, with ${description}`, async (t) => {
