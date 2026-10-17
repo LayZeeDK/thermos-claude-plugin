@@ -92,18 +92,9 @@ export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest
   return total;
 }
 
-/**
- * Turns the recorded tests of one test file into Stryker test results. A process that exits with a non-zero code
- * without a recorded failure (an error outside any test, a hook failure, a test-level timeout) becomes one failed
- * result named after the file, so the failure is never lost.
- */
-export function toTestResults(
-  testFile: string,
-  recorded: RecordedTest[],
-  exitCode: number | null,
-  stderr: string,
-): TestResult[] {
-  const results: TestResult[] = recorded.map((test) => {
+/** Turns the recorded tests of one test file into Stryker test results. */
+export function toTestResults(testFile: string, recorded: RecordedTest[]): TestResult[] {
+  return recorded.map((test) => {
     const base = {
       id: test.id,
       name: test.id,
@@ -118,19 +109,21 @@ export function toTestResults(
 
     return { ...base, status: test.status === 'passed' ? TestStatus.Success : TestStatus.Skipped };
   });
+}
 
-  if (exitCode !== 0 && !results.some((result) => result.status === TestStatus.Failed)) {
-    results.push({
-      id: testFile,
-      name: testFile,
-      fileName: testFile,
-      timeSpentMs: 0,
-      status: TestStatus.Failed,
-      failureMessage: stderr.trim().split('\n').slice(-5).join('\n') || `node exited with code ${exitCode}`,
-    });
-  }
+/**
+ * The error message for a test file whose process failed outside any test, such as when it does not load, with the
+ * command that reproduces it and its stderr, as Stryker's tap runner reports it.
+ */
+export function fileError(testFile: string, exitCode: number | null, stderr: string, args: string[]): string {
+  const command = ['node', ...args.map((arg) => `"${arg}"`)].join(' ');
+  const output = stderr.trim();
 
-  return results;
+  return [
+    `Error running file "${testFile}": node exited with code ${exitCode} outside any test.`,
+    `To reproduce it, run \`${command}\` in ${process.cwd()}.`,
+    ...(output ? ['Stderr:', output] : []),
+  ].join('\n');
 }
 
 /** Returns the test files that contain at least one of the filtered test ids, or every file without a filter. */
@@ -323,10 +316,19 @@ export class NodeTestRunner implements TestRunner {
         coverages.push(record.mutantCoverage);
       }
 
-      const results = toTestResults(file, records.flatMap((record) => record.tests), exitCode, stderr);
+      const results = toTestResults(file, records.flatMap((record) => record.tests));
+      const failed = results.some((result) => result.status === TestStatus.Failed);
+
+      // Like Stryker's own runners, a failure that no test explains is an error, not a killed mutant.
+      if (exitCode !== 0 && !failed) {
+        const errorMessage = fileError(file, exitCode, stderr, [...this.#nodeArgs, file]);
+
+        return { status: DryRunStatus.Error, errorMessage };
+      }
+
       tests.push(...results);
 
-      if (!run.disableBail && results.some((result) => result.status === TestStatus.Failed)) {
+      if (!run.disableBail && failed) {
         break;
       }
     }

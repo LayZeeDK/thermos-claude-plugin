@@ -28,7 +28,7 @@ import {
 } from '@stryker-mutator/api/test-runner';
 
 import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
-import { filesFor, mergeCoverage, NodeTestRunner, removeDir, runEnv, toTestResults } from './index.ts';
+import { fileError, filesFor, mergeCoverage, NodeTestRunner, removeDir, runEnv, toTestResults } from './index.ts';
 
 const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
@@ -70,17 +70,12 @@ describe('toTestResults', () => {
 
   it('reports each recorded test with its status, rounded time, and failure message', () => {
     assert.deepEqual(
-      toTestResults(
-        FILE,
-        [
-          { id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1.6 },
-          { id: `${FILE} > fails`, status: 'failed', failureMessage: 'boom', timeSpentMs: 2.4 },
-          { id: `${FILE} > fails silently`, status: 'failed', timeSpentMs: 0 },
-          { id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0.4 },
-        ],
-        1,
-        'stderr of a failing run',
-      ),
+      toTestResults(FILE, [
+        { id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1.6 },
+        { id: `${FILE} > fails`, status: 'failed', failureMessage: 'boom', timeSpentMs: 2.4 },
+        { id: `${FILE} > fails silently`, status: 'failed', timeSpentMs: 0 },
+        { id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0.4 },
+      ]),
       [
         { ...base(`${FILE} > passes`), timeSpentMs: 2, status: TestStatus.Success },
         { ...base(`${FILE} > fails`), timeSpentMs: 2, status: TestStatus.Failed, failureMessage: 'boom' },
@@ -99,40 +94,26 @@ describe('toTestResults', () => {
     const startPosition = { line: 4, column: 2 };
 
     assert.deepEqual(
-      toTestResults(FILE, [{ id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1, startPosition }], 0, ''),
+      toTestResults(FILE, [{ id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1, startPosition }]),
       [{ ...base(`${FILE} > passes`), timeSpentMs: 1, status: TestStatus.Success, startPosition }],
     );
   });
+});
 
-  it('reports a failed exit with only skipped tests as a failure of the file', () => {
-    assert.deepEqual(toTestResults(FILE, [{ id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0 }], 1, ''), [
-      { ...base(`${FILE} > skipped`), timeSpentMs: 0, status: TestStatus.Skipped },
-      { ...base(FILE), timeSpentMs: 0, status: TestStatus.Failed, failureMessage: 'node exited with code 1' },
-    ]);
-  });
+describe('fileError', () => {
+  const command = `To reproduce it, run \`node "--no-deprecation" "${FILE}"\` in ${process.cwd()}.`;
 
-  it('adds nothing for a clean exit', () => {
-    assert.deepEqual(toTestResults(FILE, [], 0, 'a warning'), []);
-  });
-
-  for (const [description, exitCode, stderr, failureMessage] of [
-    [
-      'the last five lines of stderr',
-      1,
-      '  \nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\n  ',
-      'line 2\nline 3\nline 4\nline 5\nline 6',
-    ],
-    ['trimmed stderr', 1, '  only line \n', 'only line'],
-    ['the exit code without stderr', 3, ' \n', 'node exited with code 3'],
-    ['the missing exit code of a killed process', null, '', 'node exited with code null'],
+  for (const [description, exitCode, stderr, end] of [
+    ['trimmed stderr', 1, '  \nline 1\nline 2 \n', ['Stderr:', 'line 1', 'line 2']],
+    ['no stderr', 3, ' \n', []],
+    ['the missing exit code of a killed process', null, '', []],
   ] as const) {
-    it(`reports a failed exit without a recorded failure as a failure of the file, with ${description}`, () => {
-      assert.deepEqual(
-        toTestResults(FILE, [{ id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1 }], exitCode, stderr),
-        [
-          { ...base(`${FILE} > passes`), timeSpentMs: 1, status: TestStatus.Success },
-          { ...base(FILE), timeSpentMs: 0, status: TestStatus.Failed, failureMessage },
-        ],
+    it(`names the file, the exit code and the command, with ${description}`, () => {
+      assert.equal(
+        fileError(FILE, exitCode, stderr, ['--no-deprecation', FILE]),
+        [`Error running file "${FILE}": node exited with code ${exitCode} outside any test.`, command, ...end].join(
+          '\n',
+        ),
       );
     });
   }
@@ -152,7 +133,7 @@ describe('filesFor', () => {
     assert.deepEqual(filesFor(files, []), []);
   });
 
-  it('returns the files that contain a filtered test, or that are a filtered failure themselves', () => {
+  it('returns the files that contain a filtered test, or that the filter names themselves', () => {
     assert.deepEqual(filesFor(files, [`${longer} > suite > test`]), [longer]);
     assert.deepEqual(filesFor(files, [`${a} > test`]), [a]);
     assert.deepEqual(filesFor(files, [b, `${a} > test`]), [a, b]);
@@ -679,19 +660,27 @@ describe('NodeTestRunner', () => {
     assert.equal(await coverage('off'), undefined);
   });
 
-  for (const [description, source, failureMessage] of [
-    ['its stderr',fixture("process.stderr.write('first\\nsecond\\n');", 'process.exitCode = 3;'), 'first\nsecond'],
-    ['its exit code', fixture('process.exitCode = 4;'), 'node exited with code 4'],
-  ] as const) {
-    it(`reports a test file that exits with an error outside any test as failed, with ${description}`, async (t) => {
-      const dir = project(t, { 'a.test.mjs': source });
-      const runner = await initRunner(['a.test.mjs']);
-
-      const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
-
-      assert.deepEqual(summary(tests), [{ id: join(dir, 'a.test.mjs'), status: TestStatus.Failed, failureMessage }]);
+  it('reports a test file that fails outside any test as an error, after a passing file', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': PASSING,
+      'b.test.mjs': fixture(
+        "it('passes', () => {});",
+        "process.stderr.write('first\\nsecond\\n');",
+        'process.exitCode = 3;',
+      ),
     });
-  }
+    const options = { nodeTest: { testFiles: ['*.test.mjs'], nodeArgs: ['--no-deprecation'] } };
+    const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
+    await runner.init();
+    const b = join(dir, 'b.test.mjs');
+    const errorMessage = fileError(b, 3, 'first\nsecond\n', ['--no-deprecation', b]);
+
+    assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), { status: DryRunStatus.Error, errorMessage });
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
+      status: MutantRunStatus.Error,
+      errorMessage,
+    });
+  });
 
   it('reports skipped and todo tests as skipped, so a failing todo test kills no mutant', async (t) => {
     const dir = project(t, {
@@ -905,7 +894,7 @@ describe('NodeTestRunner', () => {
     assert.deepEqual(tests, []);
   });
 
-  it('reports a test file whose process is killed as failed, losing the tests it ran', async (t) => {
+  it('reports a test file whose process is killed as an error, losing the tests it ran', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
         "it('passes', () => {});",
@@ -913,14 +902,14 @@ describe('NodeTestRunner', () => {
       ),
     });
     const runner = await initRunner(['a.test.mjs']);
-
-    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+    const a = join(dir, 'a.test.mjs');
 
     // A signal leaves no exit code on POSIX; Windows terminates the process with exit code 1.
     const exitCode = process.platform === 'win32' ? 1 : null;
-    assert.deepEqual(summary(tests), [
-      { id: join(dir, 'a.test.mjs'), status: TestStatus.Failed, failureMessage: `node exited with code ${exitCode}` },
-    ]);
+    assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), {
+      status: DryRunStatus.Error,
+      errorMessage: fileError(a, exitCode, '', [a]),
+    });
   });
 
   it('stops after the first file with a failure, and a mutant run after any failure, unless bail is off', async (t) => {
@@ -1025,7 +1014,7 @@ describe('NodeTestRunner', () => {
     });
   });
 
-  it('kills a statically activated mutant that only module-level code reaches', async (t) => {
+  it('reports a statically activated mutant that breaks loading the test file as a runtime error', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
         `if (process.env.${ACTIVE_MUTANT} === 'fixture-mutant') throw new Error('module-level mutant');`,
@@ -1039,7 +1028,8 @@ describe('NodeTestRunner', () => {
       { id: `${a} > passes`, status: TestStatus.Success, failureMessage: undefined },
     ]);
     const result = await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'static' })));
-    assert.deepEqual(result.status === MutantRunStatus.Killed && result.killedBy, [a]);
+    assert.equal(result.status, MutantRunStatus.Error);
+    assert.match(result.status === MutantRunStatus.Error ? result.errorMessage : '', /Error: module-level mutant/);
   });
 
   it('activates a mutant once the tests start when activation is runtime, also in processes they start', async (t) => {
