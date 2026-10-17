@@ -9,6 +9,21 @@ export interface RecordedTest {
   status: 'passed' | 'failed' | 'skipped';
   failureMessage?: string;
   timeSpentMs: number;
+  /** Where the test file declares the test, directly or through a helper it calls. */
+  startPosition?: Position;
+}
+
+/** Where in the test file a test is declared, 0-based. */
+export interface Position {
+  line: number;
+  column: number;
+}
+
+/** A function call on the stack: its file path and its 1-based position. */
+export interface CallSite {
+  file: string;
+  line: number;
+  column: number;
 }
 
 /** Mutant coverage as Stryker's instrumented code records it. */
@@ -109,6 +124,9 @@ export interface HookDependencies {
   registerHooks: (hooks: ModuleHooks) => unknown;
   onExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
+  /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
+  callSites: () => { scriptName: string; lineNumber: number; columnNumber: number }[];
+  fileURLToPath: (url: string) => string;
   join: (...parts: string[]) => string;
 }
 
@@ -148,7 +166,8 @@ export function install(deps: HookDependencies): boolean {
   const testFile = deps.env[ENV.file];
 
   if (testFile && deps.mainFile === testFile) {
-    deps.global[reporting] = recordEvents(testFile, tests);
+    const positions = new Map<string, Position>();
+    deps.global[reporting] = recordEvents(testFile, tests, positions);
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
     const wrapped = wrapNodeTest({
@@ -159,6 +178,14 @@ export function install(deps: HookDependencies): boolean {
       bail,
       activeMutant: deps.env[ENV.activeMutant],
       env: deps.env,
+      positions,
+      // ES modules are named by their URL, CommonJS modules by their path.
+      callSites: () =>
+        deps.callSites().map(({ scriptName, lineNumber, columnNumber }) => ({
+          file: scriptName.startsWith('file:') ? deps.fileURLToPath(scriptName) : scriptName,
+          line: lineNumber,
+          column: columnNumber,
+        })),
       nodeTest: deps.nodeTest(),
     });
     deps.global[wrappedNodeTest] = wrapped;
@@ -179,9 +206,14 @@ export function install(deps: HookDependencies): boolean {
 
 /**
  * Returns a function that records the tests of one test file from node:test's reporter events, with ids built the
- * way the wrapper builds them. A suite is recorded only when it fails by itself, such as in a `before` hook.
+ * way the wrapper builds them, and the positions the wrapper found for them. A suite is recorded only when it fails by
+ * itself, such as in a `before` hook.
  */
-export function recordEvents(testFile: string, tests: RecordedTest[]): (event: TestEvent) => void {
+export function recordEvents(
+  testFile: string,
+  tests: RecordedTest[],
+  positions: Map<string, Position>,
+): (event: TestEvent) => void {
   /** The name of the test or suite that started last at each nesting level. */
   const names = new Map<number, string>();
 
@@ -205,16 +237,23 @@ export function recordEvents(testFile: string, tests: RecordedTest[]): (event: T
     const enclosing = Array.from({ length: data.nesting }, (_, level) => names.get(level));
     const id = [testFile, ...enclosing, data.name].join(' > ');
 
+    const test: RecordedTest = { id, status: 'passed', timeSpentMs };
+    const startPosition = positions.get(id);
+
+    if (startPosition) {
+      test.startPosition = startPosition;
+    }
+
     // node:test runs a todo test but ignores its outcome.
     if (data.skip !== undefined || data.todo !== undefined) {
-      tests.push({ id, status: 'skipped', timeSpentMs });
+      test.status = 'skipped';
     } else if (error) {
+      test.status = 'failed';
       // The cause is what the test threw; a hook failure, a timeout or an unmet expectFailure has a message only.
-      const failureMessage = error.cause instanceof Error ? error.cause.message : error.message;
-      tests.push({ id, status: 'failed', failureMessage, timeSpentMs });
-    } else {
-      tests.push({ id, status: 'passed', timeSpentMs });
+      test.failureMessage = error.cause instanceof Error ? error.cause.message : error.message;
     }
+
+    tests.push(test);
   };
 }
 
@@ -233,6 +272,9 @@ export interface WrapOptions {
    */
   activeMutant: string | undefined;
   env: Record<string, string | undefined>;
+  /** Where the test file declares each test, by id, for the wrapper to fill. */
+  positions: Map<string, Position>;
+  callSites: () => CallSite[];
   nodeTest: NodeTestModule;
 }
 
@@ -247,7 +289,7 @@ export interface WrapOptions {
  * after the first failure.
  */
 export function wrapNodeTest(options: WrapOptions): NodeTestModule {
-  const { ns, testFile, tests, filter, bail, activeMutant, env, nodeTest } = options;
+  const { ns, testFile, tests, filter, bail, activeMutant, env, positions, callSites, nodeTest } = options;
   const suites: string[] = [];
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
   const setCurrent = (id: string | undefined) => {
@@ -314,6 +356,12 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const wrapTest = (register: Registrar, scope = () => [testFile, ...suites]): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
       const id = [...scope(), String(name)].join(' > ');
+      // node:test takes a test's position from its caller, which is this wrapper, so the wrapper finds it itself.
+      const site = callSites().find(({ file }) => file === testFile);
+
+      if (site) {
+        positions.set(id, { line: site.line - 1, column: site.column - 1 });
+      }
       /** The test that registered this one as a subtest, which is current again once this one ends. */
       let parent: string | undefined;
 

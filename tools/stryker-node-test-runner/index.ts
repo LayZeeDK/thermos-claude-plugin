@@ -104,7 +104,13 @@ export function toTestResults(
   stderr: string,
 ): TestResult[] {
   const results: TestResult[] = recorded.map((test) => {
-    const base = { id: test.id, name: test.id, fileName: testFile, timeSpentMs: Math.round(test.timeSpentMs) };
+    const base = {
+      id: test.id,
+      name: test.id,
+      fileName: testFile,
+      timeSpentMs: Math.round(test.timeSpentMs),
+      ...(test.startPosition && { startPosition: test.startPosition }),
+    };
 
     if (test.status === 'failed') {
       return { ...base, status: TestStatus.Failed, failureMessage: test.failureMessage ?? 'Test failed' };

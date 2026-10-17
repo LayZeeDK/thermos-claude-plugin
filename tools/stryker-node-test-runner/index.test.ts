@@ -95,6 +95,15 @@ describe('toTestResults', () => {
     );
   });
 
+  it('reports where a test is declared when the hook recorded it', () => {
+    const startPosition = { line: 4, column: 2 };
+
+    assert.deepEqual(
+      toTestResults(FILE, [{ id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1, startPosition }], 0, ''),
+      [{ ...base(`${FILE} > passes`), timeSpentMs: 1, status: TestStatus.Success, startPosition }],
+    );
+  });
+
   it('reports a failed exit with only skipped tests as a failure of the file', () => {
     assert.deepEqual(toTestResults(FILE, [{ id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0 }], 1, ''), [
       { ...base(`${FILE} > skipped`), timeSpentMs: 0, status: TestStatus.Skipped },
@@ -820,6 +829,34 @@ describe('NodeTestRunner', () => {
         ]),
       ),
     });
+  });
+
+  it('reports where the test file declares each test, also through a helper', async (t) => {
+    const dir = project(t, {
+      'helper.mjs': "import { it } from 'node:test';\nexport const declare = () => it('from a helper', () => {});\n",
+      'a.test.mjs': fixture(
+        "import { declare } from './helper.mjs';",
+        "it('first', () => {});",
+        "describe('suite', () => {",
+        "  it('nested', () => {});",
+        '});',
+        'declare();',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    // fixture() starts every file with four lines.
+    assert.deepEqual(
+      tests.map(({ id, startPosition }) => ({ id, startPosition })),
+      [
+        { id: `${a} > first`, startPosition: { line: 5, column: 0 } },
+        { id: `${a} > suite > nested`, startPosition: { line: 7, column: 2 } },
+        { id: `${a} > from a helper`, startPosition: { line: 9, column: 0 } },
+      ],
+    );
   });
 
   it('names the tests inside only and todo suites after their suites', async (t) => {

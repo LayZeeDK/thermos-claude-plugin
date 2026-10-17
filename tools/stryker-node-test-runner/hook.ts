@@ -2,6 +2,8 @@
 import { writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { getCallSites } from 'node:util';
 
 import { install, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 
@@ -14,5 +16,7 @@ install({
   registerHooks: registerHooks as HookDependencies['registerHooks'],
   onExit: (listener) => process.on('exit', listener),
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
+  callSites: getCallSites,
+  fileURLToPath,
   join,
 });

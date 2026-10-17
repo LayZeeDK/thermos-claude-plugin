@@ -14,7 +14,9 @@ import {
   wrappedNodeTest,
   type HookDependencies,
   type ModuleHooks,
+  type CallSite,
   type NodeTestModule,
+  type Position,
   type ProcessRecord,
   type RecordedTest,
   type StrykerNamespace,
@@ -137,6 +139,9 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   const tests: RecordedTest[] = [];
   /** The current test id each test body saw, by calling `see`. */
   const seen: (string | undefined)[] = [];
+  const positions = new Map<string, Position>();
+  /** The call sites the wrapper finds on the stack. */
+  const sites: CallSite[] = [];
   const module = wrapNodeTest({
     ns,
     testFile: TEST_FILE,
@@ -145,10 +150,14 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
     bail,
     activeMutant,
     env,
+    positions,
+    callSites: () => sites,
     nodeTest: fake.module,
   });
 
-  return { ...fake, original: fake.module, module, ns, env, tests, seen, see: () => seen.push(ns.currentTestId) };
+  const see = () => seen.push(ns.currentTestId);
+
+  return { ...fake, original: fake.module, module, ns, env, tests, positions, sites, seen, see };
 }
 
 describe('wrapNodeTest', () => {
@@ -404,10 +413,33 @@ describe('wrapNodeTest', () => {
       bail: false,
       activeMutant: undefined,
       env: {},
+      positions: new Map(),
+      callSites: () => [],
       nodeTest: fakeNodeTest(false).module,
     });
 
     assert.deepEqual([node22.it.expectFailure, node22.expectFailure], [undefined, undefined]);
+  });
+
+  it('notes where the test file declares each test, 0-based, from the innermost call in the test file', () => {
+    const { module, positions, sites, registrations } = wrapped();
+    const helper = join('/repo', 'helper.ts');
+    sites.push({ file: helper, line: 2, column: 3 }, { file: TEST_FILE, line: 8, column: 5 });
+    sites.push({ file: TEST_FILE, line: 20, column: 1 });
+    module.it('through a helper', () => {});
+    sites.splice(0, Infinity, { file: TEST_FILE, line: 1, column: 1 });
+    module.describe('suite', () => {
+      module.test('directly', (t: { test: (name: string) => unknown }) => t.test('subtest'));
+    });
+    void bodyOf(registrations, 'directly')(testContext());
+    sites.splice(0, Infinity, { file: helper, line: 4, column: 1 });
+    module.it('only in a helper', () => {});
+
+    assert.deepEqual(Object.fromEntries(positions), {
+      [`${TEST_FILE} > through a helper`]: { line: 7, column: 4 },
+      [`${TEST_FILE} > suite > directly`]: { line: 0, column: 0 },
+      [`${TEST_FILE} > suite > directly > subtest`]: { line: 0, column: 0 },
+    });
   });
 
   it('rethrows what a test body throws or rejects with', async () => {
@@ -671,9 +703,9 @@ function reported(
   ];
 }
 
-function record(events: TestEvent[]): RecordedTest[] {
+function record(events: TestEvent[], positions = new Map<string, Position>()): RecordedTest[] {
   const tests: RecordedTest[] = [];
-  const recordEvent = recordEvents(TEST_FILE, tests);
+  const recordEvent = recordEvents(TEST_FILE, tests, positions);
 
   for (const event of events) {
     recordEvent(event);
@@ -731,6 +763,21 @@ describe('recordEvents', () => {
         { id: `${TEST_FILE} > times out`, status: 'failed', failureMessage: 'test timed out after 5ms' },
         { id: `${TEST_FILE} > hook`, status: 'failed', failureMessage: 'hook' },
         { id: `${TEST_FILE} > without cause`, status: 'failed', failureMessage: 'no cause' },
+      ],
+    );
+  });
+
+  it('records where the wrapper found that a test is declared', () => {
+    const positions = new Map([[`${TEST_FILE} > declared`, { line: 2, column: 0 }]]);
+
+    assert.deepEqual(
+      record(
+        [...reported('declared', 0, 'pass', testDetails), ...reported('unknown', 0, 'pass', testDetails)],
+        positions,
+      ),
+      [
+        { id: `${TEST_FILE} > declared`, status: 'passed', timeSpentMs: 1.5, startPosition: { line: 2, column: 0 } },
+        { id: `${TEST_FILE} > unknown`, status: 'passed', timeSpentMs: 1.5 },
       ],
     );
   });
@@ -881,6 +928,8 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     writeRecord: (path, record) => {
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
     },
+    callSites: () => [],
+    fileURLToPath: (url) => `path of ${url}`,
     join,
     ...overrides,
   };
@@ -1050,6 +1099,27 @@ describe('install', () => {
         },
       },
     ]);
+  });
+
+  it('records where the test file declares a test, named by URL as an ES module or by path as CommonJS', () => {
+    const url = 'file:///repo/a.test.ts';
+    const startPositions = [url, TEST_FILE, 'file:///repo/other.ts'].map((scriptName) => {
+      const { deps, records, exit, wrapped } = harness(
+        { [ENV.out]: OUT, [ENV.file]: TEST_FILE },
+        {
+          callSites: () => [{ scriptName, lineNumber: 3, columnNumber: 5 }],
+          fileURLToPath: (path) => (path === url ? TEST_FILE : `elsewhere ${path}`),
+        },
+      );
+      install(deps);
+      wrapped().it('declared', () => {});
+      report(deps, 'declared', 'pass');
+      exit();
+
+      return records[0]?.record.tests[0]?.startPosition;
+    });
+
+    assert.deepEqual(startPositions, [{ line: 2, column: 4 }, { line: 2, column: 4 }, undefined]);
   });
 
   it('activates the mutant the runner names for runtime activation once a test starts', async () => {

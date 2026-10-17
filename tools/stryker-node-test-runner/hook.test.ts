@@ -186,10 +186,28 @@ describe('hook', () => {
     const record = readRecords(outDir)[`${pid}.json`];
     const ids = ['default export', 'suite > nested', 'required', 'required it'].map((name) => `${testFile} > ${name}`);
     assert.deepEqual(
-      record?.tests.map(({ id }) => id),
-      ids,
+      record?.tests.map(({ id, startPosition }) => ({ id, startPosition })),
+      [
+        { id: ids[0], startPosition: { line: 8, column: 0 } },
+        { id: ids[1], startPosition: { line: 9, column: 36 } },
+        { id: ids[2], startPosition: { line: 10, column: 0 } },
+        { id: ids[3], startPosition: { line: 11, column: 9 } },
+      ],
     );
     assert.deepEqual(Object.keys(record?.mutantCoverage?.perTest ?? {}), ids);
+  });
+
+  it('records where a CommonJS test file declares its tests', async (t) => {
+    const dir = tempDir(t);
+    const outDir = join(dir, 'out');
+    mkdirSync(outDir);
+    const testFile = join(dir, 'fixture.test.cjs');
+    writeFileSync(testFile, "const { it } = require('node:test');\n\n  it('passes', () => {});\n");
+
+    const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
   });
 
   it('records the results node:test reports, also of hooks, runtime skips and todo tests', async (t) => {
