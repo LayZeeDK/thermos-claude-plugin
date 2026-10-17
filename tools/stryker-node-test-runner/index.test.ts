@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -160,17 +159,18 @@ describe('filesFor', () => {
   });
 });
 
-/** The id of a process that ran and ended. */
-function endedPid(): number {
-  return spawnSync(process.execPath, ['-e', '']).pid as number;
-}
+/**
+ * A process id that no process has: above the largest that Linux (2^22) and macOS (99999) hand out, and one that
+ * Windows reports as not running. The id of a process that ended can be handed out again at once.
+ */
+const NO_PROCESS = 2 ** 31 - 1;
 
 describe('isRunning', () => {
-  it('tells running processes, also ones it may not signal, from ended ones', () => {
+  it('tells running processes, also ones it may not signal, from ones that do not run', () => {
     // The system process on Windows and init on POSIX run, and only an administrator may signal them.
     const system = process.platform === 'win32' ? 4 : 1;
 
-    assert.deepEqual([process.pid, system, endedPid()].map(isRunning), [true, true, false]);
+    assert.deepEqual([process.pid, system, NO_PROCESS].map(isRunning), [true, true, false]);
   });
 });
 
@@ -1363,7 +1363,7 @@ describe('NodeTestRunner', () => {
 
   it('removes the directories that runners of ended processes left behind when it is initialized', async (t) => {
     project(t, { 'a.test.mjs': PASSING });
-    const left = join(tmpdir(), `stryker-node-test-${endedPid()}-left`);
+    const left = join(tmpdir(), `stryker-node-test-${NO_PROCESS}-left`);
     mkdirSync(join(left, 'out'), { recursive: true });
     t.after(() => rmSync(left, { recursive: true, force: true }));
 
