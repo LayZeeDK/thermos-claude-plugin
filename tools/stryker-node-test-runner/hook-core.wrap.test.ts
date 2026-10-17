@@ -394,6 +394,33 @@ describe('wrapNodeTest', () => {
     });
   });
 
+  it('notes where skipped suites and tests are declared, and registers them with their own arguments', () => {
+    const { module, positions, sites, registrations } = wrapped();
+    const body = () => {};
+    const options = { timeout: 5 };
+    sites.push({ file: TEST_FILE, line: 3, column: 4 });
+    module.describe('suite', () => {
+      module.it.skip('nested', options, body);
+    });
+    module.test.skip('test', body);
+    module.describe.skip('describe', body);
+    module.suite.skip.call('suite this', 'skipped suite', body);
+
+    assert.deepEqual(Object.fromEntries(positions), {
+      [`${TEST_FILE} > suite`]: { line: 2, column: 3 },
+      [`${TEST_FILE} > suite > nested`]: { line: 2, column: 3 },
+      [`${TEST_FILE} > test`]: { line: 2, column: 3 },
+      [`${TEST_FILE} > describe`]: { line: 2, column: 3 },
+      [`${TEST_FILE} > skipped suite`]: { line: 2, column: 3 },
+    });
+    assert.deepEqual(registrations.slice(1), [
+      { kind: 'it.skip', name: 'nested', rest: [options, body], self: module.it },
+      { kind: 'test.skip', name: 'test', rest: [body], self: module.test },
+      { kind: 'describe.skip', name: 'describe', rest: [body], self: module.describe },
+      { kind: 'suite.skip', name: 'skipped suite', rest: [body], self: 'suite this' },
+    ]);
+  });
+
   it('rethrows what a test body throws or rejects with', async () => {
     const { module, registrations } = wrapped();
     const failure = new Error('expected 1 to be 2');

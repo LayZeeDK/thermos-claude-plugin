@@ -459,9 +459,16 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       return register.call(this, name, { ...options, concurrency: false, ...skip }, ...(body ? [wrap(body)] : []));
     };
 
-  // The bodies of skipped suites and tests never run, so `skip` needs no wrapper.
+  // The bodies of skipped suites and tests never run, so `skip` only notes where they are declared.
+  const declareSkipped = (register: Registrar): Registrar =>
+    function (this: unknown, ...args: unknown[]) {
+      declare(testId(parentId(), parse(args).name));
+
+      return register.apply(this, args as Parameters<Registrar>);
+    };
   const withShorthands = (original: Register, wrap: (register: Registrar) => Registrar): Register =>
     Object.assign(wrap(original), original, {
+      skip: declareSkipped(original.skip),
       todo: wrap(original.todo),
       only: wrap(original.only),
       ...(original.expectFailure && { expectFailure: wrap(original.expectFailure) }),
