@@ -132,7 +132,7 @@ describe('recordEvents', () => {
     );
   });
 
-  it('records a suite only when it fails by itself, not when it passes or a test inside it fails', () => {
+  it('records a suite only when it fails by itself or is skipped, not when it passes or a test inside it fails', () => {
     const suiteFailure = (failureType: string, message: string, cause: unknown) => ({
       ...suiteDetails,
       error: { failureType, message, cause },
@@ -143,8 +143,14 @@ describe('recordEvents', () => {
         ...reported('passes', 0, 'pass', suiteDetails),
         ...reported('fails inside', 0, 'fail', suiteFailure('subtestsFailed', '1 subtest failed', '1 subtest failed')),
         ...reported('before', 0, 'fail', suiteFailure('hookFailed', 'failed running before hook', new Error('before'))),
+        ...reported('skipped', 0, 'pass', suiteDetails, { skip: true }),
+        ...reported('skipped with a reason', 0, 'pass', suiteDetails, { skip: 'not here' }),
       ]),
-      [{ id: `${TEST_FILE} > before`, status: 'failed', failureMessage: 'before', timeSpentMs: 3 }],
+      [
+        { id: `${TEST_FILE} > before`, status: 'failed', failureMessage: 'before', timeSpentMs: 3 },
+        { id: `${TEST_FILE} > skipped`, status: 'skipped', timeSpentMs: 3 },
+        { id: `${TEST_FILE} > skipped with a reason`, status: 'skipped', timeSpentMs: 3 },
+      ],
     );
   });
 });

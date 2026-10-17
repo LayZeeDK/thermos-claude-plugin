@@ -5,7 +5,16 @@ import { describe, it } from 'node:test';
 
 import { TestStatus } from '@stryker-mutator/api/test-runner';
 
-import { complete, DRY_RUN, fixture, initRunner, project, settle, shareCompileCache } from './index.fixtures.ts';
+import {
+  complete,
+  DRY_RUN,
+  fixture,
+  fixtureCoverage,
+  initRunner,
+  project,
+  settle,
+  shareCompileCache,
+} from './index.fixtures.ts';
 
 shareCompileCache();
 
@@ -62,5 +71,49 @@ describe('NodeTestRunner results', () => {
         { id: `${a} > suite > nested`, status: TestStatus.Skipped, startPosition: { line: 9, column: 5 } },
       ],
     );
+  });
+
+  it('reports a skipped suite as one skipped result, without running its body to find its tests', async (t) => {
+    const body = "() => { cover('suite body'); it('inside', () => {}); }";
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { suite } from 'node:test';",
+        `describe.skip('describe.skip', ${body});`,
+        `suite.skip('suite.skip', ${body});`,
+        `describe('skip option', { skip: 'not now' }, ${body});`,
+        "describe('outer', () => {",
+        `  describe.skip('nested', ${body});`,
+        "  it('passes', () => {});",
+        '});',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const skipped = (name: string, line: number, column: number) => ({
+      id: `${a} > ${name}`,
+      name,
+      status: TestStatus.Skipped,
+      startPosition: { line, column },
+    });
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(
+      tests.map(({ id, name, status, startPosition }) => ({ id, name, status, startPosition })),
+      [
+        skipped('describe.skip', 5, 9),
+        skipped('suite.skip', 6, 6),
+        skipped('skip option', 7, 0),
+        skipped('outer > nested', 9, 11),
+        {
+          id: `${a} > outer > passes`,
+          name: 'outer > passes',
+          status: TestStatus.Success,
+          startPosition: { line: 10, column: 2 },
+        },
+      ],
+    );
+    assert.deepEqual(fixtureCoverage(mutantCoverage), { static: {}, perTest: {} });
   });
 });

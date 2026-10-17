@@ -225,7 +225,7 @@ export function install(deps: HookDependencies): boolean {
 /**
  * Returns a function that records the tests of one test file from node:test's reporter events, with ids built the
  * way the wrapper builds them, and the positions the wrapper found for them. A suite is recorded only when it fails by
- * itself, such as in a `before` hook.
+ * itself, such as in a `before` hook, or is skipped.
  */
 export function recordEvents(
   testFile: string,
@@ -248,7 +248,12 @@ export function recordEvents(
 
     const { type: kind, duration_ms: timeSpentMs, error } = data.details!;
 
-    if (kind === 'suite' && (type === 'test:pass' || error?.failureType === 'subtestsFailed')) {
+    // node:test never runs a skipped suite's body, so the suite stands for the tests it declares.
+    if (
+      kind === 'suite' &&
+      data.skip === undefined &&
+      (type === 'test:pass' || error?.failureType === 'subtestsFailed')
+    ) {
       return;
     }
 
