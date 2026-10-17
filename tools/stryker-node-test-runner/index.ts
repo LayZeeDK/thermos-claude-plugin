@@ -319,8 +319,6 @@ export class NodeTestRunner implements TestRunner {
 export const strykerPlugins = [declareClassPlugin(PluginKind.TestRunner, 'node-test', NodeTestRunner)];
 
 export const strykerValidationSchema = {
-  // Stryker disable next-line StringLiteral: Stryker reads only the properties, and Ajv ignores an empty $schema
-  $schema: 'http://json-schema.org/draft-07/schema',
   type: 'object',
   properties: {
     nodeTest: {
