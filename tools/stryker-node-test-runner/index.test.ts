@@ -52,7 +52,7 @@ describe('mergeCoverage', () => {
 });
 
 describe('toTestResults', () => {
-  const base = (id: string) => ({ id, name: id, fileName: FILE });
+  const base = (id: string) => ({ id, name: id.slice(`${FILE} > `.length), fileName: FILE });
 
   it('reports each recorded test with its status, rounded time, and failure message', () => {
     assert.deepEqual(

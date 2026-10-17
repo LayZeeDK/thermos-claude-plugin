@@ -299,7 +299,11 @@ describe('NodeTestRunner', () => {
       { id: `${file} > suite > fails`, status: TestStatus.Failed, failureMessage: 'one is not two' },
       { id: `${file} > spawns`, status: TestStatus.Success, failureMessage: undefined },
     ]);
-    assert.ok(tests.every((test) => test.fileName === file && test.name === test.id && test.timeSpentMs >= 0));
+    assert.deepEqual(
+      tests.map((test) => test.name),
+      ['suite > passes', 'suite > fails', 'spawns'],
+    );
+    assert.ok(tests.every((test) => test.fileName === file && test.timeSpentMs >= 0));
     assert.equal(mutantCoverage?.static['f-static'], 1);
     assert.equal(mutantCoverage?.perTest[`${file} > suite > passes`]?.['f-pass'], 1);
     assert.equal(mutantCoverage?.perTest[`${file} > suite > fails`]?.['f-fail'], 1);

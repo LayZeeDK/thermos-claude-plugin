@@ -32,7 +32,7 @@ import {
   type TestRunnerCapabilities,
 } from '@stryker-mutator/api/test-runner';
 
-import { ENV, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
+import { ENV, testId, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 
 /** Options under `nodeTest` in the Stryker configuration. */
 export interface NodeTestOptions {
@@ -96,12 +96,17 @@ export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest
   return total;
 }
 
-/** Turns the recorded tests of one test file into Stryker test results. */
+/**
+ * Turns the recorded tests of one test file into Stryker test results. A test's name leaves out the test file, which
+ * its id starts with, as Stryker's runners name tests after their suites only.
+ */
 export function toTestResults(testFile: string, recorded: RecordedTest[]): TestResult[] {
+  const prefix = testId(testFile, '');
+
   return recorded.map((test) => {
     const base = {
       id: test.id,
-      name: test.id,
+      name: test.id.slice(prefix.length),
       fileName: testFile,
       timeSpentMs: Math.round(test.timeSpentMs),
       ...(test.startPosition && { startPosition: test.startPosition }),
