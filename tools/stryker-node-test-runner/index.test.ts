@@ -759,6 +759,23 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('kills a statically activated mutant that only module-level code reaches', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        `if (process.env.${ACTIVE_MUTANT} === 'fixture-mutant') throw new Error('module-level mutant');`,
+        "it('passes', () => {});",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
+      { id: `${a} > passes`, status: TestStatus.Success, failureMessage: undefined },
+    ]);
+    const result = await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'static' })));
+    assert.deepEqual(result.status === MutantRunStatus.Killed && result.killedBy, [a]);
+  });
+
   it('times out a mutant run that exceeds the hit limit', async (t) => {
     project(t, {
       'a.test.mjs': fixture(
