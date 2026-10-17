@@ -234,9 +234,9 @@ export class NodeTestRunner implements TestRunner {
   }
 
   async init(): Promise<void> {
-    this.#testFiles = globSync(this.#patterns, { exclude: (name) => name === 'node_modules' })
-      .map((file) => resolve(file))
-      .sort();
+    // globSync returns a file once per spelling, relative for a relative pattern and absolute for an absolute one.
+    const files = globSync(this.#patterns, { exclude: (name) => name === 'node_modules' }).map((file) => resolve(file));
+    this.#testFiles = [...new Set(files)].sort();
 
     if (this.#testFiles.length === 0) {
       throw new Error(`No test files match ${JSON.stringify(this.#patterns)}`);

@@ -539,6 +539,17 @@ describe('NodeTestRunner', () => {
     }
   });
 
+  it('runs a test file once when several patterns match it', async (t) => {
+    const dir = project(t, { 'a.test.mjs': PASSING });
+    const runner = await initRunner(['a.test.mjs', '*.test.mjs', './a.test.mjs', join(dir, 'a.test.mjs')]);
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(summary(tests), [
+      { id: `${join(dir, 'a.test.mjs')} > passes`, status: TestStatus.Success, failureMessage: undefined },
+    ]);
+  });
+
   it('reports the results and coverage of every test, including coverage of the processes a test starts', async (t) => {
     const child = `${COVER} cover('f-shared'); cover('f-child');`;
     const dir = project(t, {
