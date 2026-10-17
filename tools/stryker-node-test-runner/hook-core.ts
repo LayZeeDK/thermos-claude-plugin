@@ -287,6 +287,13 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       return register.call(this, activates() ? activating : hook, ...rest);
     };
 
+  /**
+   * The arguments after the name of a suite or test, with its body wrapped and its subtests made to run one at a time,
+   * as node:test does without `concurrency`: coverage goes to the one current test.
+   */
+  const serial = (rest: unknown[], wrap: (body: Body) => Body) =>
+    rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : { ...(arg as object), concurrency: false }));
+
   const wrapSuite = (register: Registrar): Registrar =>
     function (this: unknown, name: string, ...rest: unknown[]) {
       const wrap = (body: Body) =>
@@ -300,7 +307,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
           }
         };
 
-      return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
+      return register.call(this, name, ...serial(rest, wrap));
     };
 
   /** Wraps a function that registers tests named after `scope()`: the file and the enclosing suites, or a test. */
@@ -363,7 +370,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
         };
       };
 
-      return register.call(this, name, ...rest.map((arg) => (typeof arg === 'function' ? wrap(arg as Body) : arg)));
+      return register.call(this, name, ...serial(rest, wrap));
     };
 
   // The bodies of skipped suites and tests never run, so `skip` needs no wrapper.

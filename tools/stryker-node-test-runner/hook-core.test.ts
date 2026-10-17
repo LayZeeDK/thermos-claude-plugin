@@ -191,9 +191,9 @@ describe('wrapNodeTest', () => {
     assert.deepEqual(seen, [`${TEST_FILE} > after`]);
   });
 
-  it('passes the name, options, receiver and return values through to node:test', async () => {
+  it('passes name, options, receiver and return values through, with tests inside run one at a time', async () => {
     const { module, registrations, suiteResults } = wrapped();
-    const options = { timeout: 1000 };
+    const options = { timeout: 1000, concurrency: true };
     let suiteCall: SuiteCall | undefined;
     let testCall: SuiteCall | undefined;
 
@@ -215,11 +215,12 @@ describe('wrapNodeTest', () => {
 
     assert.equal(suiteReturn, 'describe suite');
     assert.equal(testReturn, 'it case');
+    const serial = { ...options, concurrency: false };
     assert.deepEqual(
       registrations.map(({ kind, name, rest, self }) => ({ kind, name, options: rest[0], self, count: rest.length })),
       [
-        { kind: 'describe', name: 'suite', options, self: 'describe this', count: 2 },
-        { kind: 'it', name: 'case', options, self: 'it this', count: 2 },
+        { kind: 'describe', name: 'suite', options: serial, self: 'describe this', count: 2 },
+        { kind: 'it', name: 'case', options: serial, self: 'it this', count: 2 },
       ],
     );
     assert.deepEqual(suiteCall, { self: 'suite this', args: ['suite argument'] });
@@ -230,9 +231,10 @@ describe('wrapNodeTest', () => {
 
     assert.deepEqual(testCall, { self: 'test this', args: [context, 'second argument'] });
     assert.equal(result, 'test body result');
+    assert.deepEqual(options, { timeout: 1000, concurrency: true });
   });
 
-  it('registers tests and suites without a body unchanged', () => {
+  it('registers tests and suites without a body', () => {
     const { module, registrations } = wrapped();
     module.describe('empty suite');
     module.it('empty test', { timeout: 5 });
@@ -241,7 +243,7 @@ describe('wrapNodeTest', () => {
       registrations.map(({ name, rest }) => ({ name, rest })),
       [
         { name: 'empty suite', rest: [] },
-        { name: 'empty test', rest: [{ timeout: 5 }] },
+        { name: 'empty test', rest: [{ timeout: 5, concurrency: false }] },
       ],
     );
   });

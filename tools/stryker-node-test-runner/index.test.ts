@@ -791,6 +791,37 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('runs the tests of a suite or test asking for concurrency one at a time, for coverage of their own', async (t) => {
+    const interleaved = (name: string) =>
+      `async () => { cover('${name} 1'); await new Promise((resolve) => setImmediate(resolve)); cover('${name} 2'); }`;
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "describe('suite', { concurrency: true }, () => {",
+        `  it('first', ${interleaved('first')});`,
+        `  it('second', ${interleaved('second')});`,
+        '});',
+        "it('parent', { concurrency: 2 }, async (t) => {",
+        `  const child = t.test('child', ${interleaved('child')});`,
+        `  await Promise.all([child, t.test('sibling', ${interleaved('sibling')})]);`,
+        '});',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const { mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(fixtureCoverage(mutantCoverage), {
+      static: {},
+      perTest: Object.fromEntries(
+        ['suite > first', 'suite > second', 'parent > child', 'parent > sibling'].map((name) => [
+          `${a} > ${name}`,
+          { [`${name.split(' > ')[1]} 1`]: 1, [`${name.split(' > ')[1]} 2`]: 1 },
+        ]),
+      ),
+    });
+  });
+
   it('names the tests inside only and todo suites after their suites', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture("describe.only('only suite', () => { it.only('runs', () => { cover('only'); }); });"),
