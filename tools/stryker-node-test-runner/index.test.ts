@@ -617,6 +617,41 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it("runs every test of a file that a mutant run's filter names, as Stryker does with --testFiles", async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture("it('passes', () => {});", "it('fails', () => { throw new Error('expected failure'); });"),
+      'b.test.mjs': FAILING,
+    });
+    const runner = await initRunner(['*.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [a] }))), {
+      status: MutantRunStatus.Killed,
+      killedBy: [`${a} > fails`],
+      failureMessage: 'expected failure',
+      nrOfTests: 2,
+    });
+  });
+
+  it("runs only the files of Stryker's --testFiles in the dry run, also outside nodeTest.testFiles", async (t) => {
+    const dir = project(t, { 'a.test.mjs': PASSING, 'b.test.mjs': FAILING, 'c.spec.mjs': FAILING });
+    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, testFiles: ['c.spec.mjs'] };
+    const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
+    await runner.init();
+    const b = join(dir, 'b.test.mjs');
+    const c = join(dir, 'c.spec.mjs');
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun({ ...DRY_RUN, testFiles: ['b.test.mjs'] }))).tests), [
+      { id: `${b} > fails`, status: TestStatus.Failed, failureMessage: 'expected failure' },
+    ]);
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${c} > fails`] }))), {
+      status: MutantRunStatus.Killed,
+      killedBy: [`${c} > fails`],
+      failureMessage: 'expected failure',
+      nrOfTests: 1,
+    });
+  });
+
   it('times out a mutant run that exceeds the hit limit', async (t) => {
     project(t, {
       'a.test.mjs': fixture(

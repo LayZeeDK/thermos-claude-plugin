@@ -186,7 +186,8 @@ export function wrapNodeTest({ ns, testFile, tests, filter, bail, env, now, node
         delete env[ENV.current];
       };
       const wrap = (body: Body) => {
-        if (filter && !filter.has(id)) {
+        // Stryker names a whole test file in the filter when --testFiles limits the run.
+        if (filter && !filter.has(id) && !filter.has(testFile)) {
           return () => {};
         }
 

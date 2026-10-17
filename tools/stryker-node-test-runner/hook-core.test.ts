@@ -388,6 +388,23 @@ describe('wrapNodeTest', () => {
     assert.equal(ns.currentTestId, undefined);
   });
 
+  it('runs every test of the file when the filter names the file itself', async () => {
+    const { module, registrations, tests } = wrapped([TEST_FILE]);
+    module.describe('group', () => {
+      module.it('first', () => {});
+    });
+    module.test('second', () => {});
+
+    for (const name of ['first', 'second']) {
+      await bodyOf(registrations, name)();
+    }
+
+    assert.deepEqual(
+      tests.map((test) => test.id),
+      [`${TEST_FILE} > group > first`, `${TEST_FILE} > second`],
+    );
+  });
+
   for (const bail of [true, false]) {
     it(`${bail ? 'skips' : 'runs'} the tests after a failure with bail ${bail ? 'on' : 'off'}`, async () => {
       const { module, registrations, tests } = wrapped(undefined, bail);

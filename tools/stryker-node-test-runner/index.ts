@@ -213,7 +213,9 @@ export class NodeTestRunner implements TestRunner {
   readonly #log: Logger;
 
   constructor(options: StrykerOptions, log: Logger) {
-    this.#patterns = (options as { nodeTest?: NodeTestOptions }).nodeTest?.testFiles ?? ['**/*.test.ts'];
+    const patterns = (options as { nodeTest?: NodeTestOptions }).nodeTest?.testFiles ?? ['**/*.test.ts'];
+    // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
+    this.#patterns = options.testFiles ? [...patterns, ...options.testFiles] : patterns;
     this.#log = log;
   }
 
@@ -242,7 +244,9 @@ export class NodeTestRunner implements TestRunner {
   }
 
   dryRun(options: DryRunOptions): Promise<DryRunResult> {
-    return this.#run(this.#testFiles, { dryRun: true, disableBail: options.disableBail });
+    const files = options.testFiles?.length ? options.testFiles.map((file) => resolve(file)) : this.#testFiles;
+
+    return this.#run(files, { dryRun: true, disableBail: options.disableBail });
   }
 
   async mutantRun(options: MutantRunOptions): Promise<MutantRunResult> {
