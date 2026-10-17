@@ -24,9 +24,9 @@ async function loadRunnerStartedHook(outDir: string): Promise<(() => void)[]> {
   const global = globalThis as HookDependencies['global'];
   const previousMark = global[installed];
   // The current test id stays, so the copy leaves this process's attribution of coverage alone.
-  const previousEnv = [ENV.out, ENV.file, ENV.dryRun, ENV.hitLimit, ENV.filter].map(
-    (key) => [key, process.env[key]] as const,
-  );
+  const previousEnv = Object.values(ENV)
+    .filter((key) => key !== ENV.current)
+    .map((key) => [key, process.env[key]] as const);
   const listeners = new Set(process.listeners('exit'));
 
   for (const [key] of previousEnv) {
@@ -102,8 +102,21 @@ function readRecords(outDir: string): Record<string, ProcessRecord> {
 describe('hook', () => {
   it('writes the record of a process the runner started when the process exits', async (t) => {
     const outDir = tempDir(t);
+    // The copy removes the bail variable as the hook does; loading it must leave this process's environment alone.
+    const bail = process.env[ENV.bail];
+    process.env[ENV.bail] = 'true';
+    t.after(() => {
+      if (bail === undefined) {
+        delete process.env[ENV.bail];
+      } else {
+        process.env[ENV.bail] = bail;
+      }
+    });
+    const hookEnv = () => Object.fromEntries(Object.values(ENV).map((key) => [key, process.env[key]]));
+    const before = hookEnv();
     const added = await loadRunnerStartedHook(outDir);
 
+    assert.deepEqual(hookEnv(), before);
     assert.equal(added.length, 1);
 
     added[0]?.();
