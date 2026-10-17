@@ -722,6 +722,31 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('times out when a process a test starts exceeds the hit limit, counting each process apart', async (t) => {
+    const loop = (hits: number) =>
+      [
+        'const ns = globalThis.__stryker__;',
+        `for (let i = 0; i < ${hits}; i++) {`,
+        "  if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) throw new Error('Hit limit reached');",
+        '}',
+      ].join(' ');
+    const spawnLoop = (hits: number) => `spawnSync(process.execPath, ['-e', ${JSON.stringify(loop(hits))}]);`;
+    project(t, {
+      'a.test.mjs': fixture(`it('spawns a loop', () => { ${spawnLoop(11)} });`),
+      'b.test.mjs': fixture(`it('spawns two loops', () => { ${spawnLoop(6)} ${spawnLoop(6)} });`),
+    });
+    const options = mutantRunOptions({ hitLimit: 10 });
+
+    assert.deepEqual(await settle((await initRunner(['a.test.mjs'])).mutantRun(options)), {
+      status: MutantRunStatus.Timeout,
+      reason: 'Hit limit reached (11/10)',
+    });
+    assert.deepEqual(await settle((await initRunner(['b.test.mjs'])).mutantRun(options)), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
+  });
+
   it('removes its output directory after a run', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
