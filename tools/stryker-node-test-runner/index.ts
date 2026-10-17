@@ -60,6 +60,10 @@ export interface FileRun {
   records: ProcessRecord[];
   exitCode: number | null;
   stderr: string;
+  /** The arguments the runner ran `node` with. */
+  args: string[];
+  /** The NODE_OPTIONS the runner ran `node` with. */
+  nodeOptions: string;
 }
 
 const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
@@ -113,17 +117,36 @@ export function toTestResults(testFile: string, recorded: RecordedTest[]): TestR
 
 /**
  * The error message for a test file whose process failed outside any test, such as when it does not load, with the
- * command that reproduces it and its stderr, as Stryker's tap runner reports it.
+ * command that reproduces it and its stderr, as Stryker's tap runner reports it. The command has the arguments and
+ * NODE_OPTIONS that the runner ran `node` with.
  */
-export function fileError(testFile: string, exitCode: number | null, stderr: string, args: string[]): string {
+export function fileError(
+  testFile: string,
+  exitCode: number | null,
+  stderr: string,
+  args: string[],
+  nodeOptions: string,
+): string {
   const command = ['node', ...args.map((arg) => `"${arg}"`)].join(' ');
   const output = stderr.trim();
 
   return [
     `Error running file "${testFile}": node exited with code ${exitCode} outside any test.`,
-    `To reproduce it, run \`${command}\` in ${process.cwd()}.`,
+    `To reproduce it, run \`${command}\` in ${process.cwd()} with NODE_OPTIONS set to \`${nodeOptions}\`.`,
     ...(output ? ['Stderr:', output] : []),
   ].join('\n');
+}
+
+/**
+ * Leaves out node's options that add a node:test reporter or a reporter destination, with their values, so the
+ * runner's reporter is the only one; node refuses more reporters than destinations. An argument may be quoted, as in
+ * NODE_OPTIONS.
+ */
+function withoutReporters(args: string[]): string[] {
+  const reporterOption = (arg: string) => /^--test-reporter(?:-destination)?(=|$)/.exec(arg.replaceAll('"', ''));
+
+  // A reporter option without `=` takes the next argument as its value.
+  return args.filter((arg, index) => !reporterOption(arg) && reporterOption(String(args[index - 1]))?.[1] !== '');
 }
 
 /** Returns the test files that contain at least one of the filtered test ids, or every file without a filter. */
@@ -150,7 +173,11 @@ export function runEnv(
   const env: NodeJS.ProcessEnv = {
     ...base,
     // The hook comes first, so a copy of this runner under test takes precedence over the runner running it.
-    NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)} ${base.NODE_OPTIONS ?? ''}`.trim(),
+    NODE_OPTIONS: [
+      `--import ${JSON.stringify(HOOK_URL)}`,
+      // node splits NODE_OPTIONS at spaces outside double quotes.
+      ...withoutReporters(base.NODE_OPTIONS?.match(/(?:[^\s"]|"(?:[^"\\]|\\.)*")+/g) ?? []),
+    ].join(' '),
     [ENV.out]: outDir,
     [ENV.file]: file,
     [ENV.dryRun]: String(run.dryRun),
@@ -278,7 +305,7 @@ export class NodeTestRunner implements TestRunner {
     const patterns = nodeTest?.testFiles ?? ['**/*.test.ts'];
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
     this.#patterns = options.testFiles ? [...patterns, ...options.testFiles] : patterns;
-    this.#nodeArgs = nodeTest?.nodeArgs ?? [];
+    this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? []);
     this.#log = log;
   }
 
@@ -336,7 +363,7 @@ export class NodeTestRunner implements TestRunner {
     const coverages: (MutantCoverage | undefined)[] = [];
 
     for (const file of files) {
-      const { records, exitCode, stderr } = await this.runFile(file, run);
+      const { records, exitCode, stderr, args, nodeOptions } = await this.runFile(file, run);
 
       for (const record of records) {
         const timeout = determineHitLimitReached(record.hitCount, run.hitLimit);
@@ -353,7 +380,7 @@ export class NodeTestRunner implements TestRunner {
 
       // Like Stryker's own runners, a failure that no test explains is an error, not a killed mutant.
       if (exitCode !== 0 && !failed) {
-        const errorMessage = fileError(file, exitCode, stderr, [...this.#nodeArgs, file]);
+        const errorMessage = fileError(file, exitCode, stderr, args, nodeOptions);
 
         return { status: DryRunStatus.Error, errorMessage };
       }
@@ -420,7 +447,7 @@ export class NodeTestRunner implements TestRunner {
         (name) => JSON.parse(readFileSync(join(outDir, name), 'utf8')) as ProcessRecord,
       );
 
-      return { records, exitCode, stderr };
+      return { records, exitCode, stderr, args, nodeOptions: env.NODE_OPTIONS as string };
     } finally {
       await removeDir(runDir);
     }

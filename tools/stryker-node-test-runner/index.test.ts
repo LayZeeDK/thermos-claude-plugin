@@ -46,6 +46,13 @@ const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
 const REPORTER_ARG = `--test-reporter=${pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href}`;
 const FILE = join('/repo', 'a.test.mjs');
 
+/** The NODE_OPTIONS of the processes a runner starts, given this process's NODE_OPTIONS without reporters. */
+function runNodeOptions(): string {
+  const inherited = process.env.NODE_OPTIONS ? [process.env.NODE_OPTIONS] : [];
+
+  return [`--import ${JSON.stringify(HOOK_URL)}`, ...inherited].join(' ');
+}
+
 describe('mergeCoverage', () => {
   it('adds up the hits of every process and skips processes without coverage', () => {
     assert.deepEqual(
@@ -112,7 +119,9 @@ describe('toTestResults', () => {
 });
 
 describe('fileError', () => {
-  const command = `To reproduce it, run \`node "--no-deprecation" "${FILE}"\` in ${process.cwd()}.`;
+  const command =
+    `To reproduce it, run \`node "--no-deprecation" "${FILE}"\` in ${process.cwd()} ` +
+    'with NODE_OPTIONS set to `--import "hook" --stack-size=900`.';
 
   for (const [description, exitCode, stderr, end] of [
     ['trimmed stderr', 1, '  \nline 1\nline 2 \n', ['Stderr:', 'line 1', 'line 2']],
@@ -121,7 +130,7 @@ describe('fileError', () => {
   ] as const) {
     it(`names the file, the exit code and the command, with ${description}`, () => {
       assert.equal(
-        fileError(FILE, exitCode, stderr, ['--no-deprecation', FILE]),
+        fileError(FILE, exitCode, stderr, ['--no-deprecation', FILE], '--import "hook" --stack-size=900'),
         [`Error running file "${FILE}": node exited with code ${exitCode} outside any test.`, command, ...end].join(
           '\n',
         ),
@@ -295,6 +304,24 @@ describe('runEnv', () => {
       TMP,
     });
     assert.deepEqual(base, before);
+  });
+
+  it('drops the node:test reporters and destinations of inherited options, also quoted ones', () => {
+    const NODE_OPTIONS = [
+      '--test-reporter=spec',
+      '--max-old-space-size=100',
+      '--test-reporter dot',
+      '"--test-reporter-destination=a b"',
+      '--test-reporter-destination  stdout',
+      '--title="a \\" --test-reporter=b"',
+      '--test-reporter-destinations=x',
+    ].join(' ');
+    const kept = ['--max-old-space-size=100', '--title="a \\" --test-reporter=b"', '--test-reporter-destinations=x'];
+
+    assert.equal(
+      runEnv({ NODE_OPTIONS }, FILE, OUT, TMP, { dryRun: false, disableBail: true }, undefined).NODE_OPTIONS,
+      [`--import ${JSON.stringify(HOOK_URL)}`, ...kept].join(' '),
+    );
   });
 
   it("uses the runner's compile cache directory unless the environment names one", () => {
@@ -648,12 +675,31 @@ describe('NodeTestRunner', () => {
       return JSON.parse(readFileSync(join(dir, 'exec-argv.json'), 'utf8')) as string[];
     };
     const nodeArgs = ['--no-deprecation', '--stack-size=900'];
+    const reporters = ['--test-reporter', 'spec', '--test-reporter-destination=stdout'];
+    const withReporters = { testFiles: ['a.test.mjs'], nodeArgs: [...reporters, ...nodeArgs] };
 
-    assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'], nodeArgs } }), [
-      REPORTER_ARG,
-      ...nodeArgs,
-    ]);
+    assert.deepEqual(await execArgv({ nodeTest: withReporters }), [REPORTER_ARG, ...nodeArgs]);
     assert.deepEqual(await execArgv({ nodeTest: { testFiles: ['a.test.mjs'] } }), [REPORTER_ARG]);
+  });
+
+  it('runs its own reporter only, whatever reporters NODE_OPTIONS and nodeTest.nodeArgs name', async (t) => {
+    const dir = project(t, { 'a.test.mjs': PASSING });
+    const nodeOptions = process.env.NODE_OPTIONS;
+    t.after(() => {
+      if (nodeOptions === undefined) {
+        delete process.env.NODE_OPTIONS;
+      } else {
+        process.env.NODE_OPTIONS = nodeOptions;
+      }
+    });
+    process.env.NODE_OPTIONS = `${nodeOptions ?? ''} --test-reporter=spec`;
+    const options = { nodeTest: { testFiles: ['a.test.mjs'], nodeArgs: ['--test-reporter=dot'] } };
+    const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
+    await runner.init();
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
+      { id: `${join(dir, 'a.test.mjs')} > passes`, status: TestStatus.Success, failureMessage: undefined },
+    ]);
   });
 
   it('runs a test file once when several patterns match it', async (t) => {
@@ -747,7 +793,7 @@ describe('NodeTestRunner', () => {
     const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
     await runner.init();
     const b = join(dir, 'b.test.mjs');
-    const errorMessage = fileError(b, 3, 'first\nsecond\n', ['--no-deprecation', b]);
+    const errorMessage = fileError(b, 3, 'first\nsecond\n', [REPORTER_ARG, '--no-deprecation', b], runNodeOptions());
 
     assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), { status: DryRunStatus.Error, errorMessage });
     assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
@@ -1078,7 +1124,7 @@ describe('NodeTestRunner', () => {
     const exitCode = process.platform === 'win32' ? 1 : null;
     assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), {
       status: DryRunStatus.Error,
-      errorMessage: fileError(a, exitCode, '', [a]),
+      errorMessage: fileError(a, exitCode, '', [REPORTER_ARG, a], runNodeOptions()),
     });
   });
 
