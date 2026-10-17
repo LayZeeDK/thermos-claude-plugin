@@ -345,9 +345,14 @@ export class NodeTestRunner implements TestRunner {
       mkdirSync(outDir);
       mkdirSync(tmpDir);
       const env = runEnv(process.env, file, outDir, tmpDir, run, this.#cacheDir);
-      this.#log.debug(`Running node ${file}`);
+      const args = [...this.#nodeArgs, file];
+
+      if (this.#log.isDebugEnabled()) {
+        this.#log.debug(`Running: \`node ${args.map((arg) => `"${arg}"`).join(' ')}\` in ${process.cwd()}`);
+      }
+
       const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>((done, fail) => {
-        const child = spawn(process.execPath, [...this.#nodeArgs, file], {
+        const child = spawn(process.execPath, args, {
           env,
           stdio: ['ignore', 'ignore', 'pipe'],
         });

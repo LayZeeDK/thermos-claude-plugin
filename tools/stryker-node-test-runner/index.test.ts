@@ -333,13 +333,14 @@ function project(t: TestContext, files: Record<string, string>): string {
   return dir;
 }
 
-function logger(debug: string[] = []): Logger {
+/** A logger that keeps its debug messages, and says whether debug logging is on as `debugEnabled` does. */
+function logger(debug: string[] = [], debugEnabled = true): Logger {
   const no = () => false;
   const ignore = () => {};
 
   return {
     isTraceEnabled: no,
-    isDebugEnabled: no,
+    isDebugEnabled: () => debugEnabled,
     isInfoEnabled: no,
     isWarnEnabled: no,
     isErrorEnabled: no,
@@ -355,9 +356,9 @@ function logger(debug: string[] = []): Logger {
   };
 }
 
-async function initRunner(testFiles: string[] | undefined, debug?: string[]): Promise<NodeTestRunner> {
+async function initRunner(testFiles: string[] | undefined): Promise<NodeTestRunner> {
   const options = testFiles ? { nodeTest: { testFiles } } : {};
-  const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger(debug));
+  const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
   await runner.init();
 
   return runner;
@@ -614,8 +615,7 @@ describe('NodeTestRunner', () => {
       ),
     });
     const file = join(dir, 'a.test.mjs');
-    const debug: string[] = [];
-    const runner = await initRunner(['*.test.mjs'], debug);
+    const runner = await initRunner(['*.test.mjs']);
 
     const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
 
@@ -630,7 +630,23 @@ describe('NodeTestRunner', () => {
     assert.equal(mutantCoverage?.perTest[`${file} > suite > fails`]?.['f-fail'], 1);
     assert.equal(mutantCoverage?.perTest[`${file} > spawns`]?.['f-shared'], 2);
     assert.equal(mutantCoverage?.perTest[`${file} > spawns`]?.['f-child'], 1);
-    assert.deepEqual(debug, [`Running node ${file}`]);
+  });
+
+  it('logs the node command and directory of each test file, only when debug logging is on', async (t) => {
+    const dir = project(t, { 'a.test.mjs': PASSING });
+    const file = join(dir, 'a.test.mjs');
+    const options = { nodeTest: { testFiles: ['a.test.mjs'], nodeArgs: ['--no-deprecation'] } };
+    const debugOf = async (debugEnabled: boolean) => {
+      const debug: string[] = [];
+      const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger(debug, debugEnabled));
+      await runner.init();
+      await settle(runner.runFile(file, { dryRun: false, disableBail: false }));
+
+      return debug;
+    };
+
+    assert.deepEqual(await debugOf(true), [`Running: \`node "--no-deprecation" "${file}"\` in ${dir}`]);
+    assert.deepEqual(await debugOf(false), []);
   });
 
   it('reports coverage as the coverage analysis asks: per test, all as static, or none', async (t) => {
