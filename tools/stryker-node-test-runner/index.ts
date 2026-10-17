@@ -122,6 +122,9 @@ export function runEnv(base: NodeJS.ProcessEnv, file: string, outDir: string, ru
     ...base,
     // The hook comes first, so a copy of this runner under test takes precedence over the runner running it.
     NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)} ${base.NODE_OPTIONS ?? ''}`.trim(),
+    // Every process compiles the hook and its imports; Node's compile cache (its own default directory) makes that
+    // a one-time cost per Node version instead of one per process.
+    NODE_COMPILE_CACHE: base.NODE_COMPILE_CACHE ?? join(tmpdir(), 'node-compile-cache'),
     [ENV.out]: outDir,
     [ENV.file]: file,
     [ENV.dryRun]: String(run.dryRun),

@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, describe, it, type TestContext } from 'node:test';
@@ -136,11 +145,19 @@ describe('runEnv', () => {
     assert.deepEqual(runEnv(base, FILE, OUT, { dryRun: false, disableBail: false }), {
       PATH: 'path',
       NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)} --max-old-space-size=100`,
+      NODE_COMPILE_CACHE: join(tmpdir(), 'node-compile-cache'),
       [ENV.out]: OUT,
       [ENV.file]: FILE,
       [ENV.dryRun]: 'false',
     });
     assert.deepEqual(base, before);
+  });
+
+  it('keeps an inherited compile cache directory', () => {
+    assert.equal(
+      runEnv({ NODE_COMPILE_CACHE: 'inherited' }, FILE, OUT, { dryRun: false, disableBail: false }).NODE_COMPILE_CACHE,
+      'inherited',
+    );
   });
 
   it('passes the run state on to the test file', () => {
@@ -154,6 +171,7 @@ describe('runEnv', () => {
       }),
       {
         NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)}`,
+        NODE_COMPILE_CACHE: join(tmpdir(), 'node-compile-cache'),
         [ENV.out]: OUT,
         [ENV.file]: FILE,
         [ENV.dryRun]: 'true',
@@ -493,6 +511,28 @@ describe('NodeTestRunner', () => {
     const outDir = readFileSync(join(dir, 'out-dir.txt'), 'utf8');
     assert.ok(outDir.length > 0);
     assert.ok(!existsSync(outDir));
+  });
+
+  it('fills the compile cache with the hook of the processes a run starts', async (t) => {
+    const dir = project(t, { 'a.test.mjs': PASSING });
+    const cacheDir = join(dir, 'compile-cache');
+    const inherited = process.env.NODE_COMPILE_CACHE;
+    t.after(() => {
+      if (inherited === undefined) {
+        delete process.env.NODE_COMPILE_CACHE;
+      } else {
+        process.env.NODE_COMPILE_CACHE = inherited;
+      }
+    });
+    process.env.NODE_COMPILE_CACHE = cacheDir;
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { exitCode } = await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));
+
+    assert.equal(exitCode, 0);
+    // Node keys the cache by its version, then by file: one entry per hook module, written when the process exits.
+    const entries = readdirSync(cacheDir).flatMap((version) => readdirSync(join(cacheDir, version)));
+    assert.ok(entries.length >= 2, `cache entries: ${entries.join(', ')}`);
   });
 
   it('fails a run when node cannot start', async (t) => {
