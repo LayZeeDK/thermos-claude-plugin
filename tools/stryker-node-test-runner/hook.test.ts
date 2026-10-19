@@ -224,16 +224,28 @@ describe('hook', () => {
     assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
   });
 
-  // Maps line 2, the `it` call, to line 41, column 3 of the source.
-  const map = { version: 3, sources: ['fixture.test.mjs'], names: [], mappings: ';AAwCE' };
+  /** A test file whose source map sends line 2, the `it` call, to line 41, column 3 of `source`. */
+  const mapped = (source: string) => {
+    const map = { version: 3, sources: [source], names: [], mappings: ';AAwCE' };
+
+    return (
+      "import { it } from 'node:test';\nit('mapped', () => {});\n" +
+      `//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n`
+    );
+  };
 
   testFor([
     [
       'a loader transpiled, through its source map',
       'fixture.test.mjs',
-      "import { it } from 'node:test';\nit('mapped', () => {});\n" +
-        `//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n`,
+      mapped('fixture.test.mjs'),
       { line: 40, column: 2 },
+    ],
+    [
+      'was compiled from another file, in the test file itself',
+      'fixture.test.mjs',
+      mapped('../src/fixture.test.ts'),
+      { line: 1, column: 0 },
     ],
     [
       'type stripping kept',
@@ -256,6 +268,24 @@ describe('hook', () => {
 
     assert.equal(code, 0);
     assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, position);
+  });
+
+  it('records where the test file declares a test through helpers many calls deep', async (t) => {
+    const dir = tempDir(t);
+    const outDir = join(dir, 'out');
+    mkdirSync(outDir);
+    const levels = Array.from({ length: 12 }, (_, level) => `export const level${level} = () => level${level + 1}();`);
+    writeFileSync(
+      join(dir, 'helper.mjs'),
+      ["import { it } from 'node:test';", ...levels, "export const level12 = () => it('deep', () => {});", ''].join('\n'),
+    );
+    const testFile = join(dir, 'fixture.test.mjs');
+    writeFileSync(testFile, "import { level0 } from './helper.mjs';\n\n  level0();\n");
+
+    const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
   });
 
   it('records the results node:test reports, also of hooks, runtime skips and todo tests', async (t) => {

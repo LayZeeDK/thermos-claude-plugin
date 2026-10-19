@@ -592,6 +592,38 @@ describe('install', () => {
     assert.deepEqual(startPositions, [{ line: 2, column: 4 }, { line: 2, column: 4 }, undefined]);
   });
 
+  // Source-mapped call sites give positions in the source under a transpiling loader; 64 of them reach the test file
+  // through helpers many calls deep.
+  testFor([
+    ['the source-mapped call sites, when one is in the test file', TEST_FILE, [true], { line: 6, column: 6 }],
+    ['the call sites as they are, when no source-mapped one is', join('/repo', 'src', 'a.ts'), [true, false], { line: 2, column: 4 }],
+  ] as const)('records the position from %s', ([, mappedFile, reads, startPosition]) => {
+    const sourceMaps: boolean[] = [];
+    const { deps, records, exit, wrapped } = harness(
+      { [ENV.out]: OUT, [ENV.file]: TEST_FILE },
+      {
+        callSites: (frameCount, { sourceMap }) => {
+          assert.equal(frameCount, 64);
+          sourceMaps.push(sourceMap);
+
+          return sourceMap
+            ? [
+                { scriptName: join('/repo', 'helper.ts'), lineNumber: 1, columnNumber: 1 },
+                { scriptName: mappedFile, lineNumber: 7, columnNumber: 7 },
+              ]
+            : [{ scriptName: TEST_FILE, lineNumber: 3, columnNumber: 5 }];
+        },
+      },
+    );
+    install(deps);
+    wrapped().it('declared', () => {});
+    report(deps, 'declared', 'pass');
+    exit();
+
+    assert.deepEqual(records[0]?.record.tests[0]?.startPosition, startPosition);
+    assert.deepEqual(sourceMaps, reads);
+  });
+
   it('activates the mutant the runner names for runtime activation once a test starts', async () => {
     const { deps, fake, wrapped } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.activeMutant]: '5' });
     install(deps);

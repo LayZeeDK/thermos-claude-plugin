@@ -181,10 +181,19 @@ export interface HookDependencies {
   onExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
   /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
-  callSites: () => { scriptName: string; lineNumber: number; columnNumber: number }[];
+  callSites: (
+    frameCount: number,
+    options: { sourceMap: boolean },
+  ) => { scriptName: string; lineNumber: number; columnNumber: number }[];
   fileURLToPath: (url: string) => string;
   join: (...parts: string[]) => string;
 }
+
+/**
+ * How many calls of the stack the hook reads to find where the test file declares a suite or test. getCallSites reads
+ * 10 by default, fewer than a declaration through a few helpers takes.
+ */
+const CALL_SITE_FRAMES = 64;
 
 /** Marks a process whose hook is installed, so a second copy of the hook (a runner under test) stays inactive. */
 export const installed = Symbol.for('thermos.stryker-node-test-runner.hook');
@@ -225,6 +234,13 @@ export function install(deps: HookDependencies): boolean {
 
   if (main) {
     const positions = new Map<string, Position>();
+    // ES modules are named by their URL, CommonJS modules by their path.
+    const callSites = (sourceMap: boolean) =>
+      deps.callSites(CALL_SITE_FRAMES, { sourceMap }).map(({ scriptName, lineNumber, columnNumber }) => ({
+        file: scriptName.startsWith('file:') ? deps.fileURLToPath(scriptName) : scriptName,
+        line: lineNumber,
+        column: columnNumber,
+      }));
     deps.global[reporting] = recordEvents(testFile, tests, positions, diagnostics);
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
@@ -237,13 +253,13 @@ export function install(deps: HookDependencies): boolean {
       activeMutant: deps.env[ENV.activeMutant],
       env: deps.env,
       positions,
-      // ES modules are named by their URL, CommonJS modules by their path.
-      callSites: () =>
-        deps.callSites().map(({ scriptName, lineNumber, columnNumber }) => ({
-          file: scriptName.startsWith('file:') ? deps.fileURLToPath(scriptName) : scriptName,
-          line: lineNumber,
-          column: columnNumber,
-        })),
+      // A source map can point at another file, such as `src/` for a test in `dist/`; the test file's own position
+      // is better than none.
+      callSites: () => {
+        const mapped = callSites(true);
+
+        return mapped.some(({ file }) => file === testFile) ? mapped : callSites(false);
+      },
       nodeTest: deps.nodeTest(),
     });
     deps.global[wrappedNodeTest] = wrapped;
