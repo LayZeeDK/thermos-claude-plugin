@@ -750,6 +750,44 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('runs the bodies of the suites outside the filter, but none of their hooks', async (t) => {
+    const fail = (hook: string) => `() => { throw new Error('${hook} ran'); }`;
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import test, { after, afterEach, before, beforeEach } from 'node:test';",
+        'const ran = [];',
+        "describe('selected', () => {",
+        "  before(() => { ran.push('before'); });",
+        "  beforeEach(() => { ran.push('beforeEach'); });",
+        "  afterEach(() => { ran.push('afterEach'); });",
+        "  after(() => { assert.deepEqual(ran, ['unselected body', 'nested body', 'before', 'beforeEach', 'runs', 'afterEach']); });",
+        "  it('runs', () => { ran.push('runs'); });",
+        '});',
+        "describe('unselected', () => {",
+        "  ran.push('unselected body');",
+        `  before(${fail('before')});`,
+        `  beforeEach(${fail('beforeEach')});`,
+        `  test.afterEach(${fail('afterEach')});`,
+        `  after(${fail('after')});`,
+        "  it('skipped', () => {});",
+        "  describe('nested', () => {",
+        "    ran.push('nested body');",
+        `    test.before(${fail('nested before')});`,
+        `    test.after(${fail('nested after')});`,
+        "    it('skipped too', () => {});",
+        '  });',
+        '});',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > selected > runs`] }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
+  });
+
   it('names the tests inside only and todo suites after their suites', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture("describe.only('only suite', () => { it.only('runs', () => { cover('only'); }); });"),

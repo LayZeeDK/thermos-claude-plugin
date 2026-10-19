@@ -122,10 +122,6 @@ export interface TestEvent {
     nesting: number;
     skip?: unknown;
     todo?: unknown;
-    /** Where the suite, test or hook is declared, 1-based; for those the wrapper registers, that is the wrapper. */
-    file?: string;
-    line?: number;
-    column?: number;
     /** Present on `test:diagnostic`. */
     message?: string;
     /** Present on `test:pass` and `test:fail`. */
@@ -146,7 +142,12 @@ export type NodeTestModule = Register & {
   test: Register;
   before: HookRegistrar;
   beforeEach: HookRegistrar;
+  after: HookRegistrar;
+  afterEach: HookRegistrar;
 };
+
+/** The name of the test that stands for a failing `after` hook outside any suite, which fails the test file. */
+const AFTER_HOOK = '"after" hook';
 
 /** Environment variables shared between the runner and the hook. */
 export const ENV = {
@@ -314,12 +315,10 @@ export function recordEvents(
 
     // node:test reports a failing `after` hook of the test file as a failure of the file itself, which has no type.
     const fileHook = kind === undefined;
-    const id = fileHook ? testId(testFile, '"after" hook') : (ids.get(data.nesting) as string);
+    const id = fileHook ? testId(testFile, AFTER_HOOK) : (ids.get(data.nesting) as string);
 
     const test: RecordedTest = { id, status: 'passed', timeSpentMs };
-    // The wrapper leaves `after` alone, so node:test's position of the hook is where the test file declares it.
-    const startPosition =
-      fileHook && data.file === testFile ? { line: data.line! - 1, column: data.column! - 1 } : positions.get(id);
+    const startPosition = positions.get(id);
 
     if (startPosition) {
       test.startPosition = startPosition;
@@ -408,19 +407,36 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       env[ACTIVE_MUTANT_ENV] = activeMutant;
     }
   };
-  /** Wraps a hook registrar so its hooks activate the mutant before they run, when `activates()` at registration. */
-  const wrapHook = (register: HookRegistrar, activates = () => true): HookRegistrar =>
+  /**
+   * Wraps a hook registrar so it registers no hook in a suite without a selected test. Like node:test's own filters,
+   * the wrapper runs such a suite's body, to register its tests as skipped, and none of its hooks. Any other hook is
+   * registered as `prepare` gives it, from the hook and the suite or test whose body registers it.
+   */
+  const wrapHook = (
+    register: HookRegistrar,
+    prepare: (hook: Body, suite: string | undefined) => Body = (hook) => hook,
+  ): HookRegistrar =>
     function (this: unknown, hook: Body, ...rest: unknown[]) {
-      const activating = function (this: unknown, ...args: unknown[]) {
-        activate();
+      const suite = running.getStore();
 
-        return hook.apply(this, args);
-      };
-      // node:test passes a `done` callback to a hook that declares a parameter for it.
-      Object.defineProperty(activating, 'length', { value: hook.length });
+      if (suite !== undefined && !selected(suite)) {
+        return undefined;
+      }
 
-      return register.call(this, activates() ? activating : hook, ...rest);
+      return register.call(this, prepare(hook, suite), ...rest);
     };
+  /** A hook that activates the mutant before it runs. */
+  const activating = (hook: Body): Body => {
+    const wrapped = function (this: unknown, ...args: unknown[]) {
+      activate();
+
+      return hook.apply(this, args);
+    };
+    // node:test passes a `done` callback to a hook that declares a parameter for it.
+    Object.defineProperty(wrapped, 'length', { value: hook.length });
+
+    return wrapped;
+  };
 
   /**
    * Notes where the test file declares the suite or test with this id. node:test takes the position from its caller,
@@ -447,8 +463,16 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     return { name, options, body };
   };
 
-  // Every suite and test is registered with `concurrency: false`, so the tests inside it run one at a time, as
-  // node:test does without `concurrency`, and coverage goes to the one current test.
+  /**
+   * Registers a suite or test with node:test. Every one is registered with `concurrency: false`, so the tests inside
+   * it run one at a time, as node:test does without `concurrency`, and coverage goes to the one current test.
+   */
+  const registerWith = (
+    register: Registrar,
+    self: unknown,
+    { name, options, body }: { name: string; options: object | undefined; body: Body | undefined },
+  ) => register.call(self, name, { ...options, concurrency: false }, ...(body ? [body] : []));
+
   const wrapSuite = (register: Registrar): Registrar =>
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
@@ -459,7 +483,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
           return running.run(id, () => suiteBody.apply(this, bodyArgs));
         };
 
-      return register.call(this, name, { ...options, concurrency: false }, ...(body ? [wrap(body)] : []));
+      return registerWith(register, this, { name, options, body: body && wrap(body) });
     };
 
   /** Wraps a function that registers tests whose parent has the id `parent()`. */
@@ -526,7 +550,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       // A test registered as skipped runs neither its body nor its beforeEach and afterEach hooks.
       const skip = !selected(id) && { skip: true };
 
-      return register.call(this, name, { ...options, concurrency: false, ...skip }, ...(body ? [wrap(body)] : []));
+      return registerWith(register, this, { name, options: { ...options, ...skip }, body: body && wrap(body) });
     };
 
   // The bodies of skipped suites and tests never run, so `skip` only notes where they are declared.
@@ -543,18 +567,28 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       only: wrap(original.only),
       ...(original.expectFailure && { expectFailure: wrap(original.expectFailure) }),
     });
-  // The module is node:test's `test` function, which also carries the other functions.
+  // The module is node:test's `test` function, which also carries the other functions; `it` is the same function.
   const test = withShorthands(nodeTest, wrapTest);
 
   return Object.assign(test, {
     describe: withShorthands(nodeTest.describe, wrapSuite),
     suite: withShorthands(nodeTest.suite, wrapSuite),
-    it: withShorthands(nodeTest.it, wrapTest),
+    it: test,
     test,
     // A `before` hook outside any suite runs as soon as it is registered, while the file loads, like the rest of the
     // file's top level; it runs before the mutant is active.
-    before: wrapHook(nodeTest.before, () => running.getStore() !== undefined),
-    beforeEach: wrapHook(nodeTest.beforeEach),
+    before: wrapHook(nodeTest.before, (hook, suite) => (suite === undefined ? hook : activating(hook))),
+    beforeEach: wrapHook(nodeTest.beforeEach, activating),
+    after: wrapHook(nodeTest.after, (hook, suite) => {
+      // node:test reports a failing `after` hook outside any suite as a failure of the test file, at the position it
+      // takes from its caller, which is this wrapper.
+      if (suite === undefined) {
+        declare(testId(testFile, AFTER_HOOK));
+      }
+
+      return hook;
+    }),
+    afterEach: wrapHook(nodeTest.afterEach),
   });
 }
 

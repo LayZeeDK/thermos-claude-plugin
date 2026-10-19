@@ -55,15 +55,17 @@ export function fakeNodeTest(expectFailure = true) {
       ...(tests && expectFailure && { expectFailure: register(`${kind}.expectFailure`) }),
       mock: `${kind}.mock`,
     });
-  // Like node:test, the module is the `test` function, which carries the other functions.
+  // Like node:test, the module is the `test` function, which carries the other functions, and `it` is `test`.
   const test = withShorthands('test');
   const module: NodeTestModule = Object.assign(test, {
     describe: withShorthands('describe', false),
     suite: withShorthands('suite', false),
-    it: withShorthands('it'),
+    it: test,
     test,
     before: hook('before'),
     beforeEach: hook('beforeEach'),
+    after: hook('after'),
+    afterEach: hook('afterEach'),
     run: 'run',
   });
 

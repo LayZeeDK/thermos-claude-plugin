@@ -10,6 +10,7 @@ import {
   type CallSite,
   type Position,
   type RecordedTest,
+  type NodeTestModule,
   type StrykerNamespace,
 } from './hook-core.ts';
 import { bodyOf, fakeNodeTest, rawBodyOf, runBodies, TEST_FILE, testContext, type Fn } from './hook-core.fixtures.ts';
@@ -94,9 +95,9 @@ describe('wrapNodeTest', () => {
       return (registration?.rest.find((arg) => typeof arg === 'function') as Fn)(context);
     };
 
-    await run('it', 'works', 0);
-    await run('test', 'works', 0, testContext(registrations));
-    await run('it', 'works', 1);
+    await run('test', 'works', 0);
+    await run('test', 'works', 1, testContext(registrations));
+    await run('test', 'works', 2);
     await run('t.test', 'child', 0);
     await run('t.test', 'child', 1);
 
@@ -155,13 +156,13 @@ describe('wrapNodeTest', () => {
     });
 
     assert.equal(suiteReturn, 'describe suite');
-    assert.equal(testReturn, 'it case');
+    assert.equal(testReturn, 'test case');
     const serial = { ...options, concurrency: false };
     assert.deepEqual(
       registrations.map(({ kind, name, rest, self }) => ({ kind, name, options: rest[0], self, count: rest.length })),
       [
         { kind: 'describe', name: 'suite', options: serial, self: 'describe this', count: 2 },
-        { kind: 'it', name: 'case', options: serial, self: 'it this', count: 2 },
+        { kind: 'test', name: 'case', options: serial, self: 'it this', count: 2 },
       ],
     );
     assert.deepEqual(suiteCall, { self: 'suite this', args: ['suite argument'] });
@@ -222,7 +223,7 @@ describe('wrapNodeTest', () => {
     ]);
   });
 
-  testEach(['describe', 'suite', 'it', 'test'] as const)('keeps the other properties of node:test\'s %s', (kind) => {
+  testEach(['describe', 'suite', 'test'] as const)('keeps the other properties of node:test\'s %s', (kind) => {
     const { module } = wrapped();
 
     assert.equal((module[kind] as unknown as { mock: string }).mock, `${kind}.mock`);
@@ -277,12 +278,12 @@ describe('wrapNodeTest', () => {
       registrations.map(({ kind, name }) => `${kind} ${name}`),
       [
         'describe.only describe.only',
-        'it first',
-        'it.only it.only',
+        'test first',
+        'test.only it.only',
         'suite.only suite.only',
         'test.only test.only',
         'describe.todo describe.todo',
-        'it.todo it.todo',
+        'test.todo it.todo',
         'suite.todo suite.todo',
         'test.todo test.todo',
       ],
@@ -482,7 +483,7 @@ describe('wrapNodeTest', () => {
       [`${TEST_FILE} > skipped suite`]: { line: 2, column: 3 },
     });
     assert.deepEqual(registrations.slice(1), [
-      { kind: 'it.skip', name: 'nested', rest: [options, body], self: module.it },
+      { kind: 'test.skip', name: 'nested', rest: [options, body], self: module.it },
       { kind: 'test.skip', name: 'test', rest: [body], self: module.test },
       { kind: 'describe.skip', name: 'describe', rest: [body], self: module.describe },
       { kind: 'suite.skip', name: 'skipped suite', rest: [body], self: 'suite this' },
@@ -687,6 +688,7 @@ describe('wrapNodeTest', () => {
       module.it('wanted', { skip: false }, () => {});
       module.it('unwanted', { timeout: 5 }, () => {});
     });
+    module.suite('unwanted group', { timeout: 6 }, () => {});
     module.test('other', () => {});
     module.test('calls back', (_t: unknown, done: () => void) => done());
 
@@ -696,10 +698,94 @@ describe('wrapNodeTest', () => {
         ['group', { concurrency: false }],
         ['wanted', { skip: false, concurrency: false }],
         ['unwanted', { timeout: 5, concurrency: false, skip: true }],
+        ['unwanted group', { timeout: 6, concurrency: false }],
         ['other', { concurrency: false, skip: true }],
         ['calls back', { concurrency: false, skip: true }],
       ],
     );
+  });
+
+  it('registers `after` and `afterEach` hooks without a function, as node:test allows', () => {
+    const { module, registrations } = wrapped();
+    const after = module.after as () => unknown;
+    const afterEach = module.afterEach as () => unknown;
+    after();
+    module.describe('suite', () => {
+      after();
+      afterEach();
+    });
+
+    assert.deepEqual(
+      registrations.filter(({ kind }) => kind.startsWith('after')).map(({ kind, rest }) => [kind, rest]),
+      [
+        ['after', [undefined]],
+        ['after', [undefined]],
+        ['afterEach', [undefined]],
+      ],
+    );
+  });
+
+  it('wraps the functions that `it` carries, as `it` is `test` in node:test', async () => {
+    const { module, registrations, seen, see } = wrapped([`${TEST_FILE} > selected > wanted`]);
+    const it = module.it as unknown as NodeTestModule;
+    it.describe('unselected', () => {
+      it.after(() => {});
+    });
+    it.describe('selected', () => {
+      it('wanted', see);
+    });
+
+    await bodyOf(registrations, 'wanted')(testContext());
+
+    assert.deepEqual(
+      registrations.filter(({ kind }) => kind === 'after'),
+      [],
+    );
+    assert.deepEqual(seen, [`${TEST_FILE} > selected > wanted`]);
+    assert.equal(it, module.test);
+  });
+
+  it('runs the bodies of the suites outside the filter, but registers none of their hooks', () => {
+    const { module, registrations, positions, sites } = wrapped([`${TEST_FILE} > selected > wanted`]);
+    sites.push({ file: TEST_FILE, line: 2, column: 3 });
+    const ran: string[] = [];
+    const hook = () => {};
+    const hooks = () => {
+      for (const kind of ['before', 'beforeEach', 'after', 'afterEach'] as const) {
+        module[kind](hook, { timeout: 5 });
+      }
+    };
+    module.after(hook);
+    sites.splice(0, Infinity, { file: TEST_FILE, line: 9, column: 1 });
+    module.describe('selected', () => {
+      ran.push('selected');
+      hooks();
+      module.it('wanted', () => {});
+    });
+    module.describe('unselected', () => {
+      ran.push('unselected');
+      hooks();
+      module.describe('nested', () => {
+        ran.push('nested');
+        hooks();
+      });
+    });
+
+    assert.deepEqual(ran, ['selected', 'unselected', 'nested']);
+    assert.deepEqual(
+      registrations
+        .filter(({ kind }) => kind.startsWith('before') || kind.startsWith('after'))
+        .map(({ kind, rest }) => [kind, rest[0] === hook, rest[1]]),
+      [
+        ['after', true, undefined],
+        ['before', false, { timeout: 5 }],
+        ['beforeEach', false, { timeout: 5 }],
+        ['after', true, { timeout: 5 }],
+        ['afterEach', true, { timeout: 5 }],
+      ],
+    );
+    // Only the `after` hook outside any suite stands for the test file when it fails.
+    assert.deepEqual(positions.get(`${TEST_FILE} > "after" hook`), { line: 1, column: 2 });
   });
 
   it('runs every test of the file when the filter names the file itself', async () => {
