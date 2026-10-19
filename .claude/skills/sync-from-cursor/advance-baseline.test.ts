@@ -17,6 +17,7 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { after, before, describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
+import { testEach } from '../../../tools/test-each/test-each.ts';
 import {
   MANIFEST_PATH,
   advanceBaseline,
@@ -106,17 +107,13 @@ describe('readUpstream', () => {
     assert.deepEqual(readUpstream(fakeGit('{"name":"thermos","version":"1.2.0"}')), UPSTREAM);
   });
 
-  for (const commit of [`${COMMIT}\n`, `x${COMMIT}`, COMMIT.slice(0, 7), 'cursor/main']) {
-    it(`rejects ${JSON.stringify(commit)} as the commit`, () => {
-      assert.throws(() => readUpstream(fakeGit('{"version":"1.2.0"}', commit)), /not a commit SHA/);
-    });
-  }
+  testEach([`${COMMIT}\n`, `x${COMMIT}`, COMMIT.slice(0, 7), 'cursor/main'])('rejects %j as the commit', (commit) => {
+    assert.throws(() => readUpstream(fakeGit('{"version":"1.2.0"}', commit)), /not a commit SHA/);
+  });
 
-  for (const pluginJson of ['{"name":"thermos"}', '{"version":""}', '{"version":1}']) {
-    it(`rejects the upstream manifest ${pluginJson}`, () => {
-      assert.throws(() => readUpstream(fakeGit(pluginJson)), /has no version/);
-    });
-  }
+  testEach(['{"name":"thermos"}', '{"version":""}', '{"version":1}'])('rejects the upstream manifest %s', (json) => {
+    assert.throws(() => readUpstream(fakeGit(json)), /has no version/);
+  });
 });
 
 describe('withUpstream', () => {
@@ -143,11 +140,9 @@ describe('withUpstream', () => {
     assert.equal(withUpstream(committed, current), committed);
   });
 
-  for (const manifestText of ['{"name":"thermos"}', '{"metadata":null}', '{"metadata":[]}']) {
-    it(`rejects the manifest ${manifestText}`, () => {
-      assert.throws(() => withUpstream(manifestText, UPSTREAM), /no metadata object/);
-    });
-  }
+  testEach(['{"name":"thermos"}', '{"metadata":null}', '{"metadata":[]}'])('rejects the manifest %s', (text) => {
+    assert.throws(() => withUpstream(text, UPSTREAM), /no metadata object/);
+  });
 });
 
 describe('basedOnLine', () => {
