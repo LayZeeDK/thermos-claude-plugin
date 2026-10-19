@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -193,8 +194,6 @@ describe('recordEvents', () => {
   });
 });
 
-let imports = 0;
-
 /**
  * Resolves and loads `node:test` through the module hooks, as an import and as a require, and evaluates both modules
  * with `wrapped` as the wrapped node:test module.
@@ -212,7 +211,7 @@ async function importRedirected(hooks: ModuleHooks, wrapped: unknown) {
   try {
     global[wrappedNodeTest] = wrapped as NodeTestModule;
     // A comment of its own keeps the import from coming from the module cache.
-    const source = `${sourceFor(['node', 'import'])}\n// ${++imports}`;
+    const source = `${sourceFor(['node', 'import'])}\n// ${randomUUID()}`;
     const module = (await import(`data:text/javascript,${encodeURIComponent(source)}`)) as Record<string, unknown>;
     const commonjs = { exports: undefined as unknown };
     new Function('module', sourceFor(['node', 'require']))(commonjs);
