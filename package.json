@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\"",
     "mutate": "stryker run",
-    "bench": "node tools/stryker-node-test-runner/runner.bench.ts"
+    "bench": "node tools/stryker-node-test-runner/runner.bench.ts",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "@stryker-mutator/api": "^10.0.0",

@@ -29,6 +29,7 @@ jobs:
           node-version-file: ${{ !matrix.node-version && '.node-version' || '' }}
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
 
