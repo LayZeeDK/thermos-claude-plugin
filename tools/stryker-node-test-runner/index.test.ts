@@ -93,12 +93,30 @@ describe('fileError', () => {
     'with NODE_OPTIONS set to `--import "hook" --stack-size=900`.';
 
   testFor([
-    ['trimmed stderr', 1, '  \nline 1\nline 2 \n', ['Stderr:', 'line 1', 'line 2']],
-    ['no stderr', 3, ' \n', []],
-    ['the missing exit code of a killed process', null, '', []],
-  ] as const)('names the file, the exit code and the command, with %s', ([, exitCode, stderr, end]) => {
+    ['trimmed stderr', 1, '  \nline 1\nline 2 \n', [], ['Stderr:', 'line 1', 'line 2']],
+    ['no stderr', 3, ' \n', [], []],
+    ['the missing exit code of a killed process', null, '', [], []],
+    [
+      'the diagnostics of every process',
+      1,
+      'out',
+      [{ diagnostics: ['late 1'] }, {}, { diagnostics: ['late 2'] }],
+      ['Diagnostics:', 'late 1', 'late 2', 'Stderr:', 'out'],
+    ],
+  ] as const)('names the file, the exit code and the command, with %s', ([, exitCode, stderr, records, end]) => {
+    const run = {
+      records: records.map((record: { diagnostics?: readonly string[] }) => ({
+        tests: [],
+        ...(record.diagnostics && { diagnostics: [...record.diagnostics] }),
+      })),
+      exitCode,
+      stderr,
+      args: ['--no-deprecation', FILE],
+      nodeOptions: '--import "hook" --stack-size=900',
+    };
+
     assert.equal(
-      fileError(FILE, exitCode, stderr, ['--no-deprecation', FILE], '--import "hook" --stack-size=900'),
+      fileError(FILE, run),
       [`Error running file "${FILE}": node exited with code ${exitCode} outside any test.`, command, ...end].join('\n'),
     );
   });

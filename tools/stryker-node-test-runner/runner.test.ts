@@ -398,13 +398,41 @@ describe('NodeTestRunner', () => {
     const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
     await runner.init();
     const b = join(dir, 'b.test.mjs');
-    const errorMessage = fileError(b, 3, 'first\nsecond\n', [REPORTER_ARG, '--no-deprecation', b], runNodeOptions());
+    const errorMessage = fileError(b, {
+      records: [],
+      exitCode: 3,
+      stderr: 'first\nsecond\n',
+      args: [REPORTER_ARG, '--no-deprecation', b],
+      nodeOptions: runNodeOptions(),
+    });
 
     assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), { status: DryRunStatus.Error, errorMessage });
     assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
       status: MutantRunStatus.Error,
       errorMessage,
     });
+  });
+
+  it('reports an error raised after its test ended as an error that names the test and the error', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('late', () => { setTimeout(() => { throw new Error('late boom'); }, 20); });",
+        "it('waits', () => new Promise((resolve) => setTimeout(resolve, 200)));",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const result = await settle(runner.dryRun(DRY_RUN));
+
+    assert.ok(result.status === DryRunStatus.Error);
+    const [first, , ...rest] = result.errorMessage.split('\n');
+    assert.equal(first, `Error running file "${a}": node exited with code 1 outside any test.`);
+    // node:test gives the position of the wrapper that registered the test.
+    assert.match(
+      rest.join('\n'),
+      /^Diagnostics:\nError: Test "late" at .+ generated asynchronous activity after the test ended\. This activity created the error "Error: late boom"/,
+    );
   });
 
   it('reports skipped and todo tests as skipped, so a failing todo test kills no mutant', async (t) => {
@@ -767,7 +795,7 @@ describe('NodeTestRunner', () => {
     const exitCode = process.platform === 'win32' ? 1 : null;
     assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), {
       status: DryRunStatus.Error,
-      errorMessage: fileError(a, exitCode, '', [REPORTER_ARG, a], runNodeOptions()),
+      errorMessage: fileError(a, { records: [], exitCode, stderr: '', args: [REPORTER_ARG, a], nodeOptions: runNodeOptions() }),
     });
   });
 

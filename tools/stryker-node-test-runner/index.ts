@@ -122,22 +122,18 @@ export function toTestResults(testFile: string, recorded: RecordedTest[]): TestR
 
 /**
  * The error message for a test file whose process failed outside any test, such as when it does not load, with the
- * command that reproduces it and its stderr, as Stryker's tap runner reports it. The command has the arguments and
- * NODE_OPTIONS that the runner ran `node` with.
+ * command that reproduces it, node:test's diagnostics of errors raised after their test ended, and its stderr, as
+ * Stryker's tap runner reports it. The command has the arguments and NODE_OPTIONS that the runner ran `node` with.
  */
-export function fileError(
-  testFile: string,
-  exitCode: number | null,
-  stderr: string,
-  args: string[],
-  nodeOptions: string,
-): string {
+export function fileError(testFile: string, { records, exitCode, stderr, args, nodeOptions }: FileRun): string {
+  const diagnostics = records.flatMap((record) => record.diagnostics ?? []);
   const command = ['node', ...args.map((arg) => `"${arg}"`)].join(' ');
   const output = stderr.trim();
 
   return [
     `Error running file "${testFile}": node exited with code ${exitCode} outside any test.`,
     `To reproduce it, run \`${command}\` in ${process.cwd()} with NODE_OPTIONS set to \`${nodeOptions}\`.`,
+    ...(diagnostics.length > 0 ? ['Diagnostics:', ...diagnostics] : []),
     ...(output ? ['Stderr:', output] : []),
   ].join('\n');
 }
@@ -371,7 +367,8 @@ export class NodeTestRunner implements TestRunner {
     const coverages: (MutantCoverage | undefined)[] = [];
 
     for (const file of files) {
-      const { records, exitCode, stderr, args, nodeOptions } = await this.runFile(file, run);
+      const fileRun = await this.runFile(file, run);
+      const { records, exitCode } = fileRun;
 
       for (const record of records) {
         const timeout = determineHitLimitReached(record.hitCount, run.hitLimit);
@@ -388,7 +385,7 @@ export class NodeTestRunner implements TestRunner {
 
       // Like Stryker's own runners, a failure that no test explains is an error, not a killed mutant.
       if (exitCode !== 0 && !failed) {
-        const errorMessage = fileError(file, exitCode, stderr, args, nodeOptions);
+        const errorMessage = fileError(file, fileRun);
 
         return { status: DryRunStatus.Error, errorMessage };
       }

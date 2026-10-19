@@ -85,6 +85,8 @@ export interface ProcessRecord {
   hitCount?: number;
   /** Only written during the dry run. */
   mutantCoverage?: Coverage;
+  /** What node:test reported about errors raised after their test ended, which fail the file outside any test. */
+  diagnostics?: string[];
 }
 
 /** The part of Stryker's global namespace (`globalThis.__stryker__`) the hook uses. */
@@ -124,6 +126,8 @@ export interface TestEvent {
     file?: string;
     line?: number;
     column?: number;
+    /** Present on `test:diagnostic`. */
+    message?: string;
     /** Present on `test:pass` and `test:fail`. */
     details?: {
       /** Absent when the test file itself fails. */
@@ -214,12 +218,13 @@ export function install(deps: HookDependencies): boolean {
   // Processes the tests start never bail: skipping tests there would change results that the parent test checks.
   delete deps.env[ENV.bail];
   const tests: RecordedTest[] = [];
+  const diagnostics: string[] = [];
   const testFile = deps.env[ENV.file];
   const main = testFile !== undefined && deps.mainFile === testFile;
 
   if (main) {
     const positions = new Map<string, Position>();
-    deps.global[reporting] = recordEvents(testFile, tests, positions);
+    deps.global[reporting] = recordEvents(testFile, tests, positions, diagnostics);
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
     const wrapped = wrapNodeTest({
@@ -251,6 +256,7 @@ export function install(deps: HookDependencies): boolean {
       tests,
       hitCount: ns.hitCount,
       mutantCoverage: dryRun ? ns.mutantCoverage : undefined,
+      ...(diagnostics.length > 0 && { diagnostics }),
     });
   });
 
@@ -258,14 +264,23 @@ export function install(deps: HookDependencies): boolean {
 }
 
 /**
+ * What node:test's diagnostic of an error raised after its test ended says. node:test reports it when such an error
+ * reaches its `uncaughtException` or `unhandledRejection` handler (`createProcessEventHandler` in
+ * `lib/internal/test_runner/harness.js`).
+ */
+const LATE_ACTIVITY = 'generated asynchronous activity after the test ended';
+
+/**
  * Returns a function that records the tests of one test file from node:test's reporter events, with ids built the
  * way the wrapper builds them, and the positions the wrapper found for them. A suite is recorded only when it fails by
- * itself, such as in a `before` hook, or is skipped.
+ * itself, such as in a `before` hook, or is skipped. node:test reports an error raised after its test ended only as a
+ * diagnostic, which is kept in `diagnostics`.
  */
 export function recordEvents(
   testFile: string,
   tests: RecordedTest[],
   positions: Map<string, Position>,
+  diagnostics: string[],
 ): (event: TestEvent) => void {
   /** The id of the test or suite that started last at each nesting level. */
   const ids = new Map<number, string>();
@@ -276,6 +291,10 @@ export function recordEvents(
       ids.set(data.nesting, idOf(ids.get(data.nesting - 1) ?? testFile, data.name));
 
       return;
+    }
+
+    if (type === 'test:diagnostic' && data.message?.includes(LATE_ACTIVITY)) {
+      diagnostics.push(data.message);
     }
 
     if (type !== 'test:pass' && type !== 'test:fail') {

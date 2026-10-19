@@ -39,9 +39,13 @@ function reported(
   ];
 }
 
-function record(events: TestEvent[], positions = new Map<string, Position>()): RecordedTest[] {
+function record(
+  events: TestEvent[],
+  positions = new Map<string, Position>(),
+  diagnostics: string[] = [],
+): RecordedTest[] {
   const tests: RecordedTest[] = [];
-  const recordEvent = recordEvents(TEST_FILE, tests, positions);
+  const recordEvent = recordEvents(TEST_FILE, tests, positions, diagnostics);
 
   for (const event of events) {
     recordEvent(event);
@@ -232,6 +236,33 @@ describe('recordEvents', () => {
       ]).map(({ id }) => id),
       [`${TEST_FILE} > s > works`, `${TEST_FILE} > s > works (2)`, `${TEST_FILE} > s (2) > works`, `${TEST_FILE} > a \\> b`],
     );
+  });
+
+  it('keeps the diagnostics of errors raised after a test ended, and no others', () => {
+    const late =
+      'Error: Test "late" at a.test.mjs:1:1 generated asynchronous activity after the test ended. This activity ' +
+      'created the error "Error: boom" and would have caused the test to fail, but instead triggered an ' +
+      'uncaughtException event.';
+    const diagnostic = (message: string): TestEvent => ({
+      type: 'test:diagnostic',
+      data: { name: '', nesting: 0, message },
+    });
+    const diagnostics: string[] = [];
+
+    const tests = record(
+      [
+        diagnostic(late),
+        diagnostic('tests 1'),
+        { type: 'test:stdout', data: { name: '', nesting: 0, message: late } },
+        diagnostic(`${late} Again.`),
+        ...reported('late', 0, 'pass', testDetails),
+      ],
+      new Map(),
+      diagnostics,
+    );
+
+    assert.deepEqual(diagnostics, [late, `${late} Again.`]);
+    assert.equal(tests.length, 1);
   });
 
   it("records where node:test found the test file's failing `after` hook, and the wrapper found everything else", () => {
@@ -530,6 +561,17 @@ describe('install', () => {
         },
       },
     ]);
+  });
+
+  it('writes the diagnostics of errors raised after a test ended', () => {
+    const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
+    const message = 'Error: Test "t" at a.test.mjs:1:1 generated asynchronous activity after the test ended.';
+    install(deps);
+    deps.global[reporting]?.({ type: 'test:diagnostic', data: { name: '', nesting: 0, message } });
+
+    exit();
+
+    assert.deepEqual(records[0]?.record, { main: true, tests: [], diagnostics: [message] });
   });
 
   it('records where the test file declares a test, named by URL as an ES module or by path as CommonJS', () => {
