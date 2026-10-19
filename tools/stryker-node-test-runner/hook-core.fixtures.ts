@@ -106,3 +106,10 @@ export function bodyOf(registrations: Registration[], name: string): (this: unkn
     return body.apply(this, args);
   };
 }
+
+/** Runs the bodies of the named tests one after another, each with a fresh test context. */
+export async function runBodies(registrations: Registration[], names: string[]): Promise<void> {
+  for (const name of names) {
+    await bodyOf(registrations, name)(testContext());
+  }
+}

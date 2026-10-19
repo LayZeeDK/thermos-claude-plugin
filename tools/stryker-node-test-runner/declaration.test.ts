@@ -6,7 +6,13 @@ import { describe, it } from 'node:test';
 import { PluginKind } from '@stryker-mutator/api/plugin';
 import ajvModule from 'ajv';
 
+import { testEach } from '../test-each/test-each.ts';
 import { NodeTestRunner, strykerPlugins, strykerValidationSchema } from './index.ts';
+
+/** Compiles the nodeTest options schema, as Stryker validates the options against it. */
+function validator() {
+  return new ajvModule.default({ allErrors: true, strict: false }).compile(strykerValidationSchema);
+}
 
 describe('plugin declaration', () => {
   it('declares the node-test test runner', () => {
@@ -15,27 +21,23 @@ describe('plugin declaration', () => {
     ]);
   });
 
-  it('validates the nodeTest options with a JSON schema', () => {
-    const validate = new ajvModule.default({ allErrors: true, strict: false }).compile(strykerValidationSchema);
+  testEach([
+    {},
+    { nodeTest: {} },
+    { nodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } },
+    { nodeTest: { nodeArgs: ['--enable-source-maps', '--stack-size=900'] } },
+  ])('accepts the options %j', (options) => {
+    assert.ok(validator()(options));
+  });
 
-    for (const options of [
-      {},
-      { nodeTest: {} },
-      { nodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } },
-      { nodeTest: { nodeArgs: ['--enable-source-maps', '--stack-size=900'] } },
-    ]) {
-      assert.ok(validate(options), JSON.stringify(options));
-    }
-
-    for (const options of [
-      { nodeTest: '*.test.ts' },
-      { nodeTest: { testFiles: '*.test.ts' } },
-      { nodeTest: { testFiles: [1] } },
-      { nodeTest: { testfiles: ['*.test.ts'] } },
-      { nodeTest: { nodeArgs: '--enable-source-maps' } },
-      { nodeTest: { nodeArgs: [1] } },
-    ]) {
-      assert.ok(!validate(options), JSON.stringify(options));
-    }
+  testEach([
+    { nodeTest: '*.test.ts' },
+    { nodeTest: { testFiles: '*.test.ts' } },
+    { nodeTest: { testFiles: [1] } },
+    { nodeTest: { testfiles: ['*.test.ts'] } },
+    { nodeTest: { nodeArgs: '--enable-source-maps' } },
+    { nodeTest: { nodeArgs: [1] } },
+  ])('rejects the options %j', (options) => {
+    assert.ok(!validator()(options));
   });
 });

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { testEach } from '../test-each/test-each.ts';
+import { testFor } from '../test-each/test-for.ts';
 import {
   ENV,
   install,
@@ -390,17 +392,15 @@ describe('install', () => {
     assert.equal(deps.global.__stryker__?.hitCount, 0);
   });
 
-  for (const hitLimit of [undefined, '0', 'none']) {
-    it(`counts no hits with the hit limit ${String(hitLimit)}`, () => {
-      const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.hitLimit]: hitLimit });
-      install(deps);
-      exit();
+  testEach([undefined, '0', 'none'])('counts no hits with the hit limit %s', (hitLimit) => {
+    const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.hitLimit]: hitLimit });
+    install(deps);
+    exit();
 
-      assert.equal(deps.global.__stryker__?.hitLimit, undefined);
-      assert.equal(deps.global.__stryker__?.hitCount, undefined);
-      assert.ok(!('hitCount' in (records[0]?.record ?? {})));
-    });
-  }
+    assert.equal(deps.global.__stryker__?.hitLimit, undefined);
+    assert.equal(deps.global.__stryker__?.hitCount, undefined);
+    assert.ok(!('hitCount' in (records[0]?.record ?? {})));
+  });
 
   it('attributes the process to the test that started it', () => {
     const { deps } = harness({ [ENV.out]: OUT, [ENV.current]: `${TEST_FILE} > spawns` }, { mainFile: '/other.mjs' });
@@ -409,15 +409,13 @@ describe('install', () => {
     assert.equal(deps.global.__stryker__?.currentTestId, `${TEST_FILE} > spawns`);
   });
 
-  for (const current of [undefined, '']) {
-    it(`attributes the process to no test when the current test is ${JSON.stringify(current)}`, () => {
-      const { deps } = harness({ [ENV.out]: OUT, [ENV.current]: current });
-      deps.global.__stryker__ = { currentTestId: 'stale' };
-      install(deps);
+  testEach([undefined, ''])('attributes the process to no test when the current test is %j', (current) => {
+    const { deps } = harness({ [ENV.out]: OUT, [ENV.current]: current });
+    deps.global.__stryker__ = { currentTestId: 'stale' };
+    install(deps);
 
-      assert.equal(deps.global.__stryker__.currentTestId, undefined);
-    });
-  }
+    assert.equal(deps.global.__stryker__.currentTestId, undefined);
+  });
 
   it('wraps node:test in the process that runs the test file, and makes imports of node:test give it', async () => {
     const { deps, fake, calls, hooks, wrapped } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
@@ -437,21 +435,19 @@ describe('install', () => {
     assert.deepEqual(seen, [`${TEST_FILE} > runs`]);
   });
 
-  for (const [description, env, mainFile] of [
+  testFor([
     ['a process the tests spawned', { [ENV.file]: TEST_FILE }, '/repo/child.mjs'],
     ['a process without a main file', { [ENV.file]: TEST_FILE }, undefined],
     ['a run without a test file', {}, undefined],
     ['a run without a test file, from a main file', {}, TEST_FILE],
-  ] as const) {
-    it(`leaves node:test and its reporter alone in ${description}`, () => {
-      const { deps, calls } = harness({ [ENV.out]: OUT, ...env }, { mainFile });
+  ] as const)('leaves node:test and its reporter alone in %s', ([, env, mainFile]) => {
+    const { deps, calls } = harness({ [ENV.out]: OUT, ...env }, { mainFile });
 
-      assert.equal(install(deps), true);
-      assert.deepEqual(calls, ['onExit']);
-      assert.equal(deps.global[reporting], undefined);
-      assert.equal(deps.global[wrappedNodeTest], undefined);
-    });
-  }
+    assert.equal(install(deps), true);
+    assert.deepEqual(calls, ['onExit']);
+    assert.equal(deps.global[reporting], undefined);
+    assert.equal(deps.global[wrappedNodeTest], undefined);
+  });
 
   it("records the tests node:test reports in a file named after the process, marked as the test file's", () => {
     const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.dryRun]: 'false' });
@@ -527,22 +523,22 @@ describe('install', () => {
     );
   });
 
-  for (const bail of ['true', 'false', undefined]) {
-    it(`${bail === 'true' ? 'skips' : 'runs'} later tests with bail ${String(bail)}; children never bail`, async () => {
-      const env = { [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.bail]: bail };
-      const { deps, fake, wrapped } = harness(env);
-      const ran: string[] = [];
-      install(deps);
-      wrapped().it('later', () => {
-        ran.push('later');
-      });
-      report(deps, 'fails', 'fail');
-      await bodyOf(fake.registrations, 'later')(testContext());
+  const bails = ['true', 'false', undefined].map((bail) => ({ bail, verb: bail === 'true' ? 'skips' : 'runs' }));
 
-      assert.deepEqual(ran, bail === 'true' ? [] : ['later']);
-      assert.ok(!(ENV.bail in env));
+  testEach(bails)('$verb later tests with bail $bail; children never bail', async ({ bail }) => {
+    const env = { [ENV.out]: OUT, [ENV.file]: TEST_FILE, [ENV.bail]: bail };
+    const { deps, fake, wrapped } = harness(env);
+    const ran: string[] = [];
+    install(deps);
+    wrapped().it('later', () => {
+      ran.push('later');
     });
-  }
+    report(deps, 'fails', 'fail');
+    await bodyOf(fake.registrations, 'later')(testContext());
+
+    assert.deepEqual(ran, bail === 'true' ? [] : ['later']);
+    assert.ok(!(ENV.bail in env));
+  });
 
   it('writes the hit count and, only in the dry run, the mutant coverage', () => {
     const coverage = { static: { 1: 2 }, perTest: { [`${TEST_FILE} > t`]: { 3: 1 } } };

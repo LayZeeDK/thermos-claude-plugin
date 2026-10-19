@@ -9,6 +9,7 @@ import { describe, it } from 'node:test';
 import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { DryRunStatus, MutantRunStatus, TestStatus, type DryRunOptions } from '@stryker-mutator/api/test-runner';
 
+import { testFor } from '../test-each/test-for.ts';
 import { ENV } from './hook-core.ts';
 import {
   ACTIVE_MUTANT,
@@ -160,7 +161,7 @@ describe('NodeTestRunner', () => {
     assert.ok(!existsSync(dirname(outDir)));
   });
 
-  for (const [description, exit] of [
+  testFor([
     ['exits', ''],
     ['exits through process.exit', 'process.exit(1);'],
     ['is killed', "process.kill(process.pid, 'SIGKILL');"],
@@ -169,28 +170,26 @@ describe('NodeTestRunner', () => {
       "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], " +
         "{ cwd: left, detached: true, stdio: 'ignore', windowsHide: true }).unref();",
     ],
-  ] as const) {
-    it(`removes what a test file leaves in the temporary directory when it ${description}`, async (t) => {
-      const dir = project(t, {
-        'a.test.mjs': fixture(
-          "import { spawn } from 'node:child_process';",
-          "import { mkdtempSync, writeFileSync } from 'node:fs';",
-          "import { tmpdir } from 'node:os';",
-          "import { join } from 'node:path';",
-          "const left = mkdtempSync(join(tmpdir(), 'left-'));",
-          "writeFileSync('left.txt', left);",
-          exit,
-        ),
-      });
-      const runner = await initRunner(['a.test.mjs']);
-
-      await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));
-
-      const left = readFileSync(join(dir, 'left.txt'), 'utf8');
-      t.after(() => rmSync(left, { recursive: true, force: true }));
-      assert.ok(!existsSync(left), `left behind: ${left}`);
+  ] as const)('removes what a test file leaves in the temporary directory when it %s', async ([, exit], t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { spawn } from 'node:child_process';",
+        "import { mkdtempSync, writeFileSync } from 'node:fs';",
+        "import { tmpdir } from 'node:os';",
+        "import { join } from 'node:path';",
+        "const left = mkdtempSync(join(tmpdir(), 'left-'));",
+        "writeFileSync('left.txt', left);",
+        exit,
+      ),
     });
-  }
+    const runner = await initRunner(['a.test.mjs']);
+
+    await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));
+
+    const left = readFileSync(join(dir, 'left.txt'), 'utf8');
+    t.after(() => rmSync(left, { recursive: true, force: true }));
+    assert.ok(!existsSync(left), `left behind: ${left}`);
+  });
 
   it('keeps multi-byte characters intact in stderr that spans several reads', async (t) => {
     const dir = project(t, {
@@ -239,15 +238,15 @@ describe('NodeTestRunner', () => {
     ]);
   });
 
-  it('runs the TypeScript test files outside node_modules by default', async (t) => {
-    const dir = project(t, {
-      'a.test.ts': PASSING,
-      [join('sub', 'b.test.ts')]: PASSING,
-      [join('node_modules', 'pkg', 'c.test.ts')]: FAILING,
-      'd.test.mjs': FAILING,
-    });
-
-    for (const options of [{}, { nodeTest: {} }]) {
+  testFor([{}, { nodeTest: {} }])(
+    'runs the TypeScript test files outside node_modules by default, with the options %j',
+    async (options, t) => {
+      const dir = project(t, {
+        'a.test.ts': PASSING,
+        [join('sub', 'b.test.ts')]: PASSING,
+        [join('node_modules', 'pkg', 'c.test.ts')]: FAILING,
+        'd.test.mjs': FAILING,
+      });
       const runner = new NodeTestRunner(options as StrykerOptions, logger());
       await runner.init();
       t.after(() => runner.dispose());
@@ -258,8 +257,8 @@ describe('NodeTestRunner', () => {
         { id: `${join(dir, 'a.test.ts')} > passes`, status: TestStatus.Success, failureMessage: undefined },
         { id: `${join(dir, 'sub', 'b.test.ts')} > passes`, status: TestStatus.Success, failureMessage: undefined },
       ]);
-    }
-  });
+    },
+  );
 
   it('passes nodeTest.nodeArgs to the node process of each test file', async (t) => {
     const dir = project(t, {
@@ -876,7 +875,10 @@ describe('NodeTestRunner', () => {
     });
   });
 
-  it('activates a runtime mutant before the before hooks of suites and before beforeEach hooks', async (t) => {
+  testFor([
+    { hooks: 'the before hooks of suites', file: 'a.test.mjs', test: 'suite > runs' },
+    { hooks: 'beforeEach hooks', file: 'b.test.mjs', test: 'runs' },
+  ])('activates a runtime mutant before $hooks', async ({ file, test }, t) => {
     const active = `const active = () => process.env.${ACTIVE_MUTANT} || globalThis.__stryker__.activeMutant;`;
     const dir = project(t, {
       'a.test.mjs': fixture(
@@ -896,13 +898,12 @@ describe('NodeTestRunner', () => {
       ),
     });
     const runner = await initRunner(['*.test.mjs']);
+    const testFilter = [`${join(dir, file)} > ${test}`];
 
-    for (const testFilter of [[`${join(dir, 'a.test.mjs')} > suite > runs`], [`${join(dir, 'b.test.mjs')} > runs`]]) {
-      assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter }))), {
-        status: MutantRunStatus.Survived,
-        nrOfTests: 1,
-      });
-    }
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
   });
 
   it('times out a mutant run that exceeds the hit limit', async (t) => {

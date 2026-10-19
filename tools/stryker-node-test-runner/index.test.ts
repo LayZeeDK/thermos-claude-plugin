@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 
 import { TestStatus } from '@stryker-mutator/api/test-runner';
 
+import { testFor } from '../test-each/test-for.ts';
 import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
 import { ACTIVE_MUTANT, HOOK_URL, NO_PROCESS } from './index.fixtures.ts';
 import {
@@ -91,20 +92,16 @@ describe('fileError', () => {
     `To reproduce it, run \`node "--no-deprecation" "${FILE}"\` in ${process.cwd()} ` +
     'with NODE_OPTIONS set to `--import "hook" --stack-size=900`.';
 
-  for (const [description, exitCode, stderr, end] of [
+  testFor([
     ['trimmed stderr', 1, '  \nline 1\nline 2 \n', ['Stderr:', 'line 1', 'line 2']],
     ['no stderr', 3, ' \n', []],
     ['the missing exit code of a killed process', null, '', []],
-  ] as const) {
-    it(`names the file, the exit code and the command, with ${description}`, () => {
-      assert.equal(
-        fileError(FILE, exitCode, stderr, ['--no-deprecation', FILE], '--import "hook" --stack-size=900'),
-        [`Error running file "${FILE}": node exited with code ${exitCode} outside any test.`, command, ...end].join(
-          '\n',
-        ),
-      );
-    });
-  }
+  ] as const)('names the file, the exit code and the command, with %s', ([, exitCode, stderr, end]) => {
+    assert.equal(
+      fileError(FILE, exitCode, stderr, ['--no-deprecation', FILE], '--import "hook" --stack-size=900'),
+      [`Error running file "${FILE}": node exited with code ${exitCode} outside any test.`, command, ...end].join('\n'),
+    );
+  });
 });
 
 describe('filesFor', () => {
