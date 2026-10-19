@@ -72,6 +72,52 @@ describe('wrapNodeTest', () => {
     ]);
   });
 
+  it('tells same-named suites and tests of one parent apart in the order they are declared', async () => {
+    const { module, registrations, positions, sites, seen, see } = wrapped();
+    sites.push({ file: TEST_FILE, line: 1, column: 1 });
+    module.describe('s', () => {
+      module.it('works', see);
+      module.it.skip('works', see);
+      module.test('works', async (t: { test: (name: string, body: Fn) => unknown }) => {
+        t.test('child', see);
+        t.test('child', see);
+      });
+    });
+    module.describe('s', () => {
+      module.it('works', see);
+    });
+
+    /** Runs the body of the `nth` registration of this kind and name. */
+    const run = (kind: string, name: string, nth: number, context = testContext()) => {
+      const registration = registrations.filter((candidate) => candidate.kind === kind && candidate.name === name)[nth];
+
+      return (registration?.rest.find((arg) => typeof arg === 'function') as Fn)(context);
+    };
+
+    await run('it', 'works', 0);
+    await run('test', 'works', 0, testContext(registrations));
+    await run('it', 'works', 1);
+    await run('t.test', 'child', 0);
+    await run('t.test', 'child', 1);
+
+    assert.deepEqual(seen, [
+      `${TEST_FILE} > s > works`,
+      `${TEST_FILE} > s (2) > works`,
+      `${TEST_FILE} > s > works (3) > child`,
+      `${TEST_FILE} > s > works (3) > child (2)`,
+    ]);
+    assert.deepEqual([...positions.keys()], [
+      `${TEST_FILE} > s`,
+      `${TEST_FILE} > s > works`,
+      `${TEST_FILE} > s > works (2)`,
+      `${TEST_FILE} > s > works (3)`,
+      `${TEST_FILE} > s (2)`,
+      `${TEST_FILE} > s (2) > works`,
+      `${TEST_FILE} > s > works (3) > child`,
+      `${TEST_FILE} > s > works (3) > child (2)`,
+    ]);
+  });
+
   it('leaves the suite after a suite body throws', async () => {
     const { module, registrations, suiteResults, seen, see } = wrapped();
     const failure = new Error('broken suite');

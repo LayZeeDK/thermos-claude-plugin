@@ -636,6 +636,44 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('gives same-named tests of one parent, and names with the separator, ids of their own throughout', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "describe('s', () => {",
+        "  it('works', () => { cover('first'); });",
+        "  it('works', () => { cover('second'); });",
+        '});',
+        "describe('a', () => { it('b', () => { cover('nested'); }); });",
+        "it('a > b', () => { cover('separator'); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+    const ids = ['s > works', 's > works (2)', 'a > b', 'a \\> b'].map((name) => `${a} > ${name}`);
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(
+      tests.map(({ id, startPosition }) => ({ id, line: startPosition?.line })),
+      [
+        { id: ids[0], line: 5 },
+        { id: ids[1], line: 6 },
+        { id: ids[2], line: 8 },
+        { id: ids[3], line: 9 },
+      ],
+    );
+    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
+      [ids[0] as string]: { first: 1 },
+      [ids[1] as string]: { second: 1 },
+      [ids[2] as string]: { nested: 1 },
+      [ids[3] as string]: { separator: 1 },
+    });
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[1] as string] }))), {
+      status: MutantRunStatus.Survived,
+      nrOfTests: 1,
+    });
+  });
+
   it('runs neither the tests outside the filter nor their beforeEach and afterEach hooks', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(

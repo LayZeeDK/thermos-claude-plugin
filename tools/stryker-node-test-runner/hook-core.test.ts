@@ -12,6 +12,8 @@ import {
   recordEvents,
   redirectNodeTest,
   reporting,
+  testId,
+  uniqueIds,
   wrappedNodeTest,
   type HookDependencies,
   type ModuleHooks,
@@ -47,6 +49,49 @@ function record(events: TestEvent[], positions = new Map<string, Position>()): R
 
   return tests;
 }
+
+describe('testId', () => {
+  testFor([
+    ['a > b', `${TEST_FILE} > a \\> b`],
+    ['x > > y', `${TEST_FILE} > x \\> \\> y`],
+    ['> a', `${TEST_FILE} > \\> a`],
+    ['a >', `${TEST_FILE} > a \\>`],
+    ['>', `${TEST_FILE} > \\>`],
+    ['a \\ > b', `${TEST_FILE} > a \\\\ \\> b`],
+  ] as const)('escapes `>` and `\\` in a name whose `>` could form the separator: %j', ([name, id]) => {
+    assert.equal(testId(TEST_FILE, name), id);
+  });
+
+  testEach(['a name', 'a \\ b', 'a \\> b', '<anonymous>', 'a -> b', 'a >b', 'a> b', ' >b', 'b> '])(
+    'leaves a name whose `>` cannot form the separator as it is: %j',
+    (name) => {
+      assert.equal(testId(TEST_FILE, name), `${TEST_FILE} > ${name}`);
+    },
+  );
+});
+
+describe('uniqueIds', () => {
+  it('numbers the suites and tests that would share an id from 2, in the order they are named', () => {
+    const idOf = uniqueIds();
+
+    assert.deepEqual(
+      [
+        idOf(TEST_FILE, 'works'),
+        idOf(TEST_FILE, 'works'),
+        idOf(TEST_FILE, 'works (2)'),
+        idOf(TEST_FILE, 'works'),
+        idOf(testId(TEST_FILE, 's'), 'works'),
+      ],
+      [
+        `${TEST_FILE} > works`,
+        `${TEST_FILE} > works (2)`,
+        `${TEST_FILE} > works (2) (2)`,
+        `${TEST_FILE} > works (3)`,
+        `${TEST_FILE} > s > works`,
+      ],
+    );
+  });
+});
 
 describe('recordEvents', () => {
   const testDetails = { type: 'test', duration_ms: 1.5 } as const;
@@ -169,6 +214,23 @@ describe('recordEvents', () => {
         { id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 1.5 },
         { id: `${TEST_FILE} > "after" hook`, status: 'failed', failureMessage: 'after failure', timeSpentMs: 4 },
       ],
+    );
+  });
+
+  it('tells same-named suites and tests of one parent apart in the order node:test reports them, as the wrapper does', () => {
+    const suite = (name: string, ...inside: TestEvent[]): TestEvent[] => [
+      { type: 'test:start', data: { name, nesting: 0 } },
+      ...inside,
+      { type: 'test:pass', data: { name, nesting: 0, details: suiteDetails } },
+    ];
+
+    assert.deepEqual(
+      record([
+        ...suite('s', ...reported('works', 1, 'pass', testDetails), ...reported('works', 1, 'pass', testDetails)),
+        ...suite('s', ...reported('works', 1, 'pass', testDetails)),
+        ...reported('a > b', 0, 'pass', testDetails),
+      ]).map(({ id }) => id),
+      [`${TEST_FILE} > s > works`, `${TEST_FILE} > s > works (2)`, `${TEST_FILE} > s (2) > works`, `${TEST_FILE} > a \\> b`],
     );
   });
 

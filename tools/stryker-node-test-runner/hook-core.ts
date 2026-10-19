@@ -2,9 +2,39 @@
 // parameters, so tests can drive it in-process.
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-/** The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name. */
+/**
+ * The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name.
+ * A name with a `>` that could form the separator, inside the name or with the separator next to it, has each `>` and
+ * `\` escaped with `\`, so the separator only ever joins names. Other names, such as `<anonymous>`, stay as they are.
+ */
 export function testId(parent: string, name: string): string {
-  return `${parent} > ${name}`;
+  return `${parent} > ${/(^| )>( |$)/.test(name) ? name.replace(/[\\>]/g, '\\$&') : name}`;
+}
+
+/**
+ * Returns a function that gives each suite or test its id, numbering from 2 those that would share an id with one
+ * named before them, as in `works (2)`. node:test reports suites and tests in the order they are declared, so the
+ * wrapper and the reporter number them alike.
+ */
+export function uniqueIds(): (parent: string, name: string) => string {
+  const used = new Set<string>();
+
+  return (parent, name) => {
+    const base = testId(parent, name);
+
+    // One of the first `used.size + 1` candidates is free, so the search ends at the bound at the latest.
+    for (let count = 1; count <= used.size + 1; count++) {
+      const id = count === 1 ? base : `${base} (${count})`;
+
+      if (!used.has(id)) {
+        used.add(id);
+
+        return id;
+      }
+    }
+
+    return base;
+  };
 }
 
 /** Whether `id` is the id of `scope` or of a suite or test inside it. */
@@ -237,12 +267,13 @@ export function recordEvents(
   tests: RecordedTest[],
   positions: Map<string, Position>,
 ): (event: TestEvent) => void {
-  /** The name of the test or suite that started last at each nesting level. */
-  const names = new Map<number, string>();
+  /** The id of the test or suite that started last at each nesting level. */
+  const ids = new Map<number, string>();
+  const idOf = uniqueIds();
 
   return ({ type, data }) => {
     if (type === 'test:start') {
-      names.set(data.nesting, data.name);
+      ids.set(data.nesting, idOf(ids.get(data.nesting - 1) ?? testFile, data.name));
 
       return;
     }
@@ -262,11 +293,9 @@ export function recordEvents(
       return;
     }
 
-    const enclosing = Array.from({ length: data.nesting }, (_, level) => names.get(level) as string);
     // node:test reports a failing `after` hook of the test file as a failure of the file itself, which has no type.
     const fileHook = kind === undefined;
-    const name = fileHook ? '"after" hook' : data.name;
-    const id = [...enclosing, name].reduce(testId, testFile);
+    const id = fileHook ? testId(testFile, '"after" hook') : (ids.get(data.nesting) as string);
 
     const test: RecordedTest = { id, status: 'passed', timeSpentMs };
     // The wrapper leaves `after` alone, so node:test's position of the hook is where the test file declares it.
@@ -324,6 +353,7 @@ export interface WrapOptions {
  */
 export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const { ns, testFile, tests, filter, bail, activeMutant, env, positions, callSites, nodeTest } = options;
+  const idOf = uniqueIds();
   /**
    * The id of the suite or test whose body runs. node:test makes the suite or test whose body runs, followed through
    * asynchronous calls, the parent of the suites and tests registered with its module's functions.
@@ -397,7 +427,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const wrapSuite = (register: Registrar): Registrar =>
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
-      const id = testId(parentId(), name);
+      const id = idOf(parentId(), name);
       declare(id);
       const wrap = (suiteBody: Body) =>
         function (this: unknown, ...bodyArgs: unknown[]) {
@@ -411,7 +441,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const wrapTest = (register: Registrar, parent = parentId): Registrar =>
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
-      const id = testId(parent(), name);
+      const id = idOf(parent(), name);
       declare(id);
       /** The test that was current when this one started, which is current again once this one ends. */
       let previous: string | undefined;
@@ -477,7 +507,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   // The bodies of skipped suites and tests never run, so `skip` only notes where they are declared.
   const declareSkipped = (register: Registrar): Registrar =>
     function (this: unknown, ...args: unknown[]) {
-      declare(testId(parentId(), parse(args).name));
+      declare(idOf(parentId(), parse(args).name));
 
       return register.apply(this, args as Parameters<Registrar>);
     };
