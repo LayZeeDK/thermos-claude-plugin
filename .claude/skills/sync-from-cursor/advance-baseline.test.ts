@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   copyFileSync,
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -14,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
-import { after, before, describe, it, type TestContext } from 'node:test';
+import { describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { testEach } from '../../../tools/test-each/test-each.ts';
@@ -187,30 +186,23 @@ describe('command line', () => {
   const MANIFEST_IN_REPO = join('plugins', 'thermos', '.claude-plugin', 'plugin.json');
 
   /**
-   * A throwaway repository laid out like this one: an upstream commit at `cursor/main`, a copy of the script, a
-   * module-type package.json, and a plugin manifest with an older baseline. A sibling link points at the
-   * repository through a junction (Windows) or symlink.
+   * Creates a throwaway repository laid out like this one, removed after the test: an upstream commit at
+   * `cursor/main`, a copy of the script, a module-type package.json, and a plugin manifest with an older baseline. A
+   * sibling link points at the repository through a junction (Windows) or symlink.
    */
-  interface Fixture {
-    root: string;
-    link: string;
-    script: string;
-    manifestPath: string;
-  }
-
-  let template: string;
-  let upstream: Upstream;
-
-  before(() => {
-    template = mkdtempSync(join(tmpdir(), 'advance-baseline-template-'));
-    const upstreamManifest = join(template, 'thermos', '.cursor-plugin', 'plugin.json');
+  function setup(t: TestContext) {
+    const parent = mkdtempSync(join(tmpdir(), 'advance-baseline-repo-'));
+    t.after(() => rmSync(parent, { recursive: true, force: true }));
+    const root = join(parent, 'repo');
+    const link = join(parent, 'link');
+    const upstreamManifest = join(root, 'thermos', '.cursor-plugin', 'plugin.json');
     const run: Git = (...args) =>
       execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], {
-        cwd: template,
+        cwd: root,
         encoding: 'utf8',
       }).trim();
 
-    for (const file of [upstreamManifest, join(template, SCRIPT), join(template, MANIFEST_IN_REPO)]) {
+    for (const file of [upstreamManifest, join(root, SCRIPT), join(root, MANIFEST_IN_REPO)]) {
       mkdirSync(dirname(file), { recursive: true });
     }
 
@@ -220,24 +212,13 @@ describe('command line', () => {
     run('commit', '-q', '-m', 'upstream');
     const commit = run('rev-parse', 'HEAD');
     run('update-ref', 'refs/remotes/cursor/main', commit);
-    copyFileSync(join(import.meta.dirname, 'advance-baseline.ts'), join(template, SCRIPT));
-    writeFileSync(join(template, 'package.json'), '{ "type": "module" }\n');
-    writeFileSync(join(template, MANIFEST_IN_REPO), MANIFEST);
-    upstream = { version: '1.2.0', commit };
-  });
-
-  after(() => rmSync(template, { recursive: true, force: true }));
-
-  /** Copies the template repository into a fixture that is removed after the test. */
-  function fixture(t: TestContext): Fixture {
-    const parent = mkdtempSync(join(tmpdir(), 'advance-baseline-repo-'));
-    t.after(() => rmSync(parent, { recursive: true, force: true }));
-    const root = join(parent, 'repo');
-    const link = join(parent, 'link');
-    cpSync(template, root, { recursive: true });
+    copyFileSync(join(import.meta.dirname, 'advance-baseline.ts'), join(root, SCRIPT));
+    writeFileSync(join(root, 'package.json'), '{ "type": "module" }\n');
+    writeFileSync(join(root, MANIFEST_IN_REPO), MANIFEST);
     symlinkSync(root, link, 'junction');
+    const upstream: Upstream = { version: '1.2.0', commit };
 
-    return { root, link, script: join(root, SCRIPT), manifestPath: join(root, MANIFEST_IN_REPO) };
+    return { root, link, script: join(root, SCRIPT), manifestPath: join(root, MANIFEST_IN_REPO), upstream };
   }
 
   /** Runs a script with Node.js from the temporary directory, outside any repository. */
@@ -246,7 +227,7 @@ describe('command line', () => {
   }
 
   it('advances the baseline of the repository it sits in and prints the CHANGELOG line', (t) => {
-    const { script, manifestPath } = fixture(t);
+    const { script, manifestPath, upstream } = setup(t);
 
     const result = runNode(script);
 
@@ -257,7 +238,7 @@ describe('command line', () => {
   });
 
   it('does the same when started through a junction or symlink', (t) => {
-    const { root, link, script, manifestPath } = fixture(t);
+    const { root, link, script, manifestPath, upstream } = setup(t);
 
     const result = runNode(join(link, relative(root, script)));
 
@@ -267,7 +248,7 @@ describe('command line', () => {
   });
 
   it('does nothing when another script imports it', (t) => {
-    const { root, script, manifestPath } = fixture(t);
+    const { root, script, manifestPath } = setup(t);
     const importer = join(root, 'importer.ts');
     writeFileSync(importer, `await import(${JSON.stringify(pathToFileURL(script).href)});\n`);
 
