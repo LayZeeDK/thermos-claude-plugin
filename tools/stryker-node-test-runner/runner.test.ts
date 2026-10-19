@@ -168,7 +168,7 @@ describe('NodeTestRunner', () => {
     [
       'leaves a process working in it for a moment',
       "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], " +
-        "{ cwd: left, detached: true, stdio: 'ignore', windowsHide: true }).unref();",
+        "{ cwd: left, detached: true, windowsHide: true, stdio: 'ignore' }).unref();",
     ],
   ] as const)('removes what a test file leaves in the temporary directory when it %s', async ([, exit], t) => {
     const dir = project(t, {
@@ -215,6 +215,83 @@ describe('NodeTestRunner', () => {
     );
 
     assert.equal(exitCode, 0);
+  });
+
+  it('ends a run soon after its test file exits, while a process the tests started keeps stderr open', async (t) => {
+    let dir = '';
+    // Registered ahead of the project's cleanup, which removes the file the daemon's id is in.
+    t.after(() => {
+      if (existsSync(join(dir, 'daemon.pid'))) {
+        process.kill(Number(readFileSync(join(dir, 'daemon.pid'), 'utf8')));
+      }
+    });
+    dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { spawn } from 'node:child_process';",
+        "import { writeFileSync } from 'node:fs';",
+        "it('starts a daemon', () => {",
+        "  const daemon = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20_000)'], {",
+        "    cwd: '/',",
+        '    detached: true, windowsHide: true,',
+        "    stdio: 'inherit',",
+        '  });',
+        '  daemon.unref();',
+        "  writeFileSync('daemon.pid', String(daemon.pid));",
+        '});',
+        "process.on('exit', () => process.stderr.write('before exit'));",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const pipes = () => process.getActiveResourcesInfo().filter((resource) => resource === 'PipeWrap').length;
+    const pipesBefore = pipes();
+    const started = performance.now();
+
+    const { exitCode, stderr, records } = await settle(
+      runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }),
+      30_000,
+    );
+
+    assert.ok(performance.now() - started < 5_000, `took ${performance.now() - started} ms`);
+    assert.deepEqual([exitCode, stderr, records.some((record) => record.main)], [0, 'before exit', true]);
+    // The run lets go of the stderr pipe that the daemon still holds.
+    assert.equal(pipes(), pipesBefore);
+  });
+
+  it('leaves out a record that a process the tests started has not finished writing', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { writeFileSync } from 'node:fs';",
+        "import { join } from 'node:path';",
+        "it('passes', () => { writeFileSync(join(process.env.STRYKER_NODE_TEST_OUT, 'half.json'), '{'); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(summary(tests), [
+      { id: `${join(dir, 'a.test.mjs')} > passes`, status: TestStatus.Success, failureMessage: undefined },
+    ]);
+  });
+
+  it('reports a test file whose own record does not parse as an error', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { writeFileSync } from 'node:fs';",
+        "import { join } from 'node:path';",
+        "it('passes', () => {});",
+        // Runs after the hook's own exit listener has written the record.
+        "process.on('exit', () => writeFileSync(join(process.env.STRYKER_NODE_TEST_OUT, `${process.pid}.json`), '{'));",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const result = await settle(runner.dryRun(DRY_RUN));
+
+    assert.ok(result.status === DryRunStatus.Error);
+    const prefix = `Unreadable test results for "${join(dir, 'a.test.mjs')}": `;
+    assert.ok(result.errorMessage.startsWith(prefix), result.errorMessage);
+    assert.ok(result.errorMessage.length > prefix.length, result.errorMessage);
   });
 
   it('reports callback-style tests once node:test calls them back', async (t) => {

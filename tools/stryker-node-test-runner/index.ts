@@ -64,10 +64,14 @@ export interface FileRun {
   args: string[];
   /** The NODE_OPTIONS the runner ran `node` with. */
   nodeOptions: string;
+  /** Why the record of the test file's own process could not be read, when it could not. */
+  unreadable?: string;
 }
 
 const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
 const REPORTER_URL = pathToFileURL(resolve(import.meta.dirname, 'reporter.ts')).href;
+/** How long a run waits, after a test file's process exits, for the processes it started to close stderr. */
+const CLOSE_GRACE_MS = 1_500;
 
 /**
  * Merges the mutant coverage of several processes by adding up the hit counts. Without `perTest`, the hits inside
@@ -230,6 +234,42 @@ export function runEnv(
   return env;
 }
 
+/**
+ * Waits for a process to end and collects its stderr. Processes it started inherit stderr and can keep it open after
+ * it exits; the records of those that end soon arrive by the time stderr closes, so this waits for that, but at most
+ * `graceMs` after the exit, and then lets go of stderr.
+ */
+export function processEnd(child: EndingProcess, graceMs: number): Promise<{ exitCode: number | null; stderr: string }> {
+  return new Promise((done, fail) => {
+    let errors = '';
+    let grace: NodeJS.Timeout | undefined;
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => (errors += chunk));
+    child.on('error', fail);
+    child.on('exit', (code) => {
+      grace = setTimeout(() => {
+        child.stderr.destroy();
+        done({ exitCode: code, stderr: errors });
+      }, graceMs);
+    });
+    child.on('close', (code) => {
+      clearTimeout(grace);
+      done({ exitCode: code, stderr: errors });
+    });
+  });
+}
+
+/** The part of a child process that `processEnd` uses. */
+export interface EndingProcess {
+  stderr: {
+    setEncoding(encoding: 'utf8'): unknown;
+    on(event: 'data', listener: (chunk: string) => void): unknown;
+    destroy(): unknown;
+  };
+  on(event: 'error', listener: (error: Error) => void): unknown;
+  on(event: 'exit' | 'close', listener: (code: number | null) => void): unknown;
+}
+
 function removeNow(dir: string): void {
   rmSync(dir, { recursive: true });
 }
@@ -368,7 +408,11 @@ export class NodeTestRunner implements TestRunner {
 
     for (const file of files) {
       const fileRun = await this.runFile(file, run);
-      const { records, exitCode } = fileRun;
+      const { records, exitCode, unreadable } = fileRun;
+
+      if (unreadable !== undefined) {
+        return { status: DryRunStatus.Error, errorMessage: `Unreadable test results for "${file}": ${unreadable}` };
+      }
 
       for (const record of records) {
         const timeout = determineHitLimitReached(record.hitCount, run.hitLimit);
@@ -437,22 +481,24 @@ export class NodeTestRunner implements TestRunner {
         this.#log.debug(`Running: \`node ${args.map((arg) => `"${arg}"`).join(' ')}\` in ${process.cwd()}`);
       }
 
-      const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>((done, fail) => {
-        const child = spawn(process.execPath, args, {
-          env,
-          stdio: ['ignore', 'ignore', 'pipe'],
-        });
-        let errors = '';
-        child.stderr.setEncoding('utf8');
-        child.stderr.on('data', (chunk: string) => (errors += chunk));
-        child.on('error', fail);
-        child.on('close', (code) => done({ exitCode: code, stderr: errors }));
-      });
-      const records = readdirSync(outDir).map(
-        (name) => JSON.parse(readFileSync(join(outDir, name), 'utf8')) as ProcessRecord,
-      );
+      const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
+      const { exitCode, stderr } = await processEnd(child, CLOSE_GRACE_MS);
+      let unreadable: string | undefined;
+      const records = readdirSync(outDir).flatMap((name) => {
+        try {
+          return [JSON.parse(readFileSync(join(outDir, name), 'utf8')) as ProcessRecord];
+        } catch (error) {
+          // A process that the tests started can still be writing its record when the grace period ends; the test
+          // file's own process writes its record before it exits.
+          if (name === `${child.pid}.json`) {
+            unreadable = (error as Error).message;
+          }
 
-      return { records, exitCode, stderr, args, nodeOptions: env.NODE_OPTIONS as string };
+          return [];
+        }
+      });
+
+      return { records, exitCode, stderr, args, nodeOptions: env.NODE_OPTIONS as string, ...(unreadable && { unreadable }) };
     } finally {
       await removeDir(runDir);
     }

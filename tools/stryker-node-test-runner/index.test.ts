@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 
 import { TestStatus } from '@stryker-mutator/api/test-runner';
@@ -15,6 +17,7 @@ import {
   isOwn,
   isRunning,
   mergeCoverage,
+  processEnd,
   removeLeftDirs,
   runEnv,
   toTestResults,
@@ -119,6 +122,73 @@ describe('fileError', () => {
       fileError(FILE, run),
       [`Error running file "${FILE}": node exited with code ${exitCode} outside any test.`, command, ...end].join('\n'),
     );
+  });
+});
+
+describe('processEnd', () => {
+  /** A stand-in for a child process, and how its end promise stands after pending callbacks ran. */
+  function ending(graceMs: number) {
+    const child = Object.assign(new EventEmitter(), { stderr: new PassThrough() });
+    const end = processEnd(child, graceMs);
+    let state: unknown = 'pending';
+    end.then(
+      (value) => (state = value),
+      (error: unknown) => (state = error),
+    );
+    const settled = async () => {
+      await new Promise(setImmediate);
+
+      return state;
+    };
+
+    return { child, settled };
+  }
+
+  it('ends when the process closes its stdio, with its exit code and stderr, without waiting', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { child, settled } = ending(1_000);
+    child.stderr.write('first ');
+    child.stderr.write('second');
+    await settled();
+    child.emit('exit', 3);
+    child.emit('close', 3);
+
+    assert.deepEqual(await settled(), { exitCode: 3, stderr: 'first second' });
+  });
+
+  it('stops waiting out the grace period once stderr closes', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { child, settled } = ending(1_000);
+    child.emit('exit', 0);
+    child.emit('close', 0);
+    await settled();
+    t.mock.timers.tick(1_000);
+
+    assert.equal(child.stderr.destroyed, false);
+  });
+
+  it('ends `graceMs` after the process exits when stderr stays open, and lets go of stderr', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { child, settled } = ending(1_000);
+    child.stderr.write('before exit');
+    await settled();
+    child.emit('exit', 1);
+    t.mock.timers.tick(999);
+
+    assert.equal(await settled(), 'pending');
+
+    t.mock.timers.tick(1);
+
+    assert.deepEqual(await settled(), { exitCode: 1, stderr: 'before exit' });
+    assert.equal(child.stderr.destroyed, true);
+  });
+
+  it('fails when the process cannot start', async () => {
+    const { child, settled } = ending(1_000);
+    const failure = new Error('spawn ENOENT');
+    child.emit('error', failure);
+
+    assert.equal(await settled(), failure);
   });
 });
 
