@@ -16,7 +16,7 @@ install({
   registerHooks: registerHooks as HookDependencies['registerHooks'],
   onExit: (listener) => process.on('exit', listener),
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
-  callSites: getCallSites,
+  callSites: getCallSites.bind(undefined, { sourceMap: true }),
   fileURLToPath,
   join,
 });

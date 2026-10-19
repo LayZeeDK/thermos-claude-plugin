@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
+import { testFor } from '../test-each/test-for.ts';
 import { ENV, installed, reporting, type HookDependencies, type ProcessRecord, type TestEvent } from './hook-core.ts';
 import reporter from './reporter.ts';
 
@@ -221,6 +222,40 @@ describe('hook', () => {
 
     assert.equal(code, 0);
     assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
+  });
+
+  // Maps line 2, the `it` call, to line 41, column 3 of the source.
+  const map = { version: 3, sources: ['fixture.test.mjs'], names: [], mappings: ';AAwCE' };
+
+  testFor([
+    [
+      'a loader transpiled, through its source map',
+      'fixture.test.mjs',
+      "import { it } from 'node:test';\nit('mapped', () => {});\n" +
+        `//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n`,
+      { line: 40, column: 2 },
+    ],
+    [
+      'type stripping kept',
+      'fixture.test.ts',
+      "import { it } from 'node:test';\nconst typed: number = 1; it('stripped', () => {});\n",
+      { line: 1, column: 25 },
+    ],
+  ] as const)('records where the source declares a test that %s', async ([, name, source, position], t) => {
+    const dir = tempDir(t);
+    const outDir = join(dir, 'out');
+    mkdirSync(outDir);
+    // A loader such as tsx turns source maps on this way, so stack traces are mapped and raw call sites are not.
+    const maps = join(dir, 'maps.mjs');
+    writeFileSync(maps, 'process.setSourceMapsEnabled(true);\n');
+    const testFile = join(dir, name);
+    writeFileSync(testFile, source);
+
+    const args = ['--import', pathToFileURL(maps).href, testFile];
+    const { code, pid } = await runWithHook(args, { [ENV.out]: outDir, [ENV.file]: testFile });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, position);
   });
 
   it('records the results node:test reports, also of hooks, runtime skips and todo tests', async (t) => {
