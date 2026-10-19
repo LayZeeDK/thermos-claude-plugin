@@ -332,6 +332,35 @@ describe('wrapNodeTest', () => {
     assert.ok(!(ENV.current in env));
   });
 
+  it('keeps a subtest that its parent does not await current until it ends, after its parent ends', async () => {
+    const { module, registrations, ns, env, seen, see } = wrapped();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let child: Promise<unknown> | undefined;
+    module.it('parent', (t: { test: (name: string, body: Fn) => unknown }) => {
+      t.test('child', async () => {
+        await gate;
+        see();
+      });
+      child = bodyOf(registrations, 'child')(testContext());
+    });
+    module.describe('suite', () => {
+      see();
+    });
+
+    await bodyOf(registrations, 'parent')(testContext(registrations));
+    see();
+    release();
+    await child;
+
+    const childId = `${TEST_FILE} > parent > child`;
+    assert.deepEqual(seen, [undefined, childId, childId]);
+    assert.equal(ns.currentTestId, undefined);
+    assert.ok(!(ENV.current in env));
+  });
+
   it('names the suites and tests a running test registers with the module after it, as node:test nests them', async () => {
     const { module, registrations, seen, see } = wrapped();
     const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -530,6 +559,22 @@ describe('wrapNodeTest', () => {
       );
 
       assert.equal(ns.currentTestId, undefined);
+    });
+
+    it('leaves the test once when it calls `done` and then throws, so its parent stays current', async () => {
+      const { module, registrations, seen, see } = wrapped();
+      module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+        t.test('child', (_t: unknown, done: unknown) => {
+          (done as () => void)();
+          throw 0;
+        });
+        assert.throws(() => rawBodyOf(registrations, 'child')(testContext(), () => {}));
+        see();
+      });
+
+      await bodyOf(registrations, 'parent')(testContext(registrations));
+
+      assert.deepEqual(seen, [`${TEST_FILE} > parent`]);
     });
   });
 

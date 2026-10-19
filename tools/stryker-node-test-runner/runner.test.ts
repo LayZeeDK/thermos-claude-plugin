@@ -542,6 +542,34 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('attributes coverage to the test whose work makes it: a parent after an awaited subtest, an unawaited one', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "it('awaits', async (t) => {",
+        "  await t.test('child', () => { cover('awaited child'); });",
+        "  cover('parent after await');",
+        '});',
+        "it('leaves', (t) => {",
+        "  t.test('child', async () => { await new Promise((resolve) => setTimeout(resolve, 20)); cover('late child'); });",
+        '});',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    // Node.js 22 cancels the unawaited subtest when its parent ends, but the subtest's work still runs.
+    const { mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(fixtureCoverage(mutantCoverage), {
+      static: {},
+      perTest: {
+        [`${a} > awaits`]: { 'parent after await': 1 },
+        [`${a} > awaits > child`]: { 'awaited child': 1 },
+        [`${a} > leaves > child`]: { 'late child': 1 },
+      },
+    });
+  });
+
   it('names the suites and tests a running test registers with it and describe after it, as node:test does', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(

@@ -380,7 +380,13 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const running = new AsyncLocalStorage<string>();
   const parentId = () => running.getStore() ?? testFile;
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
-  const setCurrent = (id: string | undefined) => {
+  /**
+   * The tests that have started and not ended, in the order they started. The last is current, also when a subtest
+   * that its parent does not await outlives the parent's body.
+   */
+  const active = new Set<string>();
+  const setCurrent = () => {
+    const id = [...active].at(-1);
     ns.currentTestId = id;
 
     if (id === undefined) {
@@ -462,17 +468,17 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       const { name, options, body } = parse(args);
       const id = idOf(parent(), name);
       declare(id);
-      /** The test that was current when this one started, which is current again once this one ends. */
-      let previous: string | undefined;
-
       const enter = (context: TestContext) => {
-        previous = ns.currentTestId;
-        setCurrent(id);
+        active.add(id);
+        setCurrent();
         // `t.test` registers a subtest of `t`'s test, wherever it is called.
         context.test = wrapTest(context.test, () => id);
         activate();
       };
-      const leave = () => setCurrent(previous);
+      const leave = () => {
+        active.delete(id);
+        setCurrent();
+      };
       const wrap = (body: Body): Body => {
         // node:test passes a `done` callback only to a function that declares a second parameter.
         if (body.length >= 2) {
