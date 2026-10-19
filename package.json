@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test \".claude/skills/**/*.test.ts\""
+    "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

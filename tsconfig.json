@@ -15,6 +15,7 @@
     "verbatimModuleSyntax": true
   },
   "include": [
-    ".claude/skills/**/*.ts"
+    ".claude/skills/**/*.ts",
+    "tools/**/*.ts"
   ]
 }
