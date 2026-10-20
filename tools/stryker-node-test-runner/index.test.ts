@@ -348,7 +348,7 @@ describe('runEnv', () => {
       TEMP: 'outer temp',
       [ENV.current]: 'outer test',
       [ENV.hitLimit]: '5',
-      [ENV.filter]: '["outer"]',
+      [ENV.filter]: JSON.stringify(['outer']),
       [ENV.bail]: 'true',
       [ENV.activeMutant]: '8',
       [ACTIVE_MUTANT]: '9',
