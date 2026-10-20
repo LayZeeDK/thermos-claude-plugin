@@ -21,6 +21,7 @@
     ".claude/skills/**/*.ts",
     "tools/**/*.ts",
     "stryker.config.mjs",
+    "stryker.test-each.config.mjs",
     "eslint.config.mjs"
   ]
 }

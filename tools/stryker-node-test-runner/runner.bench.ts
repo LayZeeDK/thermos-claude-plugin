@@ -1,4 +1,5 @@
-// Benchmarks the node:test runner on fixed synthetic fixtures, plus one end-to-end `npm run mutate`.
+// Benchmarks the node:test runner on fixed synthetic fixtures, plus each Stryker suite that `npm run mutate` runs,
+// timed apart.
 //
 //   npm run bench
 //   npm run bench -- --runs 9 --mutate-runs 0
@@ -9,7 +10,7 @@
 // benchmark hits every side alike. tinybench runs a Bench's tasks one after another and has no such order itself.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -222,15 +223,22 @@ async function loadRunner(path: string, dir: string): Promise<NodeTestRunner> {
   return runner;
 }
 
-function mutate(): void {
-  const result = spawnSync('npm run mutate', {
+/** The Stryker suites that `npm run mutate` runs one after the other, each as its own command. */
+const MUTATE_SUITES = (
+  JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', 'package.json'), 'utf8')) as {
+    scripts: { mutate: string };
+  }
+).scripts.mutate.split(' && ');
+
+function mutate(suite: string): void {
+  const result = spawnSync(`npx ${suite}`, {
     shell: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     encoding: 'utf8',
   });
-  assert.equal(result.status, 0, `npm run mutate failed:\n${result.stdout}\n${result.stderr}`);
+  assert.equal(result.status, 0, `${suite} failed:\n${result.stdout}\n${result.stderr}`);
   const summary = result.stdout.match(/All files\s*\|\s*([\d.]+)/);
-  assert.equal(summary?.[1], '100.00', `npm run mutate did not reach 100%:\n${result.stdout}`);
+  assert.equal(summary?.[1], '100.00', `${suite} did not reach 100%:\n${result.stdout}`);
 }
 
 async function main(): Promise<void> {
@@ -278,7 +286,10 @@ async function main(): Promise<void> {
     }
 
     for (let run = 0; run < mutateRuns; run++) {
-      add('npm run mutate, wall', (await round([['npm run mutate, wall', mutate]])).get('npm run mutate, wall')!);
+      for (const suite of MUTATE_SUITES) {
+        const label = `${suite}, wall`;
+        add(label, (await round([[label, () => mutate(suite)]])).get(label)!);
+      }
     }
 
     const stats = Object.fromEntries([...samples].map(([label, values]) => [label, stat(values)]));
