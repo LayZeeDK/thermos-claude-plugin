@@ -17,6 +17,7 @@ import { describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { testEach } from '../../../tools/test-each/test-each.ts';
+import { testFor } from '../../../tools/test-each/test-for.ts';
 import {
   MANIFEST_PATH,
   advanceBaseline,
@@ -226,26 +227,25 @@ describe('command line', () => {
     return spawnSync(process.execPath, [scriptPath], { cwd: tmpdir(), encoding: 'utf8' });
   }
 
-  it('advances the baseline of the repository it sits in and prints the CHANGELOG line', (t) => {
-    const { script, manifestPath, upstream } = setup(t);
+  testFor([
+    { started: 'directly', path: ({ script }: ReturnType<typeof setup>) => script },
+    {
+      started: 'through a junction or symlink',
+      path: ({ root, link, script }: ReturnType<typeof setup>) => join(link, relative(root, script)),
+    },
+  ])(
+    'advances the baseline of the repository it sits in and prints the CHANGELOG line, started $started',
+    ({ path }, t) => {
+      const repository = setup(t);
 
-    const result = runNode(script);
+      const result = runNode(path(repository));
 
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `${basedOnLine(upstream)}\n`);
-    assert.equal(result.stderr, '');
-    assert.deepEqual(upstreamIn(manifestPath), upstream);
-  });
-
-  it('does the same when started through a junction or symlink', (t) => {
-    const { root, link, script, manifestPath, upstream } = setup(t);
-
-    const result = runNode(join(link, relative(root, script)));
-
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `${basedOnLine(upstream)}\n`);
-    assert.deepEqual(upstreamIn(manifestPath), upstream);
-  });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, `${basedOnLine(repository.upstream)}\n`);
+      assert.equal(result.stderr, '');
+      assert.deepEqual(upstreamIn(repository.manifestPath), repository.upstream);
+    },
+  );
 
   it('does nothing when another script imports it', (t) => {
     const { root, script, manifestPath } = setup(t);
