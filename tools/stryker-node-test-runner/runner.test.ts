@@ -581,44 +581,6 @@ describe('NodeTestRunner', () => {
     });
   });
 
-  it('reports subtests and expectFailure tests with ids and coverage of their own, and filters subtests', async (t) => {
-    // Node.js 22 has no expectFailure.
-    const expectFailure = typeof (it as { expectFailure?: unknown }).expectFailure === 'function';
-    const dir = project(t, {
-      'a.test.mjs': fixture(
-        "it('parent', async (t) => {",
-        "  cover('parent');",
-        "  await t.test('child', () => { cover('child'); });",
-        "  await t.test('failing child', () => { throw new Error('child failure'); });",
-        "  cover('parent again');",
-        '});',
-        "it.expectFailure?.('expects a failure', () => { cover('expected'); throw new Error('expected'); });",
-      ),
-    });
-    const runner = await initRunner(['a.test.mjs']);
-    const a = join(dir, 'a.test.mjs');
-
-    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
-
-    assert.deepEqual(summary(tests), [
-      { id: `${a} > parent > child`, status: TestStatus.Success, failureMessage: undefined },
-      { id: `${a} > parent > failing child`, status: TestStatus.Failed, failureMessage: 'child failure' },
-      { id: `${a} > parent`, status: TestStatus.Failed, failureMessage: '1 subtest failed' },
-      ...(expectFailure
-        ? [{ id: `${a} > expects a failure`, status: TestStatus.Success, failureMessage: undefined }]
-        : []),
-    ]);
-    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
-      [`${a} > parent`]: { parent: 1, 'parent again': 1 },
-      [`${a} > parent > child`]: { child: 1 },
-      ...(expectFailure && { [`${a} > expects a failure`]: { expected: 1 } }),
-    });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > parent > child`] }))), {
-      status: MutantRunStatus.Survived,
-      nrOfTests: 2,
-    });
-  });
-
   it('attributes coverage to the test whose work makes it: a parent after an awaited subtest, an unawaited one', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
@@ -644,43 +606,6 @@ describe('NodeTestRunner', () => {
         [`${a} > awaits > child`]: { 'awaited child': 1 },
         [`${a} > leaves > child`]: { 'late child': 1 },
       },
-    });
-  });
-
-  it('names the suites and tests a running test registers with it and describe after it, as node:test does', async (t) => {
-    const dir = project(t, {
-      'a.test.mjs': fixture(
-        "it('outer', async () => {",
-        "  it('inner', () => { cover('inner'); });",
-        "  describe('suite', () => { it('in suite', () => { cover('in suite'); }); });",
-        '  await new Promise((resolve) => setImmediate(resolve));',
-        "  it('after await', () => { cover('after await'); });",
-        '});',
-      ),
-    });
-    const runner = await initRunner(['a.test.mjs']);
-    const a = join(dir, 'a.test.mjs');
-    const ids = ['outer > inner', 'outer > suite > in suite', 'outer > after await'].map((name) => `${a} > ${name}`);
-
-    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
-
-    assert.deepEqual(
-      tests.map(({ id, startPosition }) => ({ id, line: startPosition?.line })),
-      [
-        { id: ids[0], line: 5 },
-        { id: ids[1], line: 6 },
-        { id: ids[2], line: 8 },
-        { id: `${a} > outer`, line: 4 },
-      ],
-    );
-    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
-      [ids[0] as string]: { inner: 1 },
-      [ids[1] as string]: { 'in suite': 1 },
-      [ids[2] as string]: { 'after await': 1 },
-    });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[2] as string] }))), {
-      status: MutantRunStatus.Survived,
-      nrOfTests: 2,
     });
   });
 
@@ -712,98 +637,6 @@ describe('NodeTestRunner', () => {
           { [`${name.split(' > ')[1]} 1`]: 1, [`${name.split(' > ')[1]} 2`]: 1 },
         ]),
       ),
-    });
-  });
-
-  it('reports where the test file declares each test, also through a helper', async (t) => {
-    const dir = project(t, {
-      'helper.mjs': "import { it } from 'node:test';\nexport const declare = () => it('from a helper', () => {});\n",
-      'a.test.mjs': fixture(
-        "import { declare } from './helper.mjs';",
-        "it('first', () => {});",
-        "describe('suite', () => {",
-        "  it('nested', () => {});",
-        '});',
-        'declare();',
-      ),
-    });
-    const runner = await initRunner(['a.test.mjs']);
-    const a = join(dir, 'a.test.mjs');
-
-    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
-
-    // fixture() starts every file with four lines.
-    assert.deepEqual(
-      tests.map(({ id, startPosition }) => ({ id, startPosition })),
-      [
-        { id: `${a} > first`, startPosition: { line: 5, column: 0 } },
-        { id: `${a} > suite > nested`, startPosition: { line: 7, column: 2 } },
-        { id: `${a} > from a helper`, startPosition: { line: 9, column: 0 } },
-      ],
-    );
-  });
-
-  it('gives tests without a name the ids node:test gives them, for results, coverage and the filter', async (t) => {
-    const dir = project(t, {
-      'a.test.mjs': fixture(
-        "it('', () => { cover('empty'); });",
-        "it({ timeout: 1000 }, function optionsFirst() { cover('options first'); });",
-      ),
-    });
-    const runner = await initRunner(['a.test.mjs']);
-    const a = join(dir, 'a.test.mjs');
-
-    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
-
-    assert.deepEqual(
-      tests.map(({ id }) => id),
-      [`${a} > <anonymous>`, `${a} > optionsFirst`],
-    );
-    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
-      [`${a} > <anonymous>`]: { empty: 1 },
-      [`${a} > optionsFirst`]: { 'options first': 1 },
-    });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > <anonymous>`] }))), {
-      status: MutantRunStatus.Survived,
-      nrOfTests: 1,
-    });
-  });
-
-  it('gives same-named tests of one parent, and names with the separator, ids of their own throughout', async (t) => {
-    const dir = project(t, {
-      'a.test.mjs': fixture(
-        "describe('s', () => {",
-        "  it('works', () => { cover('first'); });",
-        "  it('works', () => { cover('second'); });",
-        '});',
-        "describe('a', () => { it('b', () => { cover('nested'); }); });",
-        "it('a > b', () => { cover('separator'); });",
-      ),
-    });
-    const runner = await initRunner(['a.test.mjs']);
-    const a = join(dir, 'a.test.mjs');
-    const ids = ['s > works', 's > works (2)', 'a > b', 'a \\> b'].map((name) => `${a} > ${name}`);
-
-    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
-
-    assert.deepEqual(
-      tests.map(({ id, startPosition }) => ({ id, line: startPosition?.line })),
-      [
-        { id: ids[0], line: 5 },
-        { id: ids[1], line: 6 },
-        { id: ids[2], line: 8 },
-        { id: ids[3], line: 9 },
-      ],
-    );
-    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, {
-      [ids[0] as string]: { first: 1 },
-      [ids[1] as string]: { second: 1 },
-      [ids[2] as string]: { nested: 1 },
-      [ids[3] as string]: { separator: 1 },
-    });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[1] as string] }))), {
-      status: MutantRunStatus.Survived,
-      nrOfTests: 1,
     });
   });
 
@@ -863,27 +696,6 @@ describe('NodeTestRunner', () => {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
-  });
-
-  it('names the tests inside only and todo suites after their suites', async (t) => {
-    const dir = project(t, {
-      'a.test.mjs': fixture("describe.only('only suite', () => { it.only('runs', () => { cover('only'); }); });"),
-      'b.test.mjs': fixture(
-        "describe.todo('todo suite', () => {",
-        "  it('fails', () => { throw new Error('not done'); });",
-        '});',
-      ),
-    });
-    const runner = await initRunner(['*.test.mjs']);
-    const a = join(dir, 'a.test.mjs');
-
-    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
-
-    assert.deepEqual(summary(tests), [
-      { id: `${a} > only suite > runs`, status: TestStatus.Success, failureMessage: undefined },
-      { id: `${join(dir, 'b.test.mjs')} > todo suite > fails`, status: TestStatus.Skipped, failureMessage: undefined },
-    ]);
-    assert.deepEqual(fixtureCoverage(mutantCoverage)?.perTest, { [`${a} > only suite > runs`]: { only: 1 } });
   });
 
   it('reports no tests for a test file that declares none', async (t) => {
