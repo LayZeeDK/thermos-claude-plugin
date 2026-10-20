@@ -1,4 +1,4 @@
-# Thermos plugin (Claude Code port)
+# Thermos plugin
 
 Thermo-nuclear branch review for Claude Code agents: deep correctness and security audits, harsh maintainability rubrics, and parallel subagent orchestration.
 
@@ -51,16 +51,20 @@ flowchart TB
 
 | Agent | Description |
 |:------|:------------|
-| `thermo-nuclear-reviewer` | Diff-scoped subagent for the deep review rubric. |
-| `thermo-nuclear-code-quality-reviewer` | Diff-scoped subagent for the code-quality rubric. |
+| `thermo-nuclear-reviewer` | Agent subagent for deep review rubric (diff-scoped). |
+| `thermo-nuclear-code-quality-reviewer` | Agent subagent for code-quality rubric (diff-scoped). |
 
 ## Typical usage
 
 **Double review (thermos):**
 
-1. Gather `git diff main...HEAD` with the `Bash` tool and the full contents of the changed files with the `Explore` agent.
-2. Launch both subagents in one message with `run_in_background: true`, passing each the same scoped diff/file context.
-3. Collect both results with `TaskOutput`, then synthesize prioritized, deduplicated findings.
+1. Gather `git diff main...HEAD` and full contents of changed files.
+2. Invoke both subagents in one message with `run_in_background: true`.
+3. Synthesize prioritized, deduped findings.
+
+Add `--effort <level>` to `/thermos`, for example `/thermos --effort xhigh`, to run both reviewers at that effort level. Claude passes it as the Agent tool's per-call `effort` parameter, which needs Claude Code v2.1.292 or later.
+
+Add `--model <model>`, for example `/thermos --model sonnet`, to run both reviewers on that model. Claude passes it as the Agent tool's per-call `model` parameter. You can combine both, as in `/thermos --effort high --model opus`.
 
 **Single skill:** invoke `thermo-nuclear-review` or `thermo-nuclear-code-quality-review` in the main agent, or the matching subagent after gathering diff context.
 

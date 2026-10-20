@@ -1,0 +1,17 @@
+{
+  "name": "thermos-claude-plugin-tooling",
+  "private": true,
+  "type": "module",
+  "description": "Maintainer tooling for the thermos-claude-plugin repository. Not part of the plugin.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^6.0.3"
+  }
+}
