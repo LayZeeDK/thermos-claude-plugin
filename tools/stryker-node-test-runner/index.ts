@@ -154,6 +154,17 @@ function withoutReporters(args: string[]): string[] {
   return args.filter((arg, index) => !reporterOption(arg) && reporterOption(String(args[index - 1]))?.[1] !== '');
 }
 
+/** Parses the record a process wrote. Tests can write to the same directory, so a file there need not be a record. */
+export function parseRecord(json: string): ProcessRecord {
+  const record = JSON.parse(json) as Partial<ProcessRecord> | null;
+
+  if (!Array.isArray(record?.tests)) {
+    throw new Error('not a record of test results');
+  }
+
+  return record as ProcessRecord;
+}
+
 /** Returns the test files that contain at least one of the filtered test ids, or every file without a filter. */
 export function filesFor(testFiles: string[], testFilter: string[] | undefined): string[] {
   if (!testFilter) {
@@ -498,7 +509,7 @@ export class NodeTestRunner implements TestRunner {
       let unreadable: string | undefined;
       const records = readdirSync(outDir).flatMap((name) => {
         try {
-          return [JSON.parse(readFileSync(join(outDir, name), 'utf8')) as ProcessRecord];
+          return [parseRecord(readFileSync(join(outDir, name), 'utf8'))];
         } catch (error) {
           // A process that the tests started can still be writing its record when the grace period ends; the test
           // file's own process writes its record before it exits.

@@ -274,14 +274,18 @@ describe('NodeTestRunner', () => {
     ]);
   });
 
-  it('reports a test file whose own record does not parse as an error', async (t) => {
+  testFor([
+    ['does not parse', '{'],
+    ['lists no tests', '{}'],
+  ] as const)('reports a test file whose own record %s as an error', async ([, content], t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
         "import { writeFileSync } from 'node:fs';",
         "import { join } from 'node:path';",
         "it('passes', () => {});",
         // Runs after the hook's own exit listener has written the record.
-        "process.on('exit', () => writeFileSync(join(process.env.STRYKER_NODE_TEST_OUT, `${process.pid}.json`), '{'));",
+        'process.on(\'exit\', () => writeFileSync(join(process.env.STRYKER_NODE_TEST_OUT, `${process.pid}.json`), ' +
+          `${JSON.stringify(content)}));`,
       ),
     });
     const runner = await initRunner(['a.test.mjs']);

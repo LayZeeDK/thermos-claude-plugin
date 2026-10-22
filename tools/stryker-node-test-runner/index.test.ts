@@ -17,6 +17,7 @@ import {
   isOwn,
   isRunning,
   mergeCoverage,
+  parseRecord,
   processEnd,
   removeLeftDirs,
   runEnv,
@@ -189,6 +190,22 @@ describe('processEnd', () => {
     child.emit('error', failure);
 
     assert.equal(await settled(), failure);
+  });
+});
+
+describe('parseRecord', () => {
+  it('returns the record a process wrote', () => {
+    const record = { main: true, tests: [{ id: `${FILE} > t`, status: 'passed', timeSpentMs: 1 }], hitCount: 3 };
+
+    assert.deepEqual(parseRecord(JSON.stringify(record)), record);
+  });
+
+  testFor(['{}', 'null', '[]', '{"tests":{}}'])('refuses %s, which lists no tests', (json) => {
+    assert.throws(() => parseRecord(json), { message: 'not a record of test results' });
+  });
+
+  it('refuses what does not parse', () => {
+    assert.throws(() => parseRecord('{'), SyntaxError);
   });
 });
 
