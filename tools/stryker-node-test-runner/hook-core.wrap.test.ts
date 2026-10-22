@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import type { InstrumenterContext } from '@stryker-mutator/api/core';
+
 import { testEach } from '../test-each/test-each.ts';
 import { testFor } from '../test-each/test-for.ts';
 import {
@@ -13,7 +15,6 @@ import {
   type Progress,
   type RecordedTest,
   type NodeTestModule,
-  type StrykerNamespace,
 } from './hook-core.ts';
 import { bodyOf, fakeNodeTest, rawBodyOf, runBodies, TEST_FILE, testContext, type Fn } from './hook-core.fixtures.ts';
 
@@ -25,7 +26,7 @@ interface SuiteCall {
 /** Wraps a fake node:test with the given filter, bail setting and mutant to activate at runtime. */
 function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   const fake = fakeNodeTest();
-  const ns: StrykerNamespace = {};
+  const ns: InstrumenterContext = {};
   const env: Record<string, string | undefined> = {};
   const tests: RecordedTest[] = [];
   /** The current test id each test body saw, by calling `see`. */

@@ -77,7 +77,7 @@ const CLOSE_GRACE_MS = 1_500;
  * Merges the mutant coverage of several processes by adding up the hit counts. Without `perTest`, the hits inside
  * tests count as static, as Stryker's coverage analysis `all` expects.
  */
-export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest = true): MutantCoverage {
+export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest: boolean): MutantCoverage {
   const total: MutantCoverage = { static: {}, perTest: {} };
   const add = (into: Record<string, number>, from: Record<string, number>) => {
     for (const [mutantId, hits] of Object.entries(from)) {
@@ -284,10 +284,6 @@ export interface EndingProcess {
   on(event: 'exit' | 'close', listener: (code: number | null) => void): unknown;
 }
 
-function removeNow(dir: string): void {
-  rmSync(dir, { recursive: true });
-}
-
 /**
  * Removes a directory the runner created. A process that a test file started can outlive the file's process by a
  * moment, and Windows refuses to remove a directory that a running process works in, so node retries that failure
@@ -327,7 +323,7 @@ export function isOwn(
  * killed worker cannot remove its run directory or its compile cache. A directory that cannot be removed yet is left
  * for a later runner.
  */
-export function removeLeftDirs(dir: string, { running = isRunning, owned = isOwn, remove = removeNow } = {}): void {
+export function removeLeftDirs(dir: string, { running = isRunning, owned = isOwn, remove = (path: string) => rmSync(path, { recursive: true }) } = {}): void {
   for (const name of readdirSync(dir)) {
     const pid = /^stryker-node-test-(?:cache-)?(\d+)-/.exec(name)?.[1];
     const path = join(dir, name);

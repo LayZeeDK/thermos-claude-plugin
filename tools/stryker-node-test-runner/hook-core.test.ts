@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import type { InstrumenterContext } from '@stryker-mutator/api/core';
+
 import { testEach } from '../test-each/test-each.ts';
 import { testFor } from '../test-each/test-for.ts';
 import {
@@ -21,7 +23,6 @@ import {
   type Position,
   type ProcessRecord,
   type RecordedTest,
-  type StrykerNamespace,
   type TestEvent,
 } from './hook-core.ts';
 import { bodyOf, fakeNodeTest, TEST_FILE, testContext } from './hook-core.fixtures.ts';
@@ -394,7 +395,6 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     },
     callSites: () => [],
     fileURLToPath: (url) => `path of ${url}`,
-    join,
     ...overrides,
   };
 
@@ -464,7 +464,7 @@ describe('install', () => {
   });
 
   it('keeps an existing Stryker namespace', () => {
-    const ns: StrykerNamespace = { mutantCoverage: { static: { 1: 1 }, perTest: {} } };
+    const ns: InstrumenterContext = { mutantCoverage: { static: { 1: 1 }, perTest: {} } };
     const { deps } = harness({ [ENV.out]: OUT });
     deps.global.__stryker__ = ns;
     install(deps);
@@ -702,7 +702,7 @@ describe('install', () => {
     const written = ['true', 'false', undefined].map((dryRun) => {
       const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.dryRun]: dryRun, [ENV.hitLimit]: '9' });
       install(deps);
-      const ns = deps.global.__stryker__ as StrykerNamespace;
+      const ns = deps.global.__stryker__ as InstrumenterContext;
       ns.mutantCoverage = coverage;
       ns.hitCount = 7;
       exit();

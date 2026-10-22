@@ -1,7 +1,7 @@
 // Loaded into every Node.js process of a Stryker run through NODE_OPTIONS (`--import`). See hook-core.ts.
 import { writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCallSites } from 'node:util';
 
@@ -18,5 +18,4 @@ install({
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
   callSites: getCallSites,
   fileURLToPath,
-  join,
 });

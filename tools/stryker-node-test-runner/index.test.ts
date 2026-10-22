@@ -29,17 +29,20 @@ const FILE = join('/repo', 'a.test.mjs');
 describe('mergeCoverage', () => {
   it('adds up the hits of every process and skips processes without coverage', () => {
     assert.deepEqual(
-      mergeCoverage([
-        { static: { 1: 1 }, perTest: { first: { 2: 1 } } },
-        undefined,
-        { static: { 1: 2, 3: 1 }, perTest: { first: { 2: 3 }, second: { 4: 1 } } },
-      ]),
+      mergeCoverage(
+        [
+          { static: { 1: 1 }, perTest: { first: { 2: 1 } } },
+          undefined,
+          { static: { 1: 2, 3: 1 }, perTest: { first: { 2: 3 }, second: { 4: 1 } } },
+        ],
+        true,
+      ),
       { static: { 1: 3, 3: 1 }, perTest: { first: { 2: 4 }, second: { 4: 1 } } },
     );
   });
 
   it('is empty without coverage', () => {
-    assert.deepEqual(mergeCoverage([]), { static: {}, perTest: {} });
+    assert.deepEqual(mergeCoverage([], true), { static: {}, perTest: {} });
   });
 
   it('counts the hits inside tests as static when asked to drop the tests', () => {

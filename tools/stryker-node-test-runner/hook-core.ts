@@ -1,6 +1,9 @@
 // The logic hook.ts installs into every process of a node:test run under Stryker. Its dependencies are
 // parameters, so tests can drive it in-process.
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { join } from 'node:path';
+
+import type { InstrumenterContext, MutantCoverage } from '@stryker-mutator/api/core';
 
 /**
  * The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name.
@@ -70,12 +73,6 @@ export interface CallSite {
   column: number;
 }
 
-/** Mutant coverage as Stryker's instrumented code records it. */
-export interface Coverage {
-  static: Record<string, number>;
-  perTest: Record<string, Record<string, number>>;
-}
-
 /** What the hook writes for one process when it exits. */
 export interface ProcessRecord {
   /** Set for the process that runs the test file. */
@@ -84,7 +81,7 @@ export interface ProcessRecord {
   tests: RecordedTest[];
   hitCount?: number;
   /** Only written during the dry run. */
-  mutantCoverage?: Coverage;
+  mutantCoverage?: MutantCoverage;
   /** What node:test reported about errors raised after their test ended, which fail the file outside any test. */
   diagnostics?: string[];
   /**
@@ -99,15 +96,6 @@ export interface Progress {
   /** Whether the test file declared a suite or test, after which node:test reports a summary once every test ended. */
   declared: boolean;
   summarized: boolean;
-}
-
-/** The part of Stryker's global namespace (`globalThis.__stryker__`) the hook uses. */
-export interface StrykerNamespace {
-  activeMutant?: string;
-  currentTestId?: string;
-  mutantCoverage?: Coverage;
-  hitCount?: number;
-  hitLimit?: number;
 }
 
 type Body = (this: unknown, ...args: unknown[]) => unknown;
@@ -183,7 +171,7 @@ export interface HookDependencies {
   mainFile: string | undefined;
   pid: number;
   global: {
-    __stryker__?: StrykerNamespace;
+    __stryker__?: InstrumenterContext;
     [installed]?: true;
     [reporting]?: (event: TestEvent) => void;
     [wrappedNodeTest]?: NodeTestModule;
@@ -198,7 +186,6 @@ export interface HookDependencies {
     options: { sourceMap: boolean },
   ) => { scriptName: string; lineNumber: number; columnNumber: number }[];
   fileURLToPath: (url: string) => string;
-  join: (...parts: string[]) => string;
 }
 
 /**
@@ -289,7 +276,7 @@ export function install(deps: HookDependencies): boolean {
 
   deps.onExit(() => {
     const dryRun = deps.env[ENV.dryRun] === 'true';
-    deps.writeRecord(deps.join(outDir, `${deps.pid}.json`), {
+    deps.writeRecord(join(outDir, `${deps.pid}.json`), {
       ...(main && { main }),
       tests,
       hitCount: ns.hitCount,
@@ -376,7 +363,7 @@ export function recordEvents(
 }
 
 export interface WrapOptions {
-  ns: StrykerNamespace;
+  ns: InstrumenterContext;
   testFile: string;
   /** The tests node:test has reported so far. */
   tests: RecordedTest[];
