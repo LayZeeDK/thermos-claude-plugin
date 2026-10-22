@@ -121,7 +121,7 @@ describe('NodeTestRunner', () => {
     process.execPath = join(dir, 'missing-node');
     const runner = await initRunner(['a.test.mjs']);
 
-    await assert.rejects(settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: true, disableBail: false }), 1_000), {
+    await assert.rejects(settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: true, disableBail: false, coverageAnalysis: 'perTest' }), 1_000), {
       code: 'ENOENT',
     });
 

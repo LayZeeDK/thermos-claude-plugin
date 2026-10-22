@@ -23,6 +23,7 @@ import {
   removeDir,
   removeLeftDirs,
   runEnv,
+  type RunOptions,
   toTestResults,
 } from './index.ts';
 
@@ -473,7 +474,7 @@ describe('runEnv', () => {
   });
 
   it("uses the runner's compile cache directory unless the environment names one", () => {
-    const run = { dryRun: false, disableBail: false };
+    const run = { dryRun: false, disableBail: false } satisfies RunOptions;
 
     const inherited = { NODE_COMPILE_CACHE: 'inherited' };
 
@@ -489,14 +490,14 @@ describe('runEnv', () => {
         FILE,
         OUT,
         TMP,
-        { dryRun: true, disableBail: true, activeMutant: '12', hitLimit: 40, testFilter: [`${FILE} > test`] },
+        { dryRun: false, disableBail: true, activeMutant: '12', hitLimit: 40, testFilter: [`${FILE} > test`] },
         undefined,
       ),
       {
         NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)}`,
         [ENV.out]: OUT,
         [ENV.file]: FILE,
-        [ENV.dryRun]: 'true',
+        [ENV.dryRun]: 'false',
         TMPDIR: TMP,
         TEMP: TMP,
         TMP,
@@ -508,7 +509,7 @@ describe('runEnv', () => {
   });
 
   it('activates the mutant from the start of the process, or for the hook to activate once the tests start', () => {
-    const run = { dryRun: false, disableBail: false, activeMutant: '12' };
+    const run = { dryRun: false, disableBail: false, activeMutant: '12' } satisfies RunOptions;
     const active = (mutantActivation: 'runtime' | 'static') => {
       const env = runEnv({}, FILE, OUT, TMP, { ...run, mutantActivation }, undefined);
 
@@ -520,12 +521,14 @@ describe('runEnv', () => {
   });
 
   it('asks the test file to bail only in a mutant run with bail enabled', () => {
-    const bails = [
-      { dryRun: false, disableBail: false },
-      { dryRun: false, disableBail: true },
-      { dryRun: true, disableBail: false },
-      { dryRun: true, disableBail: true },
-    ].map((run) => runEnv({}, FILE, OUT, TMP, run, undefined)[ENV.bail]);
+    const bails = (
+      [
+        { dryRun: false, disableBail: false },
+        { dryRun: false, disableBail: true },
+        { dryRun: true, disableBail: false, coverageAnalysis: 'perTest' },
+        { dryRun: true, disableBail: true, coverageAnalysis: 'perTest' },
+      ] satisfies RunOptions[]
+    ).map((run) => runEnv({}, FILE, OUT, TMP, run, undefined)[ENV.bail]);
 
     assert.deepEqual(bails, ['true', undefined, undefined, undefined]);
   });

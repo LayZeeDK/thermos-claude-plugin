@@ -42,18 +42,28 @@ export interface NodeTestOptions {
   nodeArgs?: string[];
 }
 
-interface RunOptions {
-  dryRun: boolean;
-  disableBail: boolean;
-  /** Set in the dry run only. */
-  coverageAnalysis?: CoverageAnalysis;
-  activeMutant?: string;
-  /** When the mutant becomes active; from the start of the process unless this is `runtime`. */
-  mutantActivation?: MutantActivation;
-  hitLimit?: number;
-  /** Test ids to run; every test runs when absent. */
-  testFilter?: string[];
-}
+/** A dry run, which collects coverage, or a mutant run. */
+export type RunOptions =
+  | {
+      dryRun: true;
+      disableBail: boolean;
+      coverageAnalysis: CoverageAnalysis;
+      activeMutant?: undefined;
+      mutantActivation?: undefined;
+      hitLimit?: undefined;
+      testFilter?: undefined;
+    }
+  | {
+      dryRun: false;
+      disableBail: boolean;
+      coverageAnalysis?: undefined;
+      activeMutant?: string;
+      /** When the mutant becomes active; from the start of the process unless this is `runtime`. */
+      mutantActivation?: MutantActivation;
+      hitLimit?: number;
+      /** Test ids to run; every test runs when absent. */
+      testFilter?: string[];
+    };
 
 /** What one test file's run produced. */
 export interface FileRun {
