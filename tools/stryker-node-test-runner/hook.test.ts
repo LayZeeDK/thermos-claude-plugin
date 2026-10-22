@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import type { EventEmitter } from 'node:events';
 import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,16 +18,20 @@ await import('./hook.ts');
 
 /**
  * Loads a fresh copy of hook.ts into this process as if the runner had started it, with its own output directory and
- * no test file, then restores this process's hook state. Returns the exit listeners the copy added, detached.
+ * no test file, then restores this process's hook state. Returns the `exit` and `beforeExit` listeners the copy added,
+ * detached.
  */
-async function loadRunnerStartedHook(outDir: string): Promise<(() => void)[]> {
+async function loadRunnerStartedHook(outDir: string): Promise<Record<'exit' | 'beforeExit', (() => void)[]>> {
   const global = globalThis as HookDependencies['global'];
   const previousMark = global[installed];
   // The current test id stays, so the copy leaves this process's attribution of coverage alone.
   const previousEnv = Object.values(ENV)
     .filter((key) => key !== ENV.current)
     .map((key) => [key, process.env[key]] as const);
-  const listeners = new Set(process.listeners('exit'));
+  const events = ['exit', 'beforeExit'] as const;
+  // Typed as a plain emitter, which takes either event name.
+  const emitter: EventEmitter = process;
+  const listeners = new Set(events.flatMap((event) => emitter.listeners(event)));
 
   for (const [key] of previousEnv) {
     delete process.env[key];
@@ -53,13 +58,17 @@ async function loadRunnerStartedHook(outDir: string): Promise<(() => void)[]> {
     }
   }
 
-  const added = process.listeners('exit').filter((listener) => !listeners.has(listener)) as (() => void)[];
+  const detach = (event: (typeof events)[number]) => {
+    const added = emitter.listeners(event).filter((listener) => !listeners.has(listener)) as (() => void)[];
 
-  for (const listener of added) {
-    process.removeListener('exit', listener);
-  }
+    for (const listener of added) {
+      emitter.removeListener(event, listener);
+    }
 
-  return added;
+    return added;
+  };
+
+  return { exit: detach('exit'), beforeExit: detach('beforeExit') };
 }
 
 /** Creates an empty directory that is removed after the test. */
@@ -116,9 +125,9 @@ describe('hook', () => {
     const added = await loadRunnerStartedHook(outDir);
 
     assert.deepEqual(hookEnv(), before);
-    assert.equal(added.length, 1);
+    assert.deepEqual([added.exit.length, added.beforeExit.length], [1, 1]);
 
-    added[0]?.();
+    added.exit[0]?.();
 
     // Only the tests: the hit count and coverage come from this process's namespace, which a Stryker run also uses.
     const records = readRecords(outDir);
@@ -197,6 +206,21 @@ describe('hook', () => {
       ],
     );
     assert.deepEqual(Object.keys(record?.mutantCoverage?.perTest ?? {}), ids);
+  });
+
+  testFor([
+    ['ends by itself', '', {}],
+    ['ends through process.exit()', 'process.exit(0);\n', { unfinished: true }],
+  ] as const)('marks the record of a test file that %s without tests as unfinished or not', async ([, exits, unfinished], t) => {
+    const dir = tempDir(t);
+    const outDir = tempDir(t);
+    const testFile = join(dir, 'fixture.test.mjs');
+    writeFileSync(testFile, `import 'node:test';\n${exits}`);
+
+    const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir)[`${pid}.json`], { main: true, tests: [], ...unfinished });
   });
 
   it('records where a CommonJS test file declares its tests', async (t) => {

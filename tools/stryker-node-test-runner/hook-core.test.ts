@@ -362,7 +362,8 @@ interface Harness {
   hooks: ModuleHooks[];
   /** The wrapped node:test module the hook published. */
   wrapped: () => NodeTestModule;
-  exit: () => void;
+  /** Ends the process: by itself, which calls `beforeExit` first, or through `process.exit()`, which skips it. */
+  exit: (options?: { natural: boolean }) => void;
 }
 
 /** Hook dependencies with fakes, for a process whose main file is the test file unless `mainFile` says otherwise. */
@@ -372,6 +373,7 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
   const calls: string[] = [];
   const hooks: ModuleHooks[] = [];
   const listeners: (() => void)[] = [];
+  const beforeExitListeners: (() => void)[] = [];
   const deps: HookDependencies = {
     env,
     mainFile: TEST_FILE,
@@ -389,6 +391,9 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     onExit: (listener) => {
       calls.push('onExit');
       listeners.push(listener);
+    },
+    onBeforeExit: (listener) => {
+      beforeExitListeners.push(listener);
     },
     writeRecord: (path, record) => {
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
@@ -409,8 +414,8 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
 
       return wrapped;
     },
-    exit: () => {
-      for (const listener of listeners) {
+    exit: ({ natural } = { natural: true }) => {
+      for (const listener of [...(natural ? beforeExitListeners : []), ...listeners]) {
         listener();
       }
     },
@@ -570,12 +575,15 @@ describe('install', () => {
     assert.deepEqual(records[0]?.record, { main: true, tests: [], diagnostics: [message] });
   });
 
+  const summary: TestEvent = { type: 'test:summary', data: { name: '', nesting: 0 } };
+
   testFor([
-    ['marks the record unfinished', [], { unfinished: true }],
-    ['leaves the record as it is', [{ type: 'test:summary', data: { name: '', nesting: 0 } }], {}],
+    ['marks the record unfinished when it ends through process.exit() before', false, [], { unfinished: true }],
+    ['leaves the record as it is when it ends through process.exit() after', false, [summary], {}],
+    ['leaves the record as it is when it ends by itself without', true, [], {}],
   ] as const)(
-    '%s when node:test reported %j as its last events after the test file declared tests',
-    ([, last, unfinished]) => {
+    "%s node:test's summary",
+    ([, natural, last, unfinished]) => {
       const { deps, records, exit, wrapped } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
       install(deps);
       wrapped().it('passes', () => {});
@@ -585,7 +593,7 @@ describe('install', () => {
         deps.global[reporting]?.(event);
       }
 
-      exit();
+      exit({ natural });
 
       assert.deepEqual(records[0]?.record, {
         main: true,

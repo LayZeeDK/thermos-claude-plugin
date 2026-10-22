@@ -5,13 +5,11 @@ import { describe, it } from 'node:test';
 import type { InstrumenterContext, Position } from '@stryker-mutator/api/core';
 
 import { testEach } from '../test-each/test-each.ts';
-import { testFor } from '../test-each/test-for.ts';
 import {
   ACTIVE_MUTANT_ENV,
   ENV,
   wrapNodeTest,
   type CallSite,
-  type Progress,
   type RecordedTest,
   type NodeTestModule,
 } from './hook-core.ts';
@@ -36,7 +34,6 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   /** The current test id each test body saw, by calling `see`. */
   const seen: (string | undefined)[] = [];
   const positions = new Map<string, Position>();
-  const progress: Progress = { declared: false, summarized: false };
   /** The call sites the wrapper finds on the stack. */
   const sites: CallSite[] = [];
   const module = wrapNodeTest({
@@ -48,14 +45,13 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
     activeMutant,
     env,
     positions,
-    progress,
     callSites: () => sites,
     nodeTest: fake.module,
   });
 
   const see = () => seen.push(ns.currentTestId);
 
-  return { ...fake, original: fake.module, module, ns, env, tests, positions, progress, sites, seen, see };
+  return { ...fake, original: fake.module, module, ns, env, tests, positions, sites, seen, see };
 }
 
 describe('wrapNodeTest', () => {
@@ -443,27 +439,11 @@ describe('wrapNodeTest', () => {
       activeMutant: undefined,
       env: {},
       positions: new Map(),
-      progress: { declared: false, summarized: false },
       callSites: () => [],
       nodeTest: fakeNodeTest(false).module,
     });
 
     assert.deepEqual([node22.it.expectFailure, node22.expectFailure], [undefined, undefined]);
-  });
-
-  testFor([
-    ['a test', (module: NodeTestModule) => module.it('t', () => {})],
-    ['a suite', (module: NodeTestModule) => module.describe('s', () => {})],
-    ['a skipped test', (module: NodeTestModule) => module.it.skip('t', () => {})],
-    ['an after hook', (module: NodeTestModule) => module.after(() => {})],
-  ] as const)('notes that the test file declared %s, also where no position is known', ([, declare]) => {
-    const { module, progress } = wrapped();
-
-    assert.equal(progress.declared, false);
-
-    declare(module);
-
-    assert.deepEqual(progress, { declared: true, summarized: false });
   });
 
   it('notes where the test file declares each suite and test, 0-based, from the innermost call in the test file', () => {

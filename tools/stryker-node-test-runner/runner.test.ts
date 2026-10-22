@@ -733,6 +733,18 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('reports a test file that exits with code 0 while it loads, before it declares a test, as an error', async (t) => {
+    const dir = project(t, { 'a.test.mjs': fixture('process.exit(0);', "it('never runs', () => {});") });
+    const runner = await initRunner(['a.test.mjs']);
+
+    assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), {
+      status: DryRunStatus.Error,
+      errorMessage:
+        `Unfinished test results for "${join(dir, 'a.test.mjs')}": its process exited before node:test reported ` +
+        'every test, as when a test calls process.exit().',
+    });
+  });
+
   it('reports a test that failed before its test file exited with code 0 as failed', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(

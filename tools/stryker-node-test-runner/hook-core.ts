@@ -80,17 +80,10 @@ export interface ProcessRecord {
   /** What node:test reported about errors raised after their test ended, which fail the file outside any test. */
   diagnostics?: string[];
   /**
-   * Set for the test file's process when it exited before node:test finished: the file declared a suite or test, and
-   * node:test never reported its summary, as when a test calls `process.exit()`.
+   * Set for the test file's process when it exited through `process.exit()`, which skips `beforeExit`, before
+   * node:test reported its summary: while the file loaded, or while a test ran.
    */
   unfinished?: true;
-}
-
-/** What node:test has done in the test file's process. */
-export interface Progress {
-  /** Whether the test file declared a suite or test, after which node:test reports a summary once every test ended. */
-  declared: boolean;
-  summarized: boolean;
 }
 
 type Body = (this: unknown, ...args: unknown[]) => unknown;
@@ -174,6 +167,8 @@ export interface HookDependencies {
   nodeTest: () => NodeTestModule;
   registerHooks: (hooks: ModuleHooks) => unknown;
   onExit: (listener: () => void) => void;
+  /** Registers a `beforeExit` listener, which a process that ends by itself calls and `process.exit()` skips. */
+  onBeforeExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
   /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
   callSites: (
@@ -224,7 +219,8 @@ export function install(deps: HookDependencies): boolean {
   const diagnostics: string[] = [];
   const testFile = deps.env[ENV.file];
   const main = testFile !== undefined && deps.mainFile === testFile;
-  const progress: Progress = { declared: false, summarized: false };
+  let summarized = false;
+  let natural = false;
 
   if (main) {
     const positions = new Map<string, Position>();
@@ -238,7 +234,7 @@ export function install(deps: HookDependencies): boolean {
     const recordEvent = recordEvents(testFile, tests, positions, diagnostics);
     deps.global[reporting] = (event) => {
       if (event.type === 'test:summary') {
-        progress.summarized = true;
+        summarized = true;
       }
 
       recordEvent(event);
@@ -254,7 +250,6 @@ export function install(deps: HookDependencies): boolean {
       activeMutant: deps.env[ENV.activeMutant],
       env: deps.env,
       positions,
-      progress,
       // A source map can point at another file, such as `src/` for a test in `dist/`; the test file's own position
       // is better than none.
       callSites: () => {
@@ -268,6 +263,9 @@ export function install(deps: HookDependencies): boolean {
     deps.registerHooks(redirectNodeTest(Object.keys(wrapped)));
   }
 
+  deps.onBeforeExit(() => {
+    natural = true;
+  });
   deps.onExit(() => {
     const dryRun = deps.env[ENV.dryRun] === 'true';
     deps.writeRecord(join(outDir, `${deps.pid}.json`), {
@@ -276,7 +274,7 @@ export function install(deps: HookDependencies): boolean {
       hitCount: ns.hitCount,
       mutantCoverage: dryRun ? ns.mutantCoverage : undefined,
       ...(diagnostics.length > 0 && { diagnostics }),
-      ...(progress.declared && !progress.summarized && { unfinished: true }),
+      ...(main && !summarized && !natural && { unfinished: true }),
     });
   });
 
@@ -373,8 +371,6 @@ export interface WrapOptions {
   env: Record<string, string | undefined>;
   /** Where the test file declares each suite and test, by id, for the wrapper to fill. */
   positions: Map<string, Position>;
-  /** Where the wrapper notes that the test file declared a suite or test. */
-  progress: Progress;
   callSites: () => CallSite[];
   nodeTest: NodeTestModule;
 }
@@ -390,7 +386,7 @@ export interface WrapOptions {
  * once its reporters start, so a few quick tests can still run after the first failure.
  */
 export function wrapNodeTest(options: WrapOptions): NodeTestModule {
-  const { ns, testFile, tests, filter, bail, activeMutant, env, positions, progress, callSites, nodeTest } = options;
+  const { ns, testFile, tests, filter, bail, activeMutant, env, positions, callSites, nodeTest } = options;
   const idOf = uniqueIds();
   /**
    * The id of the suite or test whose body runs. node:test makes the suite or test whose body runs, followed through
@@ -459,11 +455,10 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   };
 
   /**
-   * Notes that the test file declares the suite or test with this id, and where. node:test takes the position from its
-   * caller, which is a wrapper, so the wrapper finds it itself.
+   * Notes where the test file declares the suite or test with this id. node:test takes the position from its caller,
+   * which is a wrapper, so the wrapper finds it itself.
    */
   const declare = (id: string) => {
-    progress.declared = true;
     const site = callSites().find(({ file }) => file === testFile);
 
     if (site) {
