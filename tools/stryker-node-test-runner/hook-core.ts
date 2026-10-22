@@ -367,7 +367,7 @@ export function recordEvents(
       test.status = 'skipped';
     } else if (error) {
       test.status = 'failed';
-      // The cause is what the test threw; a hook failure, a timeout or an unmet expectFailure has a message only.
+      // The cause is what the test or hook threw; a timeout, a cancellation or an unmet expectFailure has a message only.
       test.failureMessage = error.cause instanceof Error ? error.cause.message : error.message;
     }
 
@@ -404,10 +404,9 @@ export interface WrapOptions {
  * registers with `t.test` are wrapped the same way. The test results come from node:test's reporter events, so a
  * suite's or test's id follows node:test's nesting.
  *
- * ponytail: supports synchronous suite bodies, and test bodies that return a value or a promise or that take
- * node:test's `done` callback. Bailing acts on the results node:test has reported,
- * and node:test reports the first tests of a file only once its reporters start, so a few quick tests can still run
- * after the first failure.
+ * Supports synchronous suite bodies, and test bodies that return a value or a promise or that take node:test's `done`
+ * callback. Bailing acts on the results node:test has reported, and node:test reports the first tests of a file only
+ * once its reporters start, so a few quick tests can still run after the first failure.
  */
 export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const { ns, testFile, tests, filter, bail, activeMutant, env, positions, progress, callSites, nodeTest } = options;

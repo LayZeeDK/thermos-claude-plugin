@@ -1,4 +1,4 @@
-// Named to sort after the other test files: the runner runs test files in path order and stops at the first failing
+// Named to sort after the runner's other test files: the runner runs test files in path order and stops at the first failing
 // file, so the quick tests kill a mutant they cover before these slow ones start.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';

@@ -473,7 +473,7 @@ export class NodeTestRunner implements TestRunner {
       }
     }
 
-    // A mutant run's result drops the coverage, which is empty there anyway.
+    // Mutant runs leave coverageAnalysis unset and take the next return; toMutantRunResult drops their coverage.
     if (run.coverageAnalysis === 'off') {
       return { status: DryRunStatus.Complete, tests };
     }
