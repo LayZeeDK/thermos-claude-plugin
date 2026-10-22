@@ -8,9 +8,9 @@ import { pathToFileURL } from 'node:url';
 
 import { testFor } from '../test-each/test-for.ts';
 import { ENV, installed, reporting, type HookDependencies, type ProcessRecord, type TestEvent } from './hook-core.ts';
+import { HOOK_URL } from './index.fixtures.ts';
 import reporter from './reporter.ts';
 
-const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
 const REPORTER_URL = pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href;
 
 // Loaded here, outside any test, the hook stays inactive (the runner did not start this process, or its own hook is

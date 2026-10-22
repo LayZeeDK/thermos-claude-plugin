@@ -16,11 +16,11 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import type { Mutant, StrykerOptions } from '@stryker-mutator/api/core';
-import type { Logger } from '@stryker-mutator/api/logging';
+import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { DryRunStatus, MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 import { Bench } from 'tinybench';
 
+import { COVER, logger, mutantRunOptions } from './index.fixtures.ts';
 import type { NodeTestRunner } from './index.ts';
 
 type RunnerModule = typeof import('./index.ts');
@@ -58,15 +58,6 @@ const mutateRuns = Number(args['mutate-runs']);
 const runnerPaths = args.runner.length > 0 ? args.runner : [join(import.meta.dirname, 'index.ts')];
 assert.ok(runs >= 1 && mutateRuns >= 0, 'runs must be >= 1 and mutate-runs >= 0');
 
-const COVER = [
-  'const cover = (id) => {',
-  '  const ns = globalThis.__stryker__;',
-  '  const coverage = (ns.mutantCoverage ??= { static: {}, perTest: {} });',
-  '  const hits = ns.currentTestId ? (coverage.perTest[ns.currentTestId] ??= {}) : coverage.static;',
-  '  hits[id] = (hits[id] ?? 0) + 1;',
-  '};',
-].join(' ');
-
 function fixtureFile(index: number): string {
   const spawns = index < SPAWNING_FILES;
   const lines = [
@@ -91,39 +82,6 @@ function fixtureFile(index: number): string {
   return lines.join('\n');
 }
 
-function silentLogger(): Logger {
-  const no = () => false;
-  const ignore = () => {};
-
-  return {
-    isTraceEnabled: no,
-    isDebugEnabled: no,
-    isInfoEnabled: no,
-    isWarnEnabled: no,
-    isErrorEnabled: no,
-    isFatalEnabled: no,
-    trace: ignore,
-    debug: ignore,
-    info: ignore,
-    warn: ignore,
-    error: ignore,
-    fatal: ignore,
-  };
-}
-
-function mutantRunOptions(testFilter?: string[]) {
-  return {
-    timeout: 60_000,
-    disableBail: false,
-    // Not a number, so it never activates a mutant in an instrumented copy of the runner.
-    activeMutant: { id: 'bench-mutant' } as Mutant,
-    sandboxFileName: 'sandbox',
-    mutantActivation: 'runtime' as const,
-    reloadEnvironment: true,
-    testFilter,
-  };
-}
-
 function scenarios(files: string[]): Scenario[] {
   const testId = (file: number, test: number) => `${files[file]} > suite ${file} > test ${test}`;
 
@@ -143,7 +101,7 @@ function scenarios(files: string[]): Scenario[] {
     {
       name: 'mutant run, no filter (every file)',
       run: async (runner) => {
-        const result = await runner.mutantRun(mutantRunOptions());
+        const result = await runner.mutantRun(mutantRunOptions({ timeout: 60_000 }));
         assert.equal(result.status, MutantRunStatus.Survived);
         assert.equal(result.nrOfTests, TEST_COUNT);
 
@@ -153,7 +111,7 @@ function scenarios(files: string[]): Scenario[] {
     {
       name: 'mutant run, filter covering 3 files',
       run: async (runner) => {
-        const result = await runner.mutantRun(mutantRunOptions([testId(0, 1), testId(2, 1), testId(4, 1)]));
+        const result = await runner.mutantRun(mutantRunOptions({ timeout: 60_000, testFilter: [testId(0, 1), testId(2, 1), testId(4, 1)] }));
         assert.equal(result.status, MutantRunStatus.Survived);
         assert.equal(result.nrOfTests, 3);
 
@@ -163,7 +121,7 @@ function scenarios(files: string[]): Scenario[] {
     {
       name: 'mutant run, filter covering 1 file',
       run: async (runner) => {
-        const result = await runner.mutantRun(mutantRunOptions([testId(3, 2)]));
+        const result = await runner.mutantRun(mutantRunOptions({ timeout: 60_000, testFilter: [testId(3, 2)] }));
         assert.equal(result.status, MutantRunStatus.Survived);
         assert.equal(result.nrOfTests, 1);
 
@@ -217,7 +175,7 @@ async function round(tasks: [name: string, fn: () => unknown][]): Promise<Map<st
 async function loadRunner(path: string, dir: string): Promise<NodeTestRunner> {
   const module = (await import(pathToFileURL(resolve(path)).href)) as RunnerModule;
   const options = { nodeTest: { testFiles: [join(dir, '*.test.mjs').replaceAll('\\', '/')] } };
-  const runner = new module.NodeTestRunner(options as unknown as StrykerOptions, silentLogger());
+  const runner = new module.NodeTestRunner(options as unknown as StrykerOptions, logger([], false));
   await runner.init();
 
   return runner;

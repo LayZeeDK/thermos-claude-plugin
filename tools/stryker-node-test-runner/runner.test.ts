@@ -955,17 +955,17 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  /** Code that counts `hits` hits as instrumented code does, throwing like it once they pass the hit limit. */
+  const loop = (hits: number) =>
+    [
+      'const ns = globalThis.__stryker__;',
+      `for (let i = 0; i < ${hits}; i++) {`,
+      "  if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) throw new Error('Hit limit reached');",
+      '}',
+    ].join(' ');
+
   it('times out a mutant run that exceeds the hit limit', async (t) => {
-    project(t, {
-      'a.test.mjs': fixture(
-        "it('loops', () => {",
-        '  const ns = globalThis.__stryker__;',
-        '  for (let i = 0; i < 11; i++) {',
-        "    if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) throw new Error('Hit limit reached');",
-        '  }',
-        '});',
-      ),
-    });
+    project(t, { 'a.test.mjs': fixture(`it('loops', () => { ${loop(11)} });`) });
     const runner = await initRunner(['*.test.mjs']);
 
     assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 10, disableBail: true }))), {
@@ -979,15 +979,7 @@ describe('NodeTestRunner', () => {
   });
 
   it('times out a mutant run whose test file exceeds the hit limit while it loads, which fails it outside any test', async (t) => {
-    project(t, {
-      'a.test.mjs': fixture(
-        'const ns = globalThis.__stryker__;',
-        'for (let i = 0; i < 11; i++) {',
-        "  if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) throw new Error('Hit limit reached');",
-        '}',
-        "it('passes', () => {});",
-      ),
-    });
+    project(t, { 'a.test.mjs': fixture(loop(11), "it('passes', () => {});") });
     const runner = await initRunner(['a.test.mjs']);
 
     assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 10 }))), {
@@ -997,13 +989,6 @@ describe('NodeTestRunner', () => {
   });
 
   it('times out when a process a test starts exceeds the hit limit, counting each process apart', async (t) => {
-    const loop = (hits: number) =>
-      [
-        'const ns = globalThis.__stryker__;',
-        `for (let i = 0; i < ${hits}; i++) {`,
-        "  if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) throw new Error('Hit limit reached');",
-        '}',
-      ].join(' ');
     const spawnLoop = (hits: number) => `spawnSync(process.execPath, ['-e', ${JSON.stringify(loop(hits))}]);`;
     project(t, {
       'a.test.mjs': fixture(`it('spawns a loop', () => { ${spawnLoop(11)} });`),
