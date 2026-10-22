@@ -11,6 +11,9 @@ export default {
     // Test files call testEach and testFor while they load, so their mutants are static and each would run the whole
     // suite. stryker.test-each.config.mjs mutation-tests them against their own tests instead.
     '!tools/test-each/**',
+    // slice-map.ts is module-level data, so its mutants are static too, and against the whole suite some time out.
+    // stryker.generator.config.mjs mutation-tests the generator against its own tests instead.
+    '!tools/thermos-experimental-generator/**',
   ],
   plugins: ['@stryker-mutator/*', './tools/stryker-node-test-runner/index.ts'],
   testRunner: 'node-test',

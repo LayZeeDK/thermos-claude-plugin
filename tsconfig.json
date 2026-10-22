@@ -22,6 +22,7 @@
     "tools/**/*.ts",
     "stryker.config.mjs",
     "stryker.test-each.config.mjs",
+    "stryker.generator.config.mjs",
     "eslint.config.mjs"
   ]
 }
