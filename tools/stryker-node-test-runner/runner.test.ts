@@ -978,6 +978,24 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('times out a mutant run whose test file exceeds the hit limit while it loads, which fails it outside any test', async (t) => {
+    project(t, {
+      'a.test.mjs': fixture(
+        'const ns = globalThis.__stryker__;',
+        'for (let i = 0; i < 11; i++) {',
+        "  if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) throw new Error('Hit limit reached');",
+        '}',
+        "it('passes', () => {});",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 10 }))), {
+      status: MutantRunStatus.Timeout,
+      reason: 'Hit limit reached (11/10)',
+    });
+  });
+
   it('times out when a process a test starts exceeds the hit limit, counting each process apart', async (t) => {
     const loop = (hits: number) =>
       [
