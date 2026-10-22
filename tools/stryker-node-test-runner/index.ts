@@ -124,6 +124,10 @@ export function toTestResults(testFile: string, recorded: RecordedTest[]): TestR
   });
 }
 
+function nodeCommand(args: string[]): string {
+  return ['node', ...args.map((arg) => `"${arg}"`)].join(' ');
+}
+
 /**
  * The error message for a test file whose process failed outside any test, such as when it does not load, with the
  * command that reproduces it, node:test's diagnostics of errors raised after their test ended, and its stderr, as
@@ -131,12 +135,11 @@ export function toTestResults(testFile: string, recorded: RecordedTest[]): TestR
  */
 export function fileError(testFile: string, { records, exitCode, stderr, args, nodeOptions }: FileRun): string {
   const diagnostics = records.flatMap((record) => record.diagnostics ?? []);
-  const command = ['node', ...args.map((arg) => `"${arg}"`)].join(' ');
   const output = stderr.trim();
 
   return [
     `Error running file "${testFile}": node exited with code ${exitCode} outside any test.`,
-    `To reproduce it, run \`${command}\` in ${process.cwd()} with NODE_OPTIONS set to \`${nodeOptions}\`.`,
+    `To reproduce it, run \`${nodeCommand(args)}\` in ${process.cwd()} with NODE_OPTIONS set to \`${nodeOptions}\`.`,
     ...(diagnostics.length > 0 ? ['Diagnostics:', ...diagnostics] : []),
     ...(output ? ['Stderr:', output] : []),
   ].join('\n');
@@ -440,9 +443,7 @@ export class NodeTestRunner implements TestRunner {
 
       // Like Stryker's own runners, a failure that no test explains is an error, not a killed mutant.
       if (exitCode !== 0 && !failed) {
-        const errorMessage = fileError(file, fileRun);
-
-        return { status: DryRunStatus.Error, errorMessage };
+        return { status: DryRunStatus.Error, errorMessage: fileError(file, fileRun) };
       }
 
       // Without its record the file's results are unknown, as when jest's runner misses a file's coverage.
@@ -501,7 +502,7 @@ export class NodeTestRunner implements TestRunner {
       const args = [`--test-reporter=${REPORTER_URL}`, ...this.#nodeArgs, file];
 
       if (this.#log.isDebugEnabled()) {
-        this.#log.debug(`Running: \`node ${args.map((arg) => `"${arg}"`).join(' ')}\` in ${process.cwd()}`);
+        this.#log.debug(`Running: \`${nodeCommand(args)}\` in ${process.cwd()}`);
       }
 
       const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
