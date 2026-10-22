@@ -1,0 +1,21 @@
+{
+  "name": "thermos-experimental",
+  "displayName": "Thermos Experimental",
+  "version": "0.1.0",
+  "description": "Experimental Thermos variants for measuring against the thermos plugin: the review split into seven narrow lens subagents plus a PR-discussion reconciler.",
+  "author": {
+    "name": "Lars Gyrup Brink Nielsen",
+    "email": "larsbrinknielsen@gmail.com"
+  },
+  "homepage": "https://github.com/LayZeeDK/thermos-claude-plugin",
+  "repository": "https://github.com/LayZeeDK/thermos-claude-plugin",
+  "license": "MIT",
+  "keywords": [
+    "thermos",
+    "thermo-nuclear",
+    "code-review",
+    "experimental",
+    "subagents",
+    "claude-code"
+  ]
+}
