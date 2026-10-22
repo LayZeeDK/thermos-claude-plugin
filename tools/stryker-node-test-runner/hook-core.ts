@@ -443,6 +443,11 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     };
   /** A hook that activates the mutant before it runs. */
   const activating = (hook: Body): Body => {
+    // node:test registers a hook without a function, as one that does nothing.
+    if (typeof hook !== 'function') {
+      return hook;
+    }
+
     const wrapped = function (this: unknown, ...args: unknown[]) {
       activate();
 

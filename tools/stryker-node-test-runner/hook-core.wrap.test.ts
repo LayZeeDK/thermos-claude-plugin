@@ -710,20 +710,27 @@ describe('wrapNodeTest', () => {
     );
   });
 
-  it('registers `after` and `afterEach` hooks without a function, as node:test allows', () => {
+  it('registers hooks without a function, as node:test allows', () => {
     const { module, registrations } = wrapped();
-    const after = module.after as () => unknown;
-    const afterEach = module.afterEach as () => unknown;
+    const [before, beforeEach, after, afterEach] = [module.before, module.beforeEach, module.after, module.afterEach].map(
+      (register) => register as () => unknown,
+    );
+    before();
     after();
     module.describe('suite', () => {
+      before();
+      beforeEach();
       after();
       afterEach();
     });
 
     assert.deepEqual(
-      registrations.filter(({ kind }) => kind.startsWith('after')).map(({ kind, rest }) => [kind, rest]),
+      registrations.filter(({ kind }) => kind !== 'describe').map(({ kind, rest }) => [kind, rest]),
       [
+        ['before', [undefined]],
         ['after', [undefined]],
+        ['before', [undefined]],
+        ['beforeEach', [undefined]],
         ['after', [undefined]],
         ['afterEach', [undefined]],
       ],
