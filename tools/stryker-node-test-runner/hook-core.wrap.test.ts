@@ -18,6 +18,11 @@ import {
 } from './hook-core.ts';
 import { bodyOf, fakeNodeTest, rawBodyOf, runBodies, TEST_FILE, testContext, type Fn } from './hook-core.fixtures.ts';
 
+/** The part of a test's context that registers subtests. */
+interface Subtests {
+  test: (name: string, body: Fn) => unknown;
+}
+
 interface SuiteCall {
   self: unknown;
   args: unknown[];
@@ -84,7 +89,7 @@ describe('wrapNodeTest', () => {
     module.describe('s', () => {
       module.it('works', see);
       module.it.skip('works', see);
-      module.test('works', async (t: { test: (name: string, body: Fn) => unknown }) => {
+      module.test('works', async (t: Subtests) => {
         t.test('child', see);
         t.test('child', see);
       });
@@ -300,14 +305,14 @@ describe('wrapNodeTest', () => {
     const context = testContext(registrations);
     const childContext = testContext(registrations);
     module.describe('suite', () => {
-      module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+      module.it('parent', async (t: Subtests) => {
         see();
         assert.equal(t.test('child', see), 't.test child');
         await bodyOf(registrations, 'child')(childContext);
         see();
       });
     });
-    module.test('calls back', (t: { test: (name: string, body: Fn) => unknown }, done: () => void) => {
+    module.test('calls back', (t: Subtests, done: () => void) => {
       t.test('callback child', see);
       done();
     });
@@ -345,7 +350,7 @@ describe('wrapNodeTest', () => {
       release = resolve;
     });
     let child: Promise<unknown> | undefined;
-    module.it('parent', (t: { test: (name: string, body: Fn) => unknown }) => {
+    module.it('parent', (t: Subtests) => {
       t.test('child', async () => {
         await gate;
         see();
@@ -370,7 +375,7 @@ describe('wrapNodeTest', () => {
   it('names the suites and tests a running test registers with the module after it, as node:test nests them', async () => {
     const { module, registrations, seen, see } = wrapped();
     const tick = () => new Promise((resolve) => setImmediate(resolve));
-    module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+    module.it('parent', async (t: Subtests) => {
       module.it('inner', see);
       module.describe('suite', () => {
         module.it('in suite', see);
@@ -398,7 +403,7 @@ describe('wrapNodeTest', () => {
 
   it('runs a test whose subtest the filter selects, and skips the subtests it does not select', async () => {
     const { module, registrations, seen, see } = wrapped([`${TEST_FILE} > parent > wanted`]);
-    module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+    module.it('parent', async (t: Subtests) => {
       see();
       t.test('wanted', see);
       t.test('unwanted', see);
@@ -585,7 +590,7 @@ describe('wrapNodeTest', () => {
 
     it('leaves the test once when it calls `done` and then throws, so its parent stays current', async () => {
       const { module, registrations, seen, see } = wrapped();
-      module.it('parent', async (t: { test: (name: string, body: Fn) => unknown }) => {
+      module.it('parent', async (t: Subtests) => {
         t.test('child', (_t: unknown, done: unknown) => {
           (done as () => void)();
           throw 0;
