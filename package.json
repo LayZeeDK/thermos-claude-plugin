@@ -11,7 +11,8 @@
     "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\"",
     "mutate": "stryker run && stryker run stryker.test-each.config.mjs",
     "bench": "node tools/stryker-node-test-runner/runner.bench.ts",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "generate": "node tools/thermos-experimental-generator/generate.ts"
   },
   "devDependencies": {
     "@stryker-mutator/api": "^10.0.0",
