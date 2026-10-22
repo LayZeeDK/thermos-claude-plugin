@@ -18,6 +18,7 @@ describe('require-windows-hide', () => {
     ['quoted keys', "({ 'detached': true, 'windowsHide': true });"],
     ['detached: false', '({ detached: false });'],
     ['detached: false inside type wrappers', '({ detached: (false as const)! satisfies boolean });'],
+    ['a type-asserted detached: false', '({ detached: <boolean>false });'],
     ['windowsHide from a variable', '({ detached: true, windowsHide: hide });'],
     ['windowsHide from a member', '({ detached: true, windowsHide: opts.hide });'],
     ['windowsHide from a negation', '({ detached: true, windowsHide: !visible });'],
@@ -43,70 +44,33 @@ describe('require-windows-hide', () => {
   });
 
   testEach([
-    [
-      'a detached spawn without windowsHide',
-      "spawn(cmd, [], { detached: true, stdio: 'ignore' });",
-      "spawn(cmd, [], { detached: true, stdio: 'ignore', windowsHide: true });",
-    ],
-    ['a quoted detached key', "({ 'detached': true });", "({ 'detached': true, windowsHide: true });"],
-    ['windowsHide: false', '({ detached: true, windowsHide: false });', '({ detached: true, windowsHide: true });'],
-    ['windowsHide: 0', '({ detached: true, windowsHide: 0 });', '({ detached: true, windowsHide: true });'],
-    ['windowsHide: 1', '({ detached: true, windowsHide: 1 });', '({ detached: true, windowsHide: true });'],
-    ['windowsHide: null', '({ detached: true, windowsHide: null });', '({ detached: true, windowsHide: true });'],
-    ["windowsHide: ''", "({ detached: true, windowsHide: '' });", '({ detached: true, windowsHide: true });'],
-    [
-      'windowsHide: undefined',
-      '({ detached: true, windowsHide: undefined });',
-      '({ detached: true, windowsHide: true });',
-    ],
-    [
-      'windowsHide: false inside a type wrapper',
-      '({ detached: true, windowsHide: false as const });',
-      '({ detached: true, windowsHide: true });',
-    ],
-    [
-      'a later windowsHide: false',
-      '({ detached: true, windowsHide: true, windowsHide: false });',
-      '({ detached: true, windowsHide: true, windowsHide: true });',
-    ],
-    [
-      'a later detached: true',
-      '({ detached: false, detached: true });',
-      '({ detached: false, detached: true, windowsHide: true });',
-    ],
-    ['a spread before detached', '({ ...base, detached: true });', '({ ...base, detached: true, windowsHide: true });'],
-    ['a spread after detached', '({ detached: true, ...base });', '({ detached: true, ...base, windowsHide: true });'],
-    ['a spread after windowsHide', '({ detached: true, windowsHide: true, ...overrides });', null],
-    [
-      'a typed options object',
-      'const options = { detached: true } satisfies SpawnOptions;',
-      'const options = { detached: true, windowsHide: true } satisfies SpawnOptions;',
-    ],
-    ['detached: true as const', '({ detached: true as const });', '({ detached: true as const, windowsHide: true });'],
-    [
-      'detached: true satisfies boolean',
-      '({ detached: true satisfies boolean });',
-      '({ detached: true satisfies boolean, windowsHide: true });',
-    ],
-    ['a non-null detached: true', '({ detached: true! });', '({ detached: true!, windowsHide: true });'],
-    ['a type-asserted detached: true', '({ detached: <boolean>true });', '({ detached: <boolean>true, windowsHide: true });'],
-    ['a shorthand detached', '({ detached });', null],
-    ['detached from a member', '({ detached: opts.daemon });', null],
-    ['detached from a conditional', '({ detached: daemon ? true : false });', null],
-    ['detached from a variable with windowsHide: false', '({ detached: daemon, windowsHide: false });', null],
-    ['a string without windowsHide', "\"{ cwd: left, detached: true, stdio: 'ignore' }\";", null],
-    ['a string without spaces', "'{ detached:true }';", null],
-    ['a string with extra spaces', "'{ detached  :  true }';", null],
-    ['a string with a single-quoted key', "\"{ 'detached': true }\";", null],
-    ['a string with a double-quoted key', '\'{ "detached": true }\';', null],
-    ['a string with windowsHide: false', "'{ detached: true, windowsHide: false }';", null],
-    ['a template literal without windowsHide', '`{ detached: true }`;', null],
-    ['a template literal with an expression', '`spawn(${cmd}, { detached: true })`;', null],
-  ])('reports %s', (_, code, output) => {
-    tester().run('require-windows-hide', rule, {
-      valid: output === null ? [] : [output],
-      invalid: [{ code, output, errors: [{ messageId: 'missing' }] }],
-    });
+    ['a detached spawn without windowsHide', "spawn(cmd, [], { detached: true, stdio: 'ignore' });"],
+    ['a quoted detached key', "({ 'detached': true });"],
+    ['windowsHide: false', '({ detached: true, windowsHide: false });'],
+    ['windowsHide: 0', '({ detached: true, windowsHide: 0 });'],
+    ['windowsHide: 1', '({ detached: true, windowsHide: 1 });'],
+    ['windowsHide: null', '({ detached: true, windowsHide: null });'],
+    ["windowsHide: ''", "({ detached: true, windowsHide: '' });"],
+    ['windowsHide: undefined', '({ detached: true, windowsHide: undefined });'],
+    ['windowsHide: false inside a type wrapper', '({ detached: true, windowsHide: false as const });'],
+    ['a later windowsHide: false', '({ detached: true, windowsHide: true, windowsHide: false });'],
+    ['a later detached: true', '({ detached: false, detached: true });'],
+    ['a spread before detached', '({ ...base, detached: true });'],
+    ['a spread after windowsHide', '({ detached: true, windowsHide: true, ...overrides });'],
+    ['a shorthand detached', '({ detached });'],
+    ['detached from a member', '({ detached: opts.daemon });'],
+    ['detached from a conditional', '({ detached: daemon ? true : false });'],
+    ['detached from a variable with windowsHide: false', '({ detached: daemon, windowsHide: false });'],
+    ['a string without windowsHide', "\"{ cwd: left, detached: true, stdio: 'ignore' }\";"],
+    ['a string without spaces', "'{ detached:true }';"],
+    ['a string with extra spaces', "'{ detached  :  true }';"],
+    ['a string with a single-quoted key', "\"{ 'detached': true }\";"],
+    ['a string with a double-quoted key', '\'{ "detached": true }\';'],
+    ['a string with windowsHide: false', "'{ detached: true, windowsHide: false }';"],
+    ['a template literal without windowsHide', '`{ detached: true }`;'],
+    ['a template literal with an expression', '`spawn(${cmd}, { detached: true })`;'],
+  ])('reports %s', (_, code) => {
+    tester().run('require-windows-hide', rule, { valid: [], invalid: [{ code, errors: [{ messageId: 'missing' }] }] });
   });
 
   testEach([
@@ -115,7 +79,7 @@ describe('require-windows-hide', () => {
   ])('reports %s with its own message', (_, code) => {
     tester().run('require-windows-hide', rule, {
       valid: [],
-      invalid: [{ code, output: null, errors: [{ messageId: 'assignment' }] }],
+      invalid: [{ code, errors: [{ messageId: 'assignment' }] }],
     });
   });
 

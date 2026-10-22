@@ -19,10 +19,10 @@ function unwrap(node: Node): Node {
   return typeWrappers.has(node.type) ? unwrap((node as Node & { expression: Node }).expression) : node;
 }
 
-function isLiteral(node: Node, value: boolean): boolean {
+function isFalse(node: Node): boolean {
   const unwrapped = unwrap(node);
 
-  return unwrapped.type === 'Literal' && unwrapped.value === value;
+  return unwrapped.type === 'Literal' && unwrapped.value === false;
 }
 
 /** Only literals and undefined can be judged; any other expression is taken to be what its author meant. */
@@ -37,7 +37,6 @@ function mayShowWindow(node: Node): boolean {
 const rule: Rule.RuleModule = {
   meta: {
     type: 'problem',
-    fixable: 'code',
     schema: [],
     messages: {
       missing: 'Pass windowsHide: true with detached: true; on Windows a detached child opens a console window.',
@@ -59,29 +58,20 @@ const rule: Rule.RuleModule = {
       ObjectExpression(node) {
         const detached = property(node, 'detached');
 
-        if (detached === undefined || isLiteral(detached.value, false)) {
+        if (detached === undefined || isFalse(detached.value)) {
           return;
         }
 
-        const fixable = isLiteral(detached.value, true);
         const windowsHide = property(node, 'windowsHide');
 
         if (windowsHide === undefined) {
-          context.report({
-            node: detached,
-            messageId: 'missing',
-            fix: fixable ? (fixer) => fixer.insertTextAfter(node.properties.at(-1)!, ', windowsHide: true') : null,
-          });
+          context.report({ node: detached, messageId: 'missing' });
 
           return;
         }
 
         if (mayShowWindow(windowsHide.value)) {
-          context.report({
-            node: windowsHide,
-            messageId: 'missing',
-            fix: fixable ? (fixer) => fixer.replaceText(windowsHide.value, 'true') : null,
-          });
+          context.report({ node: windowsHide, messageId: 'missing' });
 
           return;
         }
@@ -98,7 +88,7 @@ const rule: Rule.RuleModule = {
         if (
           node.left.type === 'MemberExpression' &&
           isNamed(node.left.property, node.left.computed, 'detached') &&
-          !isLiteral(node.right, false)
+          !isFalse(node.right)
         ) {
           context.report({ node, messageId: 'assignment' });
         }
