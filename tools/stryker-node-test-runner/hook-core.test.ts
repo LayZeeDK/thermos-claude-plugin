@@ -571,6 +571,31 @@ describe('install', () => {
     assert.deepEqual(records[0]?.record, { main: true, tests: [], diagnostics: [message] });
   });
 
+  testFor([
+    ['marks the record unfinished', [], { unfinished: true }],
+    ['leaves the record as it is', [{ type: 'test:summary', data: { name: '', nesting: 0 } }], {}],
+  ] as const)(
+    '%s when node:test reported %j as its last events after the test file declared tests',
+    ([, last, unfinished]) => {
+      const { deps, records, exit, wrapped } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE });
+      install(deps);
+      wrapped().it('passes', () => {});
+      report(deps, 'passes', 'pass');
+
+      for (const event of last) {
+        deps.global[reporting]?.(event);
+      }
+
+      exit();
+
+      assert.deepEqual(records[0]?.record, {
+        main: true,
+        tests: [{ id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 2 }],
+        ...unfinished,
+      });
+    },
+  );
+
   it('records where the test file declares a test, named by URL as an ES module or by path as CommonJS', () => {
     const url = 'file:///repo/a.test.ts';
     const startPositions = [url, TEST_FILE, 'file:///repo/other.ts'].map((scriptName) => {
