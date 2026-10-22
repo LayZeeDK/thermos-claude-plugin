@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import type { InstrumenterContext } from '@stryker-mutator/api/core';
+import type { InstrumenterContext, Position } from '@stryker-mutator/api/core';
 
 import { testEach } from '../test-each/test-each.ts';
 import { testFor } from '../test-each/test-for.ts';
@@ -11,7 +11,6 @@ import {
   ENV,
   wrapNodeTest,
   type CallSite,
-  type Position,
   type Progress,
   type RecordedTest,
   type NodeTestModule,

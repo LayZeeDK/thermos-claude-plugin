@@ -2,8 +2,9 @@
 // parameters, so tests can drive it in-process.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import type { InstrumenterContext, MutantCoverage } from '@stryker-mutator/api/core';
+import type { InstrumenterContext, MutantCoverage, Position } from '@stryker-mutator/api/core';
 
 /**
  * The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name.
@@ -58,12 +59,6 @@ export interface RecordedTest {
   timeSpentMs: number;
   /** Where the test file declares the suite or test, directly or through a helper it calls. */
   startPosition?: Position;
-}
-
-/** Where in the test file a test is declared, 0-based. */
-export interface Position {
-  line: number;
-  column: number;
 }
 
 /** A function call on the stack: its file path and its 1-based position. */
@@ -185,7 +180,6 @@ export interface HookDependencies {
     frameCount: number,
     options: { sourceMap: boolean },
   ) => { scriptName: string; lineNumber: number; columnNumber: number }[];
-  fileURLToPath: (url: string) => string;
 }
 
 /**
@@ -237,7 +231,7 @@ export function install(deps: HookDependencies): boolean {
     // ES modules are named by their URL, CommonJS modules by their path.
     const callSites = (sourceMap: boolean) =>
       deps.callSites(CALL_SITE_FRAMES, { sourceMap }).map(({ scriptName, lineNumber, columnNumber }) => ({
-        file: scriptName.startsWith('file:') ? deps.fileURLToPath(scriptName) : scriptName,
+        file: scriptName.startsWith('file:') ? fileURLToPath(scriptName) : scriptName,
         line: lineNumber,
         column: columnNumber,
       }));

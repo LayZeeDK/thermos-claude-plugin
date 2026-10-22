@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
-import type { InstrumenterContext } from '@stryker-mutator/api/core';
+import type { InstrumenterContext, Position } from '@stryker-mutator/api/core';
 
 import { testEach } from '../test-each/test-each.ts';
 import { testFor } from '../test-each/test-for.ts';
@@ -20,7 +21,6 @@ import {
   type HookDependencies,
   type ModuleHooks,
   type NodeTestModule,
-  type Position,
   type ProcessRecord,
   type RecordedTest,
   type TestEvent,
@@ -394,7 +394,6 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
     },
     callSites: () => [],
-    fileURLToPath: (url) => `path of ${url}`,
     ...overrides,
   };
 
@@ -597,14 +596,12 @@ describe('install', () => {
   );
 
   it('records where the test file declares a test, named by URL as an ES module or by path as CommonJS', () => {
-    const url = 'file:///repo/a.test.ts';
-    const startPositions = [url, TEST_FILE, 'file:///repo/other.ts'].map((scriptName) => {
+    const file = resolve(TEST_FILE);
+    const other = pathToFileURL(resolve('/repo', 'other.ts')).href;
+    const startPositions = [pathToFileURL(file).href, file, other].map((scriptName) => {
       const { deps, records, exit, wrapped } = harness(
-        { [ENV.out]: OUT, [ENV.file]: TEST_FILE },
-        {
-          callSites: () => [{ scriptName, lineNumber: 3, columnNumber: 5 }],
-          fileURLToPath: (path) => (path === url ? TEST_FILE : `elsewhere ${path}`),
-        },
+        { [ENV.out]: OUT, [ENV.file]: file },
+        { mainFile: file, callSites: () => [{ scriptName, lineNumber: 3, columnNumber: 5 }] },
       );
       install(deps);
       wrapped().it('declared', () => {});
