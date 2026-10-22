@@ -72,6 +72,8 @@ const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
 const REPORTER_URL = pathToFileURL(resolve(import.meta.dirname, 'reporter.ts')).href;
 /** How long a run waits, after a test file's process exits, for the processes it started to close stderr. */
 const CLOSE_GRACE_MS = 1_500;
+/** How long a run waits for its directory to be removed. */
+const REMOVE_WAIT_MS = 2_000;
 
 /**
  * Merges the mutant coverage of several processes by adding up the hit counts. Without `perTest`, the hits inside
@@ -285,13 +287,37 @@ export interface EndingProcess {
 }
 
 /**
- * Removes a directory the runner created. A process that a test file started can outlive the file's process by a
- * moment, and Windows refuses to remove a directory that a running process works in, so node retries that failure
- * for about a second (20 ms, then 40 ms, and so on) before it throws. On Node.js 24, `rmSync` gives up at once even
- * with the same retry options.
+ * Removes a directory the runner created, waiting at most `waitMs`. A process that a test file started can outlive the
+ * file's process, and Windows refuses to remove a directory that a running process works in: `rm` with retries waits
+ * until that process ends, while `rmSync` gives up at once. A directory still there after the wait is left for
+ * `removeLeftDirs` of a later runner, with a warning.
  */
-function removeDir(dir: string): Promise<void> {
-  return rm(dir, { recursive: true, maxRetries: 10, retryDelay: 20 });
+export function removeDir(
+  dir: string,
+  log: Logger,
+  {
+    waitMs = REMOVE_WAIT_MS,
+    remove = (path: string) => rm(path, { recursive: true, maxRetries: 10, retryDelay: 20 }),
+  } = {},
+): Promise<void> {
+  return new Promise((done) => {
+    const leave = (reason: string) => {
+      log.warn(`Left ${dir} for a later runner to remove: ${reason}`);
+      done();
+    };
+    const timer = setTimeout(() => leave(`still in use after ${waitMs} ms`), waitMs);
+
+    remove(dir).then(
+      () => {
+        clearTimeout(timer);
+        done();
+      },
+      (error: Error) => {
+        clearTimeout(timer);
+        leave(error.message);
+      },
+    );
+  });
 }
 
 /** Whether a process with this id runs; one that exists but may not be signalled runs too. */
@@ -385,7 +411,7 @@ export class NodeTestRunner implements TestRunner {
 
   async dispose(): Promise<void> {
     if (this.#cacheDir !== undefined) {
-      await removeDir(this.#cacheDir);
+      await removeDir(this.#cacheDir, this.#log);
     }
   }
 
@@ -520,7 +546,7 @@ export class NodeTestRunner implements TestRunner {
 
       return { records, exitCode, stderr, args, nodeOptions: env.NODE_OPTIONS as string, ...(unreadable && { unreadable }) };
     } finally {
-      await removeDir(runDir);
+      await removeDir(runDir, this.#log);
     }
   }
 }

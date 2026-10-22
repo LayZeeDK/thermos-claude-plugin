@@ -6,6 +6,7 @@ import { basename, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 
+import type { Logger } from '@stryker-mutator/api/logging';
 import { TestStatus } from '@stryker-mutator/api/test-runner';
 
 import { testFor } from '../test-each/test-for.ts';
@@ -19,6 +20,7 @@ import {
   mergeCoverage,
   parseRecord,
   processEnd,
+  removeDir,
   removeLeftDirs,
   runEnv,
   toTestResults,
@@ -193,6 +195,70 @@ describe('processEnd', () => {
     child.emit('error', failure);
 
     assert.equal(await settled(), failure);
+  });
+});
+
+describe('removeDir', () => {
+  const DIR = join('/tmp', 'run');
+
+  /** Starts removing DIR with `remove`, waiting 1,000 ms, and collects the warnings. */
+  function removal(remove: () => Promise<void>) {
+    const warnings: string[] = [];
+    const removed: string[] = [];
+    let state = 'pending';
+    const log = { warn: (message: string) => warnings.push(message) } as unknown as Logger;
+    void removeDir(DIR, log, {
+      waitMs: 1_000,
+      remove: (path) => {
+        removed.push(path);
+
+        return remove();
+      },
+    }).then(() => (state = 'done'));
+    const settled = async () => {
+      await new Promise(setImmediate);
+
+      return state;
+    };
+
+    return { warnings, removed, settled };
+  }
+
+  it('removes the directory without a warning, and stops waiting', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { warnings, removed, settled } = removal(async () => {});
+
+    assert.equal(await settled(), 'done');
+
+    t.mock.timers.tick(1_000);
+
+    assert.deepEqual([removed, warnings], [[DIR], []]);
+  });
+
+  it('leaves a directory it cannot remove, with a warning, and stops waiting', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { warnings, settled } = removal(() => Promise.reject(new Error('EPERM: operation not permitted')));
+
+    assert.equal(await settled(), 'done');
+
+    t.mock.timers.tick(1_000);
+
+    assert.deepEqual(warnings, [`Left ${DIR} for a later runner to remove: EPERM: operation not permitted`]);
+  });
+
+  it('leaves a directory still in use after `waitMs`, with a warning', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { warnings, settled } = removal(() => new Promise(() => {}));
+    t.mock.timers.tick(999);
+
+    assert.deepEqual([await settled(), warnings], ['pending', []]);
+
+    t.mock.timers.tick(1);
+
+    assert.deepEqual(
+      [await settled(), warnings],
+      ['done', [`Left ${DIR} for a later runner to remove: still in use after 1000 ms`]],
+    );
   });
 });
 
