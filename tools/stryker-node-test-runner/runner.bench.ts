@@ -20,7 +20,7 @@ import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { DryRunStatus, MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 import { Bench } from 'tinybench';
 
-import { COVER, logger, mutantRunOptions } from './index.fixtures.ts';
+import { COVER, DRY_RUN, fixture, logger, mutantRunOptions } from './index.fixtures.ts';
 import type { NodeTestRunner } from './index.ts';
 
 type RunnerModule = typeof import('./index.ts');
@@ -60,26 +60,17 @@ assert.ok(runs >= 1 && mutateRuns >= 0, 'runs must be >= 1 and mutate-runs >= 0'
 
 function fixtureFile(index: number): string {
   const spawns = index < SPAWNING_FILES;
-  const lines = [
-    "import assert from 'node:assert/strict';",
-    "import { spawnSync } from 'node:child_process';",
-    "import { describe, it } from 'node:test';",
-    COVER,
-    `cover('static-${index}');`,
-    `describe('suite ${index}', () => {`,
-  ];
+  const tests: string[] = [];
 
   for (let test = 0; test < TESTS_PER_FILE; test++) {
     const body =
       spawns && test === 0
         ? `const child = spawnSync(process.execPath, ['-e', ${JSON.stringify(`${COVER} cover('child-${index}');`)}]); assert.equal(child.status, 0, String(child.stderr));`
         : `assert.equal([${test}].length, 1);`;
-    lines.push(`  it('test ${test}', () => { cover('m-${index}-${test}'); ${body} });`);
+    tests.push(`  it('test ${test}', () => { cover('m-${index}-${test}'); ${body} });`);
   }
 
-  lines.push('});', '');
-
-  return lines.join('\n');
+  return fixture(`cover('static-${index}');`, `describe('suite ${index}', () => {`, ...tests, '});');
 }
 
 function scenarios(files: string[]): Scenario[] {
@@ -89,7 +80,7 @@ function scenarios(files: string[]): Scenario[] {
     {
       name: `dry run, ${FILES} files x ${TESTS_PER_FILE} tests`,
       run: async (runner) => {
-        const result = await runner.dryRun({ timeout: 60_000, disableBail: false, coverageAnalysis: 'perTest' });
+        const result = await runner.dryRun({ ...DRY_RUN, timeout: 60_000 });
         assert.equal(result.status, DryRunStatus.Complete);
         assert.ok(result.tests.every((test) => test.status === TestStatus.Success));
         assert.equal(Object.keys(result.mutantCoverage?.perTest ?? {}).length, TEST_COUNT);

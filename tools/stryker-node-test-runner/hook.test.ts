@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
@@ -8,10 +8,8 @@ import { pathToFileURL } from 'node:url';
 
 import { testFor } from '../test-each/test-for.ts';
 import { ENV, installed, reporting, type HookDependencies, type ProcessRecord, type TestEvent } from './hook-core.ts';
-import { HOOK_URL } from './index.fixtures.ts';
+import { fixture, HOOK_URL, REPORTER_ARG } from './index.fixtures.ts';
 import reporter from './reporter.ts';
-
-const REPORTER_URL = pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href;
 
 // Loaded here, outside any test, the hook stays inactive (the runner did not start this process, or its own hook is
 // installed), and Stryker counts the hook's mutants as covered by every test, including those that run it in a child.
@@ -85,7 +83,7 @@ function runWithHook(args: string[], env: Record<string, string>): Promise<{ cod
   }
 
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, ['--import', HOOK_URL, `--test-reporter=${REPORTER_URL}`, ...args], {
+    const child = spawn(process.execPath, ['--import', HOOK_URL, REPORTER_ARG, ...args], {
       env: { ...base, ...env },
       stdio: 'ignore',
     });
@@ -130,20 +128,11 @@ describe('hook', () => {
 
   it('records the tests and coverage of the test file it runs in, in a file named after the process', async (t) => {
     const dir = tempDir(t);
-    const outDir = join(dir, 'out');
-    mkdirSync(outDir);
+    const outDir = tempDir(t);
     const testFile = join(dir, 'fixture.test.mjs');
     writeFileSync(
       testFile,
-      [
-        "import { it } from 'node:test';",
-        "it('covers', () => {",
-        '  const ns = globalThis.__stryker__;',
-        '  ns.mutantCoverage ??= { static: {}, perTest: {} };',
-        "  ns.mutantCoverage.perTest[ns.currentTestId] = { 'fixture-1': 1 };",
-        '});',
-        '',
-      ].join('\n'),
+      fixture("it('covers', () => { cover('fixture-1'); });"),
     );
 
     const { code, pid } = await runWithHook([testFile], {
@@ -168,8 +157,7 @@ describe('hook', () => {
 
   it("attributes tests declared through node:test's default export and through require", async (t) => {
     const dir = tempDir(t);
-    const outDir = join(dir, 'out');
-    mkdirSync(outDir);
+    const outDir = tempDir(t);
     const testFile = join(dir, 'fixture.test.mjs');
     writeFileSync(
       testFile,
@@ -213,8 +201,7 @@ describe('hook', () => {
 
   it('records where a CommonJS test file declares its tests', async (t) => {
     const dir = tempDir(t);
-    const outDir = join(dir, 'out');
-    mkdirSync(outDir);
+    const outDir = tempDir(t);
     const testFile = join(dir, 'fixture.test.cjs');
     writeFileSync(testFile, "const { it } = require('node:test');\n\n  it('passes', () => {});\n");
 
@@ -255,8 +242,7 @@ describe('hook', () => {
     ],
   ] as const)('records where the source declares a test that %s', async ([, name, source, position], t) => {
     const dir = tempDir(t);
-    const outDir = join(dir, 'out');
-    mkdirSync(outDir);
+    const outDir = tempDir(t);
     // A loader such as tsx turns source maps on this way, so stack traces are mapped and raw call sites are not.
     const maps = join(dir, 'maps.mjs');
     writeFileSync(maps, 'process.setSourceMapsEnabled(true);\n');
@@ -272,8 +258,7 @@ describe('hook', () => {
 
   it('records where the test file declares a test through helpers many calls deep', async (t) => {
     const dir = tempDir(t);
-    const outDir = join(dir, 'out');
-    mkdirSync(outDir);
+    const outDir = tempDir(t);
     const levels = Array.from({ length: 12 }, (_, level) => `export const level${level} = () => level${level + 1}();`);
     writeFileSync(
       join(dir, 'helper.mjs'),
@@ -290,8 +275,7 @@ describe('hook', () => {
 
   it('records the results node:test reports, also of hooks, runtime skips and todo tests', async (t) => {
     const dir = tempDir(t);
-    const outDir = join(dir, 'out');
-    mkdirSync(outDir);
+    const outDir = tempDir(t);
     const testFile = join(dir, 'fixture.test.mjs');
     writeFileSync(
       testFile,
