@@ -6,12 +6,11 @@ import { basename, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 
-import type { Logger } from '@stryker-mutator/api/logging';
 import { TestStatus } from '@stryker-mutator/api/test-runner';
 
 import { testFor } from '../test-each/test-for.ts';
 import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
-import { ACTIVE_MUTANT, HOOK_URL, NO_PROCESS } from './index.fixtures.ts';
+import { ACTIVE_MUTANT, HOOK_URL, logger, NO_PROCESS } from './index.fixtures.ts';
 import {
   fileError,
   filesFor,
@@ -207,8 +206,7 @@ describe('removeDir', () => {
     const warnings: string[] = [];
     const removed: string[] = [];
     let state = 'pending';
-    const log = { warn: (message: string) => warnings.push(message) } as unknown as Logger;
-    void removeDir(DIR, log, {
+    void removeDir(DIR, logger([], false, warnings), {
       waitMs: 1_000,
       remove: (path) => {
         removed.push(path);
@@ -247,7 +245,7 @@ describe('removeDir', () => {
     assert.deepEqual(warnings, [`Left ${DIR} for a later runner to remove: EPERM: operation not permitted`]);
   });
 
-  it('leaves a directory still in use after `waitMs`, with a warning', async (t) => {
+  it('stops waiting for a directory still in use after `waitMs`, with a warning', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const { warnings, settled } = removal(() => new Promise(() => {}));
     t.mock.timers.tick(999);
@@ -258,8 +256,21 @@ describe('removeDir', () => {
 
     assert.deepEqual(
       [await settled(), warnings],
-      ['done', [`Left ${DIR} for a later runner to remove: still in use after 1000 ms`]],
+      ['done', [`Stopped waiting for ${DIR} to be removed after 1000 ms; a later runner removes what is left.`]],
     );
+  });
+
+  it('warns once when the removal fails after it stopped waiting', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let fail = (_error: Error) => {};
+    const { warnings, settled } = removal(() => new Promise((_, reject) => (fail = reject)));
+    t.mock.timers.tick(1_000);
+    fail(new Error('EBUSY: resource busy or locked'));
+    await settled();
+
+    assert.deepEqual(warnings, [
+      `Stopped waiting for ${DIR} to be removed after 1000 ms; a later runner removes what is left.`,
+    ]);
   });
 });
 

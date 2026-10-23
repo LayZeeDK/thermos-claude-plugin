@@ -291,9 +291,10 @@ export interface EndingProcess {
 
 /**
  * Removes a directory the runner created, waiting at most `waitMs`. A process that a test file started can outlive the
- * file's process, and Windows refuses to remove a directory that a running process works in: `rm` with retries waits
- * until that process ends, while `rmSync` gives up at once. A directory still there after the wait is left for
- * `removeLeftDirs` of a later runner, with a warning.
+ * file's process, and Windows refuses to remove a directory that a running process works in. With retries, `rm` gives
+ * up after about a second when the process works in the directory itself, but waits until the process ends when it
+ * works in a directory inside it, as in the run's temporary directory. What is left is for `removeLeftDirs` of a later
+ * runner, with a warning.
  */
 export function removeDir(
   dir: string,
@@ -304,11 +305,12 @@ export function removeDir(
   } = {},
 ): Promise<void> {
   return new Promise((done) => {
-    const leave = (reason: string) => {
-      log.warn(`Left ${dir} for a later runner to remove: ${reason}`);
+    let waiting = true;
+    const timer = setTimeout(() => {
+      waiting = false;
+      log.warn(`Stopped waiting for ${dir} to be removed after ${waitMs} ms; a later runner removes what is left.`);
       done();
-    };
-    const timer = setTimeout(() => leave(`still in use after ${waitMs} ms`), waitMs);
+    }, waitMs);
 
     remove(dir).then(
       () => {
@@ -317,7 +319,11 @@ export function removeDir(
       },
       (error: Error) => {
         clearTimeout(timer);
-        leave(error.message);
+
+        if (waiting) {
+          log.warn(`Left ${dir} for a later runner to remove: ${error.message}`);
+          done();
+        }
       },
     );
   });

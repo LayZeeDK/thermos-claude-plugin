@@ -80,7 +80,7 @@ export function project(t: TestContext, files: Record<string, string>): string {
   return dir;
 }
 
-export function logger(debug: string[] = [], debugEnabled = true): Logger {
+export function logger(debug: string[] = [], debugEnabled = true, warnings: string[] = []): Logger {
   const no = () => false;
   const ignore = () => {};
 
@@ -96,7 +96,9 @@ export function logger(debug: string[] = [], debugEnabled = true): Logger {
       debug.push(message);
     },
     info: ignore,
-    warn: ignore,
+    warn: (message: string) => {
+      warnings.push(message);
+    },
     error: ignore,
     fatal: ignore,
   };
