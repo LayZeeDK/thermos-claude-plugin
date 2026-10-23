@@ -395,15 +395,24 @@ describe('command line', () => {
     assert.equal(readFileSync(join(root, FIRST), 'utf8'), 'changed\n');
   });
 
-  it('exits non-zero with the error on stderr when the slice map does not apply', (t) => {
+  it('exits non-zero with the error on stderr and keeps the generated directories when the slice map does not apply', (t) => {
     const { root, script } = setup(t);
+    const sentinels = OUT_DIRS.map((dir) => join(dir, 'sentinel.md'));
+
+    for (const sentinel of sentinels) {
+      put(root, sentinel, 'kept\n');
+    }
+
     put(root, SLICED_SOURCES[0], `${readFileSync(join(root, SLICED_SOURCES[0]), 'utf8')}An extra upstream line.\n`);
 
     const result = runNode(script);
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /no file takes line \d+ "An extra upstream line\."/);
-    assert.ok(!existsSync(join(root, OUT_DIRS[0])));
+    assert.deepEqual(
+      sentinels.map((sentinel) => readFileSync(join(root, sentinel), 'utf8')),
+      sentinels.map(() => 'kept\n'),
+    );
   });
 
   it('does nothing when another script imports it', (t) => {
