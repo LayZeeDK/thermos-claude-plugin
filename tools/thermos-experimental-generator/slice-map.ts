@@ -256,9 +256,8 @@ const QUALITY_FRAME: readonly Selector[] = [
 const reviewer = (lens: string) => `lens-${lens}-reviewer`;
 const review = (lens: string) => `lens-${lens}-review`;
 
-const orchestratorLensLines = [...deepLenses, ...qualityLenses].map(
-  ({ name, focus }) => `   - \`subagent_type: "${PLUGIN}:${reviewer(name)}"\` for ${focus}.`,
-);
+const orchestratorLensLine = ({ name, focus }: { readonly name: string; readonly focus: string }) =>
+  `   - \`subagent_type: "${PLUGIN}:${reviewer(name)}"\` for ${focus}.`;
 
 export const FILES: readonly FileSpec[] = [
   {
@@ -275,8 +274,8 @@ export const FILES: readonly FileSpec[] = [
       { from: '# Thermos', to: '# Thermos Lenses' },
       { from: 'Run the two thermo review passes', to: 'Run the seven thermo review lenses' },
       { from: 'Launch both subagents', to: 'Launch all seven lens subagents' },
-      { line: '   - `subagent_type: "thermos:thermo-nuclear-reviewer"`', to: orchestratorLensLines.slice(0, 3) },
-      { line: '   - `subagent_type: "thermos:thermo-nuclear-code-quality-reviewer"`', to: orchestratorLensLines.slice(3) },
+      { line: '   - `subagent_type: "thermos:thermo-nuclear-reviewer"`', to: deepLenses.map(orchestratorLensLine) },
+      { line: '   - `subagent_type: "thermos:thermo-nuclear-code-quality-reviewer"`', to: qualityLenses.map(orchestratorLensLine) },
       {
         after: '4. Pass each subagent the same scoped diff/file context',
         insert: [
