@@ -109,16 +109,23 @@ export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest
 /**
  * Turns the recorded tests of one test file into Stryker test results. A test's name leaves out the test file, which
  * its id starts with, as Stryker's runners name tests after their suites only.
+ *
+ * Each test's time includes the time the file's run spent outside its outermost tests, whose time includes their
+ * subtests': running any test of the file runs the file's whole process. Stryker's mutant timeout scales with the
+ * summed time of the tests it runs, so it then scales with the processes it starts, which Stryker's other workers slow
+ * down as well.
  */
-export function toTestResults(testFile: string, recorded: RecordedTest[]): TestResult[] {
+export function toTestResults(testFile: string, recorded: RecordedTest[], fileMs: number): TestResult[] {
   const prefix = testId(testFile, '');
+  const outermost = recorded.filter((test) => !recorded.some((other) => other !== test && within(test.id, other.id)));
+  const outside = fileMs - outermost.reduce((sum, test) => sum + test.timeSpentMs, 0);
 
   return recorded.map((test) => {
     const base = {
       id: test.id,
       name: test.id.slice(prefix.length),
       fileName: testFile,
-      timeSpentMs: Math.round(test.timeSpentMs),
+      timeSpentMs: Math.round(test.timeSpentMs + outside),
       ...(test.startPosition && { startPosition: test.startPosition }),
     };
 
@@ -459,7 +466,9 @@ export class NodeTestRunner implements TestRunner {
     const coverages: (MutantCoverage | undefined)[] = [];
 
     for (const file of files) {
+      const started = performance.now();
       const fileRun = await this.runFile(file, run);
+      const fileMs = performance.now() - started;
       const { records, exitCode, unreadable } = fileRun;
 
       if (unreadable !== undefined) {
@@ -476,7 +485,7 @@ export class NodeTestRunner implements TestRunner {
         coverages.push(record.mutantCoverage);
       }
 
-      const results = toTestResults(file, records.flatMap((record) => record.tests));
+      const results = toTestResults(file, records.flatMap((record) => record.tests), fileMs);
       const failed = results.some((result) => result.status === TestStatus.Failed);
 
       // Like Stryker's own runners, a failure that no test explains is an error, not a killed mutant.

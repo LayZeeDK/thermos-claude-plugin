@@ -433,6 +433,23 @@ describe('NodeTestRunner', () => {
     assert.equal(mutantCoverage?.perTest[`${file} > spawns`]?.['f-child'], 1);
   });
 
+  it("times each test with the time its file's run spent outside the tests, such as starting node", async (t) => {
+    project(t, { 'a.test.mjs': fixture("it('first', () => {});", "it('second', () => {});") });
+    const runner = await initRunner(['*.test.mjs']);
+    const started = performance.now();
+
+    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
+    // Test times are rounded to whole milliseconds.
+    const wall = Math.ceil(performance.now() - started);
+
+    assert.equal(tests.length, 2);
+
+    // Starting node takes tens of milliseconds, and neither test takes one.
+    for (const test of tests) {
+      assert.ok(test.timeSpentMs >= 20 && test.timeSpentMs <= wall, `${test.timeSpentMs} ms of a ${wall} ms run`);
+    }
+  });
+
   it('logs the node command and directory of each test file, only when debug logging is on', async (t) => {
     const dir = project(t, { 'a.test.mjs': PASSING });
     const file = join(dir, 'a.test.mjs');

@@ -64,25 +64,49 @@ describe('mergeCoverage', () => {
 describe('toTestResults', () => {
   const base = (id: string) => ({ id, name: id.slice(`${FILE} > `.length), fileName: FILE });
 
-  it('reports each recorded test with its status, rounded time, and failure message', () => {
+  it('reports each recorded test with its status, failure message, and rounded time plus the time the file spent outside its tests', () => {
+    // The tests take 4.4 ms of the file's 10.4 ms, so each test carries the other 6 ms.
     assert.deepEqual(
-      toTestResults(FILE, [
-        { id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1.6 },
-        { id: `${FILE} > fails`, status: 'failed', failureMessage: 'boom', timeSpentMs: 2.4 },
-        { id: `${FILE} > fails silently`, status: 'failed', timeSpentMs: 0 },
-        { id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0.4 },
-      ]),
+      toTestResults(
+        FILE,
+        [
+          { id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1.6 },
+          { id: `${FILE} > fails`, status: 'failed', failureMessage: 'boom', timeSpentMs: 2.4 },
+          { id: `${FILE} > fails silently`, status: 'failed', timeSpentMs: 0 },
+          { id: `${FILE} > skipped`, status: 'skipped', timeSpentMs: 0.4 },
+        ],
+        10.4,
+      ),
       [
-        { ...base(`${FILE} > passes`), timeSpentMs: 2, status: TestStatus.Success },
-        { ...base(`${FILE} > fails`), timeSpentMs: 2, status: TestStatus.Failed, failureMessage: 'boom' },
+        { ...base(`${FILE} > passes`), timeSpentMs: 8, status: TestStatus.Success },
+        { ...base(`${FILE} > fails`), timeSpentMs: 8, status: TestStatus.Failed, failureMessage: 'boom' },
         {
           ...base(`${FILE} > fails silently`),
-          timeSpentMs: 0,
+          timeSpentMs: 6,
           status: TestStatus.Failed,
           failureMessage: 'Test failed',
         },
-        { ...base(`${FILE} > skipped`), timeSpentMs: 0, status: TestStatus.Skipped },
+        { ...base(`${FILE} > skipped`), timeSpentMs: 6, status: TestStatus.Skipped },
       ],
+    );
+  });
+
+  it("counts a parent test's time once, as it includes the time of the subtests it runs", () => {
+    // The parent's 5 ms include its subtests' 1 ms and 3 ms (the second has a subtest of its own); a sibling takes 1 ms
+    // more, so the 10 ms file spent 4 ms outside its tests.
+    assert.deepEqual(
+      toTestResults(
+        FILE,
+        [
+          { id: `${FILE} > parent > first`, status: 'passed', timeSpentMs: 1 },
+          { id: `${FILE} > parent > second > third`, status: 'passed', timeSpentMs: 2 },
+          { id: `${FILE} > parent > second`, status: 'passed', timeSpentMs: 3 },
+          { id: `${FILE} > parent`, status: 'passed', timeSpentMs: 5 },
+          { id: `${FILE} > parenthood`, status: 'passed', timeSpentMs: 1 },
+        ],
+        10,
+      ).map((result) => result.timeSpentMs),
+      [5, 6, 7, 9, 5],
     );
   });
 
@@ -90,7 +114,7 @@ describe('toTestResults', () => {
     const startPosition = { line: 4, column: 2 };
 
     assert.deepEqual(
-      toTestResults(FILE, [{ id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1, startPosition }]),
+      toTestResults(FILE, [{ id: `${FILE} > passes`, status: 'passed', timeSpentMs: 1, startPosition }], 1),
       [{ ...base(`${FILE} > passes`), timeSpentMs: 1, status: TestStatus.Success, startPosition }],
     );
   });
