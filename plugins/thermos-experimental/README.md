@@ -19,7 +19,7 @@ It installs next to `thermos` and does not need it.
 
 | Entry point | Compared with `/thermos`, it changes |
 |:------------|:-------------------------------------|
-| `/thermos-experimental:thermos-lenses` | The topology. Seven narrow lens reviewers and a PR-discussion reconciler replace the two broad reviewers. The rubric text is upstream's, split across the lenses without rewording. |
+| `/thermos-experimental:thermos-lenses` | The topology. Seven narrow lens reviewers and a PR-discussion reconciler replace the two broad reviewers. The rubric text is upstream's, split across the lenses in upstream order. The lens files only cut fragments, change names, and drop or renumber steps; they add no wording of their own. |
 
 Whether the lens split finds more confirmed issues per token than `/thermos` is not measured yet.
 

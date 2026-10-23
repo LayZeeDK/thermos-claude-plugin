@@ -10,7 +10,7 @@ Claude Code-only frontmatter is fine when it makes upstream's intent work in Cla
 
 The one intentional divergence: no skill sets `disable-model-invocation: true`, because in Claude Code that field also blocks the Skill tool and `skills:` preloading. Keep it removed, including from new upstream skills.
 
-The porting rule binds `plugins/thermos` in full. `plugins/thermos-experimental` is generated from it by `tools/thermos-experimental-generator/`: its `lens-*` files move upstream lines between files but reword none, and every change to them goes through `slice-map.ts` and `npm run generate`, never a hand edit.
+The porting rule binds `plugins/thermos` in full. `plugins/thermos-experimental` is generated from it by `tools/thermos-experimental-generator/`: its `lens-*` files take upstream lines in upstream order and add no wording of their own. Their only changes are fragments cut from a line (`drop`), the names the split changes, and deleted or renumbered steps; Claude's own sentences live only in the `thermos-lenses` orchestrator. Every change to them goes through `slice-map.ts` and `npm run generate`, never a hand edit.
 
 ## Versioning and commits
 
