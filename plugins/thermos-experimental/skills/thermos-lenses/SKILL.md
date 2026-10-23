@@ -21,7 +21,7 @@ Run the seven thermo review lenses as async background subagents in parallel, th
    - `subagent_type: "thermos-experimental:lens-contracts-reviewer"` for magic abstractions, thin wrappers, and type and boundary contracts.
    - `subagent_type: "thermos-experimental:lens-layering-reviewer"` for logic in the wrong layer, duplicated helpers, and sequential or non-atomic orchestration.
 4. Pass each subagent the same scoped diff/file context and ask it to return prioritized findings with file references and evidence.
-5. If there is a PR for this branch and the breakage, security, or devex lens reported medium-or-higher findings, launch `subagent_type: "thermos-experimental:lens-pr-discussion-reconciler"` after those three finish. Pass it their findings and the same scoped diff/file context.
+5. If there is a PR for this branch and the breakage, security, or devex lens reported medium-or-higher findings, launch `subagent_type: "thermos-experimental:lens-pr-discussion-reconciler"` after those three finish. Pass it their findings as the audit to reconcile, and the same scoped diff/file context.
 6. After all reviewers finish, synthesize the results with findings first, deduplicated across reviewers. Weight overlapping findings more heavily, resolve disagreements with your own judgment, and keep summaries brief.
 
 If individual background summaries are already visible to the user, do not restate them wholesale. Surface the unified verdict, the highest-signal findings, and any remaining uncertainty.

@@ -284,7 +284,7 @@ export const FILES: readonly FileSpec[] = [
         insert: [
           `5. If there is a PR for this branch and the breakage, security, or devex lens reported medium-or-higher ` +
             `findings, launch \`subagent_type: "${PLUGIN}:lens-pr-discussion-reconciler"\` after those three ` +
-            `finish. Pass it their findings and the same scoped diff/file context.`,
+            `finish. Pass it their findings as the audit to reconcile, and the same scoped diff/file context.`,
         ],
       },
       { from: '5. After both finish', to: '6. After all reviewers finish' },
