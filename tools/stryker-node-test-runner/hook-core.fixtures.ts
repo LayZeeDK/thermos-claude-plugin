@@ -1,4 +1,3 @@
-// Fakes of node:test and its test contexts, shared by the tests of hook-core.ts.
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 
@@ -10,7 +9,6 @@ export interface Registration {
   /** The node:test function, such as `it` or `it.skip`. */
   kind: string;
   name: string;
-  /** The arguments after the name, as the wrapper passed them on. */
   rest: unknown[];
   self: unknown;
 }
@@ -92,7 +90,6 @@ export function testContext(registrations: Registration[] = []) {
   return context;
 }
 
-/** The body the wrapper registered for the test with this name. */
 export function rawBodyOf(registrations: Registration[], name: string): Fn {
   const registration = registrations.find((candidate) => candidate.name === name);
   assert.ok(registration, `${name} was not registered`);
@@ -100,7 +97,6 @@ export function rawBodyOf(registrations: Registration[], name: string): Fn {
   return registration.rest.find((arg) => typeof arg === 'function') as Fn;
 }
 
-/** Returns the body the wrapper registered for the test with this name, as a function that returns a promise. */
 export function bodyOf(registrations: Registration[], name: string): (this: unknown, ...args: unknown[]) => Promise<unknown> {
   const body = rawBodyOf(registrations, name);
 
@@ -109,7 +105,6 @@ export function bodyOf(registrations: Registration[], name: string): (this: unkn
   };
 }
 
-/** Runs the bodies of the named tests one after another, each with a fresh test context. */
 export async function runBodies(registrations: Registration[], names: string[]): Promise<void> {
   for (const name of names) {
     await bodyOf(registrations, name)(testContext());

@@ -1,5 +1,3 @@
-// The fields of the results the runner reports, which Stryker's reporters show: ids, names and positions, and the
-// coverage that goes with each id.
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -10,6 +8,7 @@ import {
   complete,
   DRY_RUN,
   fixture,
+  FIXTURE_HEADER_LINES,
   fixtureCoverage,
   initRunner,
   mutantRunOptions,
@@ -37,12 +36,11 @@ describe('NodeTestRunner results', () => {
 
     const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
 
-    // fixture() starts every file with four lines.
     assert.deepEqual(
       tests.map(({ id, startPosition }) => ({ id, startPosition })),
       [
-        { id: `${a} > once > never runs`, startPosition: { line: 7, column: 2 } },
-        { id: `${a} > once`, startPosition: { line: 5, column: 0 } },
+        { id: `${a} > once > never runs`, startPosition: { line: FIXTURE_HEADER_LINES + 3, column: 2 } },
+        { id: `${a} > once`, startPosition: { line: FIXTURE_HEADER_LINES + 1, column: 0 } },
       ],
     );
   });
@@ -241,13 +239,12 @@ describe('NodeTestRunner results', () => {
 
     const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
 
-    // fixture() starts every file with four lines.
     assert.deepEqual(
       tests.map(({ id, startPosition }) => ({ id, startPosition })),
       [
-        { id: `${a} > first`, startPosition: { line: 5, column: 0 } },
-        { id: `${a} > suite > nested`, startPosition: { line: 7, column: 2 } },
-        { id: `${a} > from a helper`, startPosition: { line: 9, column: 0 } },
+        { id: `${a} > first`, startPosition: { line: FIXTURE_HEADER_LINES + 1, column: 0 } },
+        { id: `${a} > suite > nested`, startPosition: { line: FIXTURE_HEADER_LINES + 3, column: 2 } },
+        { id: `${a} > from a helper`, startPosition: { line: FIXTURE_HEADER_LINES + 5, column: 0 } },
       ],
     );
   });

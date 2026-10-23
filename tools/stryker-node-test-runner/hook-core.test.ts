@@ -358,9 +358,7 @@ interface Harness {
   fake: ReturnType<typeof fakeNodeTest>;
   records: { path: string; record: ProcessRecord }[];
   calls: string[];
-  /** The module hooks the hook registered. */
   hooks: ModuleHooks[];
-  /** The wrapped node:test module the hook published. */
   wrapped: () => NodeTestModule;
   /** Ends the process: by itself, which calls `beforeExit` first, or through `process.exit()`, which skips it. */
   exit: (options?: { natural: boolean }) => void;
@@ -424,7 +422,6 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
 
 const OUT = join('/tmp', 'out');
 
-/** Passes node:test's events for a test to the reporting function the hook installed. */
 function report(deps: HookDependencies, name: string, outcome: 'pass' | 'fail'): void {
   const recordEvent = deps.global[reporting];
   assert.ok(recordEvent, 'the hook installed no reporting function');

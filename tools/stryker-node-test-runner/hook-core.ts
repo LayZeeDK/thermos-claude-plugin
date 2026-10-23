@@ -1,5 +1,3 @@
-// The logic hook.ts installs into every process of a node:test run under Stryker. Its dependencies are
-// parameters, so tests can drive it in-process.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,11 +13,7 @@ export function testId(parent: string, name: string): string {
   return `${parent} > ${/(^| )>( |$)/.test(name) ? name.replace(/[\\>]/g, '\\$&') : name}`;
 }
 
-/**
- * Returns a function that gives each suite or test its id, numbering from 2 those that would share an id with one
- * named before them, as in `works (2)`. node:test reports suites and tests in the order they are declared, so the
- * wrapper and the reporter number them alike.
- */
+/** node:test reports in declaration order, so the wrapper and the reporter number alike. */
 export function uniqueIds(): (parent: string, name: string) => string {
   const used = new Set<string>();
 
@@ -41,12 +35,10 @@ export function uniqueIds(): (parent: string, name: string) => string {
   };
 }
 
-/** Whether `id` is the id of `scope` or of a suite or test inside it. */
 export function within(id: string, scope: string): boolean {
   return id === scope || id.startsWith(`${scope} > `);
 }
 
-/** A test as the hook records it. */
 export interface RecordedTest {
   /**
    * The test file's absolute path, the names of the enclosing suites and, for a subtest, tests, and the test's name,
@@ -68,7 +60,6 @@ export interface CallSite {
   column: number;
 }
 
-/** What the hook writes for one process when it exits. */
 export interface ProcessRecord {
   /** Set for the process that runs the test file. */
   main?: true;
@@ -94,19 +85,15 @@ type HookRegistrar = (this: unknown, hook: Body, ...rest: unknown[]) => unknown;
  * Node.js 24.
  */
 type Register = Registrar & { skip: Registrar; todo: Registrar; only: Registrar; expectFailure?: Registrar };
-/** The part of the context node:test passes to a test's body that the hook uses. */
 interface TestContext {
   skip(): void;
-  /** Registers a subtest. */
   test: Registrar;
 }
 
-/** The part of a node:test reporter event that the hook reads. */
 export interface TestEvent {
   type: string;
   data: {
     name: string;
-    /** How many suites and tests enclose the test. */
     nesting: number;
     skip?: unknown;
     todo?: unknown;
@@ -122,7 +109,6 @@ export interface TestEvent {
   };
 }
 
-/** The node:test module: its `test` function, which carries the other functions the hook wraps. */
 export type NodeTestModule = Register & {
   describe: Register;
   suite: Register;
@@ -137,7 +123,6 @@ export type NodeTestModule = Register & {
 /** The name of the test that stands for a failing `after` hook outside any suite, which fails the test file. */
 const AFTER_HOOK = '"after" hook';
 
-/** Environment variables shared between the runner and the hook. */
 export const ENV = {
   out: 'STRYKER_NODE_TEST_OUT',
   file: 'STRYKER_NODE_TEST_FILE',
@@ -300,7 +285,6 @@ export function recordEvents(
   positions: Map<string, Position>,
   diagnostics: string[],
 ): (event: TestEvent) => void {
-  /** The id of the test or suite that started last at each nesting level. */
   const ids = new Map<number, string>();
   const idOf = uniqueIds();
 
@@ -357,7 +341,6 @@ export function recordEvents(
 export interface WrapOptions {
   ns: InstrumenterContext;
   testFile: string;
-  /** The tests node:test has reported so far. */
   tests: RecordedTest[];
   /** Test ids to run; all other tests are skipped. Runs every test when absent. */
   filter: Set<string> | undefined;
@@ -369,7 +352,6 @@ export interface WrapOptions {
    */
   activeMutant: string | undefined;
   env: Record<string, string | undefined>;
-  /** Where the test file declares each suite and test, by id, for the wrapper to fill. */
   positions: Map<string, Position>;
   callSites: () => CallSite[];
   nodeTest: NodeTestModule;
@@ -415,7 +397,6 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
    * whole test file in the filter when --testFiles limits the run.
    */
   const selected = (id: string) => !filter || filter.has(testFile) || [...filter].some((test) => within(test, id));
-  /** Activates the runtime mutant, if any, for the rest of the process. */
   const activate = () => {
     // The environment variable makes the processes started from now on load with the mutant active.
     if (activeMutant !== undefined) {
@@ -441,7 +422,6 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
 
       return register.call(this, prepare(hook, suite), ...rest);
     };
-  /** A hook that activates the mutant before it runs. */
   const activating = (hook: Body): Body => {
     // node:test registers a hook without a function, as one that does nothing.
     if (typeof hook !== 'function') {
@@ -507,7 +487,6 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       return registerWith(register, this, { name, options, body: body && wrap(body) });
     };
 
-  /** Wraps a function that registers tests whose parent has the id `parent()`. */
   const wrapTest = (register: Registrar, parent = parentId): Registrar =>
     function (this: unknown, ...args: unknown[]) {
       const { name, options, body } = parse(args);
@@ -613,7 +592,6 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   });
 }
 
-/** The module hooks part of `module.registerHooks` that the hook uses. */
 export interface ModuleHooks {
   resolve: (
     specifier: string,

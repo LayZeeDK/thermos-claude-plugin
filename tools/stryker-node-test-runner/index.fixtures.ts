@@ -1,4 +1,3 @@
-// Test files, runners and results for the runner test files, and the constants index.test.ts shares with them.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,7 +23,6 @@ export const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 export const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
 export const REPORTER_ARG = `--test-reporter=${pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href}`;
 
-/** The NODE_OPTIONS of the processes a runner starts, given this process's NODE_OPTIONS without reporters. */
 export function runNodeOptions(): string {
   const inherited = process.env.NODE_OPTIONS ? [process.env.NODE_OPTIONS] : [];
 
@@ -46,16 +44,18 @@ export const COVER = [
   '};',
 ].join(' ');
 
+const FIXTURE_HEADER = [
+  "import assert from 'node:assert/strict';",
+  "import { spawnSync } from 'node:child_process';",
+  "import { describe, it } from 'node:test';",
+  COVER,
+];
+
+export const FIXTURE_HEADER_LINES = FIXTURE_HEADER.length;
+
 /** A node:test file whose code can simulate Stryker's instrumented code with `cover(mutantId)`. */
 export function fixture(...lines: string[]): string {
-  return [
-    "import assert from 'node:assert/strict';",
-    "import { spawnSync } from 'node:child_process';",
-    "import { describe, it } from 'node:test';",
-    COVER,
-    ...lines,
-    '',
-  ].join('\n');
+  return [...FIXTURE_HEADER, ...lines, ''].join('\n');
 }
 
 export const PASSING = fixture("it('passes', () => {});");
@@ -80,7 +80,6 @@ export function project(t: TestContext, files: Record<string, string>): string {
   return dir;
 }
 
-/** A logger that keeps its debug messages, and says whether debug logging is on as `debugEnabled` does. */
 export function logger(debug: string[] = [], debugEnabled = true): Logger {
   const no = () => false;
   const ignore = () => {};
@@ -152,7 +151,6 @@ export function fixtureCoverage(coverage: MutantCoverage | undefined): MutantCov
   );
 }
 
-/** Whether a run that `settle` waited for never ended. */
 export let stalled = false;
 
 /** The compile cache directories runners of this process created; runners in other processes name theirs by pid. */

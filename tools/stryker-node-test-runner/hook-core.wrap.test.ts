@@ -15,7 +15,6 @@ import {
 } from './hook-core.ts';
 import { bodyOf, fakeNodeTest, rawBodyOf, runBodies, TEST_FILE, testContext, type Fn } from './hook-core.fixtures.ts';
 
-/** The part of a test's context that registers subtests. */
 interface Subtests {
   test: (name: string, body: Fn) => unknown;
 }
@@ -25,16 +24,13 @@ interface SuiteCall {
   args: unknown[];
 }
 
-/** Wraps a fake node:test with the given filter, bail setting and mutant to activate at runtime. */
 function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   const fake = fakeNodeTest();
   const ns: InstrumenterContext = {};
   const env: Record<string, string | undefined> = {};
   const tests: RecordedTest[] = [];
-  /** The current test id each test body saw, by calling `see`. */
   const seen: (string | undefined)[] = [];
   const positions = new Map<string, Position>();
-  /** The call sites the wrapper finds on the stack. */
   const sites: CallSite[] = [];
   const module = wrapNodeTest({
     ns,
@@ -93,7 +89,6 @@ describe('wrapNodeTest', () => {
       module.it('works', see);
     });
 
-    /** Runs the body of the `nth` registration of this kind and name. */
     const run = (kind: string, name: string, nth: number, context = testContext()) => {
       const registration = registrations.filter((candidate) => candidate.kind === kind && candidate.name === name)[nth];
 

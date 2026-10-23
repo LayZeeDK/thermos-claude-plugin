@@ -1,7 +1,5 @@
-// A Stryker test runner for node:test. Each test file runs in its own `node` process with hook.ts loaded through
-// NODE_OPTIONS, so every process the tests spawn reports mutant coverage too, attributed to the test that spawned
-// it, and with reporter.ts as node:test's reporter, which gives the hook the results. Results and coverage are per
-// test, and a mutant run executes only the tests that cover the mutant.
+// Each test file runs in its own `node` process with hook.ts loaded through NODE_OPTIONS, so every process the tests
+// spawn reports mutant coverage too.
 import { spawn } from 'node:child_process';
 import { globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -65,16 +63,12 @@ export type RunOptions =
       testFilter?: string[];
     };
 
-/** What one test file's run produced. */
 export interface FileRun {
   records: ProcessRecord[];
   exitCode: number | null;
   stderr: string;
-  /** The arguments the runner ran `node` with. */
   args: string[];
-  /** The NODE_OPTIONS the runner ran `node` with. */
   nodeOptions: string;
-  /** Why the record of the test file's own process could not be read, when it could not. */
   unreadable?: string;
 }
 
@@ -169,7 +163,7 @@ function withoutReporters(args: string[]): string[] {
   return args.filter((arg, index) => !reporterOption(arg) && reporterOption(String(args[index - 1]))?.[1] !== '');
 }
 
-/** Parses the record a process wrote. Tests can write to the same directory, so a file there need not be a record. */
+/** Checks that the file parses and has a list of tests. */
 export function parseRecord(json: string): ProcessRecord {
   const record = JSON.parse(json) as Partial<ProcessRecord> | null;
 
@@ -180,7 +174,6 @@ export function parseRecord(json: string): ProcessRecord {
   return record as ProcessRecord;
 }
 
-/** Returns the test files that contain at least one of the filtered test ids, or every file without a filter. */
 export function filesFor(testFiles: string[], testFilter: string[] | undefined): string[] {
   if (!testFilter) {
     return testFiles;
@@ -359,7 +352,14 @@ export function isOwn(
  * killed worker cannot remove its run directory or its compile cache. A directory that cannot be removed yet is left
  * for a later runner.
  */
-export function removeLeftDirs(dir: string, { running = isRunning, owned = isOwn, remove = (path: string) => rmSync(path, { recursive: true }) } = {}): void {
+export function removeLeftDirs(
+  dir: string,
+  {
+    running = isRunning,
+    owned = isOwn,
+    remove = (path: string) => rmSync(path, { recursive: true }),
+  } = {},
+): void {
   for (const name of readdirSync(dir)) {
     const pid = /^stryker-node-test-(?:cache-)?(\d+)-/.exec(name)?.[1];
     const path = join(dir, name);

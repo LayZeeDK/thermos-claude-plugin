@@ -5,9 +5,7 @@
 //   npm run bench -- --runs 9 --mutate-runs 0
 //   npm run bench -- --runner path/to/baseline/index.ts --runner tools/stryker-node-test-runner/index.ts
 //
-// tinybench times every run with process.hrtime.bigint(). Each scenario runs in rounds, a fresh Bench per round with
-// one run per `--runner` path, in the opposite order every other round (A B, B A, ...), so drift during the
-// benchmark hits every side alike. tinybench runs a Bench's tasks one after another and has no such order itself.
+// Runners alternate order each round (A B, B A), so drift hits both alike.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -138,7 +136,6 @@ function format(name: string, { runs, medianMs, minMs, maxMs, spread }: Stat, un
   return `${name.padEnd(44)} median ${fixed(medianMs)} ${unit}  min ${fixed(minMs)}  max ${fixed(maxMs)}  spread ${(spread * 100).toFixed(0).padStart(3)}%  runs ${runs}`;
 }
 
-/** Times each task's single run per round with tinybench, and stops at a failure. */
 async function round(tasks: [name: string, fn: () => unknown][]): Promise<Map<string, number>> {
   const bench = new Bench({
     iterations: 1,
@@ -264,7 +261,7 @@ async function main(): Promise<void> {
       );
     }
   } finally {
-    await Promise.all(runners.map((runner) => runner.dispose?.()));
+    await Promise.all(runners.map((runner) => runner.dispose()));
     rmSync(dir, { recursive: true, force: true });
   }
 }

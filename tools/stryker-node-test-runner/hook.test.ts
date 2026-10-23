@@ -71,7 +71,6 @@ async function loadRunnerStartedHook(outDir: string): Promise<Record<'exit' | 'b
   return { exit: detach('exit'), beforeExit: detach('beforeExit') };
 }
 
-/** Creates an empty directory that is removed after the test. */
 function tempDir(t: TestContext): string {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'hook-test-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -81,8 +80,7 @@ function tempDir(t: TestContext): string {
 
 /**
  * Runs `node --import hook.ts --test-reporter=reporter.ts ...args` as the runner would, with only the hook's own
- * variables set. It keeps
- * Stryker's active mutant, so a mutant in hook.ts reaches the process that loads it.
+ * variables set. It keeps Stryker's active mutant, so a mutant in hook.ts reaches the process that loads it.
  */
 function runWithHook(args: string[], env: Record<string, string>): Promise<{ code: number | null; pid: number }> {
   const base = { ...process.env };

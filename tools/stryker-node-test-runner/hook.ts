@@ -1,4 +1,4 @@
-// Loaded into every Node.js process of a Stryker run through NODE_OPTIONS (`--import`). See hook-core.ts.
+// Loaded into every Node.js process of a Stryker run through NODE_OPTIONS (`--import`).
 import { writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { resolve } from 'node:path';
