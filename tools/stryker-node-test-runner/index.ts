@@ -193,8 +193,8 @@ export function runEnv(
   tmpDir: string,
   run: RunOptions,
   cacheDir: string | undefined,
-): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
+): NodeJS.ProcessEnv & { NODE_OPTIONS: string } {
+  const env: NodeJS.ProcessEnv & { NODE_OPTIONS: string } = {
     ...base,
     // The hook comes first, so a copy of this runner under test takes precedence over the runner running it.
     NODE_OPTIONS: [
@@ -560,7 +560,7 @@ export class NodeTestRunner implements TestRunner {
         }
       });
 
-      return { records, exitCode, stderr, args, nodeOptions: env.NODE_OPTIONS as string, ...(unreadable && { unreadable }) };
+      return { records, exitCode, stderr, args, nodeOptions: env.NODE_OPTIONS, ...(unreadable && { unreadable }) };
     } finally {
       await removeDir(runDir, this.#log);
     }

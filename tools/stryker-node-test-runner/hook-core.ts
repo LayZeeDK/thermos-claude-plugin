@@ -199,6 +199,7 @@ export function install(deps: HookDependencies): boolean {
 
   ns.currentTestId = deps.env[ENV.current] || undefined;
   const bail = deps.env[ENV.bail] === 'true';
+  const dryRun = deps.env[ENV.dryRun] === 'true';
   // Processes the tests start never bail: skipping tests there would change results that the parent test checks.
   delete deps.env[ENV.bail];
   const tests: RecordedTest[] = [];
@@ -253,7 +254,6 @@ export function install(deps: HookDependencies): boolean {
     natural = true;
   });
   deps.onExit(() => {
-    const dryRun = deps.env[ENV.dryRun] === 'true';
     deps.writeRecord(join(outDir, `${deps.pid}.json`), {
       ...(main && { main }),
       tests,
