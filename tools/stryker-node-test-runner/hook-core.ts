@@ -79,7 +79,7 @@ export interface ProcessRecord {
 
 type Body = (this: unknown, ...args: unknown[]) => unknown;
 type Registrar = (this: unknown, name: string, ...rest: unknown[]) => unknown;
-type HookRegistrar = (this: unknown, hook: Body, ...rest: unknown[]) => unknown;
+type HookRegistrar = (this: unknown, hook?: Body, ...rest: unknown[]) => unknown;
 /**
  * A node:test function with its shorthands, which do not call the function itself. Tests have `expectFailure` from
  * Node.js 24.
@@ -411,9 +411,9 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
    */
   const wrapHook = (
     register: HookRegistrar,
-    prepare: (hook: Body, suite: string | undefined) => Body = (hook) => hook,
+    prepare: (hook: Body | undefined, suite: string | undefined) => Body | undefined = (hook) => hook,
   ): HookRegistrar =>
-    function (this: unknown, hook: Body, ...rest: unknown[]) {
+    function (this: unknown, hook?: Body, ...rest: unknown[]) {
       const suite = running.getStore();
 
       if (suite !== undefined && !selected(suite)) {
@@ -422,7 +422,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
 
       return register.call(this, prepare(hook, suite), ...rest);
     };
-  const activating = (hook: Body): Body => {
+  const activating = (hook: Body | undefined): Body | undefined => {
     // node:test registers a hook without a function, as one that does nothing.
     if (typeof hook !== 'function') {
       return hook;

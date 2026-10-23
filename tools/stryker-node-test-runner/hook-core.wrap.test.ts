@@ -707,16 +707,13 @@ describe('wrapNodeTest', () => {
 
   it('registers hooks without a function, as node:test allows', () => {
     const { module, registrations } = wrapped();
-    const [before, beforeEach, after, afterEach] = [module.before, module.beforeEach, module.after, module.afterEach].map(
-      (register) => register as () => unknown,
-    );
-    before();
-    after();
+    module.before();
+    module.after();
     module.describe('suite', () => {
-      before();
-      beforeEach();
-      after();
-      afterEach();
+      module.before();
+      module.beforeEach();
+      module.after();
+      module.afterEach();
     });
 
     assert.deepEqual(
