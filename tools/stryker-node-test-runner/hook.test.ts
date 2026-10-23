@@ -153,7 +153,8 @@ describe('hook', () => {
     assert.equal(code, 0);
     const records = readRecords(outDir);
     assert.deepEqual(Object.keys(records), [`${pid}.json`]);
-    const record = records[`${pid}.json`] as ProcessRecord;
+    const record = records[`${pid}.json`];
+    assert.ok(record);
     const id = `${testFile} > covers`;
     assert.deepEqual(
       record.tests.map(({ id, status }) => ({ id, status })),

@@ -818,8 +818,8 @@ describe('NodeTestRunner', () => {
       { id: `${a} > passes`, status: TestStatus.Success, failureMessage: undefined },
     ]);
     const result = await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'static' })));
-    assert.equal(result.status, MutantRunStatus.Error);
-    assert.match(result.status === MutantRunStatus.Error ? result.errorMessage : '', /Error: module-level mutant/);
+    assert.ok(result.status === MutantRunStatus.Error);
+    assert.match(result.errorMessage, /Error: module-level mutant/);
   });
 
   it('activates a mutant once the tests start when activation is runtime, also in processes they start', async (t) => {
