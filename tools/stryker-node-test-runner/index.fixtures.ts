@@ -17,16 +17,15 @@ import {
   type TestResult,
 } from '@stryker-mutator/api/test-runner';
 
-import { NodeTestRunner } from './index.ts';
+import { NodeTestRunner, runEnv } from './index.ts';
 
 export const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 export const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
 export const REPORTER_ARG = `--test-reporter=${pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href}`;
 
+/** The NODE_OPTIONS a runner gives its processes from this process's; index.test.ts checks how runEnv builds them. */
 export function runNodeOptions(): string {
-  const inherited = process.env.NODE_OPTIONS ? [process.env.NODE_OPTIONS] : [];
-
-  return [`--import ${JSON.stringify(HOOK_URL)}`, ...inherited].join(' ');
+  return runEnv(process.env, '', '', '', { dryRun: false, disableBail: false }, undefined).NODE_OPTIONS;
 }
 
 /**
@@ -153,7 +152,7 @@ export function fixtureCoverage(coverage: MutantCoverage | undefined): MutantCov
   );
 }
 
-export let stalled = false;
+let stalled = false;
 
 /** The compile cache directories runners of this process created; runners in other processes name theirs by pid. */
 export function ownCacheDirs(): string[] {

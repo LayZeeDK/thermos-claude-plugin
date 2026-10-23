@@ -9,12 +9,14 @@ import { pathToFileURL } from 'node:url';
 
 import { testFor } from '../test-each/test-for.ts';
 import { ENV, installed, reporting, type HookDependencies, type ProcessRecord, type TestEvent } from './hook-core.ts';
-import { fixture, HOOK_URL, REPORTER_ARG } from './index.fixtures.ts';
+import { fixture, HOOK_URL, REPORTER_ARG, shareCompileCache } from './index.fixtures.ts';
 import reporter from './reporter.ts';
 
 // Loaded here, outside any test, the hook stays inactive (the runner did not start this process, or its own hook is
 // installed), and Stryker counts the hook's mutants as covered by every test, including those that run it in a child.
 await import('./hook.ts');
+
+shareCompileCache();
 
 /**
  * Loads a fresh copy of hook.ts into this process as if the runner had started it, with its own output directory and
