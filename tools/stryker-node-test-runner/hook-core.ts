@@ -71,8 +71,9 @@ export interface ProcessRecord {
   /** What node:test reported about errors raised after their test ended, which fail the file outside any test. */
   diagnostics?: string[];
   /**
-   * Set for the test file's process when it exited through `process.exit()`, which skips `beforeExit`, before
-   * node:test reported its summary: while the file loaded, or while a test ran.
+   * Set for the test file's process when it exited without ending by itself, which skips `beforeExit`, before
+   * node:test reported its summary: through `process.exit()` or an uncaught exception, while the file loaded or a test
+   * ran.
    */
   unfinished?: true;
 }

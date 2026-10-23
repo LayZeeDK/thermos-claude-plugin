@@ -1,5 +1,5 @@
 // Each test file runs in its own `node` process with hook.ts loaded through NODE_OPTIONS, so every process the tests
-// spawn reports mutant coverage too.
+// spawn reports mutant coverage too, attributed to the test that spawned it.
 import { spawn } from 'node:child_process';
 import { globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -163,7 +163,7 @@ function withoutReporters(args: string[]): string[] {
   return args.filter((arg, index) => !reporterOption(arg) && reporterOption(String(args[index - 1]))?.[1] !== '');
 }
 
-/** Checks that the file parses and has a list of tests. */
+/** Checks that the file parses and has a list of tests: tests can write files to the same directory. */
 export function parseRecord(json: string): ProcessRecord {
   const record = JSON.parse(json) as Partial<ProcessRecord> | null;
 
