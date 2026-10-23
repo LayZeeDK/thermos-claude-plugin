@@ -44,6 +44,9 @@ const PLUGIN = 'thermos-experimental';
 const OUT = `plugins/${PLUGIN}`;
 const UPSTREAM = 'plugins/thermos';
 
+/** The directories the generator owns; every file in them comes from the slice map. */
+export const OUT_DIRS: readonly string[] = [`${OUT}/skills`, `${OUT}/agents`];
+
 const DEEP_RUBRIC = `${UPSTREAM}/skills/thermo-nuclear-review/SKILL.md`;
 const QUALITY_RUBRIC = `${UPSTREAM}/skills/thermo-nuclear-code-quality-review/SKILL.md`;
 const ORCHESTRATOR = `${UPSTREAM}/skills/thermos/SKILL.md`;

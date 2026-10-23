@@ -9,7 +9,6 @@ import { pathToFileURL } from 'node:url';
 import { testEach } from '../test-each/test-each.ts';
 import { testFor } from '../test-each/test-for.ts';
 import {
-  OUT_DIRS,
   ROOT,
   applyEdits,
   check,
@@ -23,7 +22,7 @@ import {
   type Selection,
   type Upstream,
 } from './generate.ts';
-import { FILES, SLICED_SOURCES } from './slice-map.ts';
+import { FILES, OUT_DIRS, SLICED_SOURCES } from './slice-map.ts';
 
 /** An upstream body of `lines` whose first line is line 5 of its file, as after a two-key frontmatter. */
 function upstreamOf(...lines: string[]): Upstream {

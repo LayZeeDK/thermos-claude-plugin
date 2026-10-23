@@ -4,13 +4,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync,
 import { dirname, join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { FILES, SLICED_SOURCES, type Edit, type FrontmatterValue, type Selector } from './slice-map.ts';
+import { FILES, OUT_DIRS, SLICED_SOURCES, type Edit, type FrontmatterValue, type Selector } from './slice-map.ts';
 
 /** Absolute path of the repository root, found from this script's place in `tools/thermos-experimental-generator/`. */
 export const ROOT = join(import.meta.dirname, '..', '..');
-
-/** The directories the generator owns; every file in them comes from the slice map. */
-export const OUT_DIRS: readonly string[] = ['plugins/thermos-experimental/skills', 'plugins/thermos-experimental/agents'];
 
 /** An upstream file without its frontmatter: `body[i]` is line `offset + i + 1` of the file. */
 export interface Upstream {
