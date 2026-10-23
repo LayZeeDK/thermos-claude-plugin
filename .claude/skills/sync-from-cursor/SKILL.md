@@ -55,14 +55,15 @@ and keep that line removed.
    adaptations (Claude frontmatter, `Bash`/`PowerShell`/`Explore`/`Agent` orchestration, install commands,
    dual-copyright LICENSE); only carry over the actual upstream content changes.
 
-6. **Advance the baseline** once the sync is applied and verified, so the next run diffs from here. The script writes upstream's version and commit into the manifest's `metadata.upstream` and prints the "Based on Cursor Thermos ..." line for the next CHANGELOG entry:
-   ```bash
-   node .claude/skills/sync-from-cursor/advance-baseline.ts
-   ```
-
-7. **Regenerate `thermos-experimental`.** Its skills and agents are generated from the files this sync just updated. The generator fails and names any upstream rubric line that no lens takes; add that line to `tools/thermos-experimental-generator/slice-map.ts` and run it again:
+6. **Regenerate `thermos-experimental`.** Its skills and agents are generated from the files this sync just updated. The generator fails and names any upstream rubric line that no lens takes; add that line to `tools/thermos-experimental-generator/slice-map.ts` and run it again:
    ```bash
    npm run generate
+   ```
+   When the regenerated files change, `thermos-experimental` needs its own patch bump and CHANGELOG entry, each in its own commit (see `AGENTS.md`).
+
+7. **Advance the baseline** once the sync is applied and verified, so the next run diffs from here. The script writes upstream's version and commit into the manifest's `metadata.upstream` and prints the "Based on Cursor Thermos ..." line for the next CHANGELOG entry:
+   ```bash
+   node .claude/skills/sync-from-cursor/advance-baseline.ts
    ```
 
 Then review the working tree (`git status`, `git diff`) and commit the sync.
