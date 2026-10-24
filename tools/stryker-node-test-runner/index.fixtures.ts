@@ -9,11 +9,13 @@ import { INSTRUMENTER_CONSTANTS, type Mutant, type MutantCoverage, type StrykerO
 import type { Logger } from '@stryker-mutator/api/logging';
 import {
   DryRunStatus,
+  MutantRunStatus,
   TestStatus,
   type CompleteDryRunResult,
   type DryRunOptions,
   type DryRunResult,
   type MutantRunOptions,
+  type MutantRunResult,
   type TestResult,
 } from '@stryker-mutator/api/test-runner';
 
@@ -128,6 +130,19 @@ export function mutantRunOptions(options: Partial<MutantRunOptions> = {}): Mutan
 
 export function complete(result: DryRunResult): CompleteDryRunResult {
   assert.ok(result.status === DryRunStatus.Complete, `expected a complete run, got ${JSON.stringify(result)}`);
+
+  return result;
+}
+
+/** A killed or survived mutant's result without its `duration`, which varies from run to run, once it is a time. */
+export function timed(result: MutantRunResult): Omit<MutantRunResult, 'duration'> {
+  if (result.status === MutantRunStatus.Killed || result.status === MutantRunStatus.Survived) {
+    const { duration, ...rest } = result;
+
+    assert.ok(duration !== undefined && duration >= 0, `expected a duration, got ${JSON.stringify(result)}`);
+
+    return rest;
+  }
 
   return result;
 }

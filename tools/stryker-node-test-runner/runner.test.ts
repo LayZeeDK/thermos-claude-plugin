@@ -31,6 +31,7 @@ import {
   settle,
   shareCompileCache,
   summary,
+  timed,
 } from './index.fixtures.ts';
 import { fileError, NodeTestRunner } from './index.ts';
 
@@ -549,7 +550,7 @@ describe('NodeTestRunner', () => {
       { id: `${a} > is not done`, status: TestStatus.Skipped, failureMessage: undefined },
       { id: `${a} > is skipped`, status: TestStatus.Skipped, failureMessage: undefined },
     ]);
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions()))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -594,7 +595,7 @@ describe('NodeTestRunner', () => {
       { id: `${b} > last`, status: TestStatus.Failed, failureMessage: 'after failure' },
       { id: `${b} > times out`, status: TestStatus.Failed, failureMessage: 'test timed out after 10ms' },
     ]);
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [failsInHook] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [failsInHook] })))), {
       status: MutantRunStatus.Killed,
       killedBy: [failsInHook],
       failureMessage: 'afterEach failure',
@@ -675,7 +676,7 @@ describe('NodeTestRunner', () => {
     const runner = await initRunner(['a.test.mjs']);
     const testFilter = [`${join(dir, 'a.test.mjs')} > selected`];
 
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -713,7 +714,7 @@ describe('NodeTestRunner', () => {
     const runner = await initRunner(['a.test.mjs']);
     const a = join(dir, 'a.test.mjs');
 
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > selected > runs`] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > selected > runs`] })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -752,13 +753,13 @@ describe('NodeTestRunner', () => {
       ...laterA,
       passedB,
     ]);
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions()))), {
       status: MutantRunStatus.Killed,
       killedBy: [failedA.id],
       failureMessage: 'expected failure',
       nrOfTests: 2,
     });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ disableBail: true }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ disableBail: true })))), {
       status: MutantRunStatus.Killed,
       killedBy: [failedA.id, ...laterA.map((test) => test.id)],
       failureMessage: 'expected failure',
@@ -795,7 +796,7 @@ describe('NodeTestRunner', () => {
       rmSync(join(dir, marker));
     }
 
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ disableBail: true }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ disableBail: true })))), {
       status: MutantRunStatus.Killed,
       killedBy: [a],
       failureMessage: 'b never started',
@@ -817,7 +818,7 @@ describe('NodeTestRunner', () => {
     const runner = await initRunner(['*.test.mjs']);
     const testFilter = [`${join(dir, 'a.test.mjs')} > sees the mutant`];
 
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -831,7 +832,7 @@ describe('NodeTestRunner', () => {
     const runner = await initRunner(['*.test.mjs']);
     const a = join(dir, 'a.test.mjs');
 
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [a] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [a] })))), {
       status: MutantRunStatus.Killed,
       killedBy: [`${a} > fails`],
       failureMessage: 'expected failure',
@@ -850,7 +851,7 @@ describe('NodeTestRunner', () => {
     assert.deepEqual(summary(complete(await settle(runner.dryRun({ ...DRY_RUN, testFiles: ['b.test.mjs'] }))).tests), [
       { id: `${b} > fails`, status: TestStatus.Failed, failureMessage: 'expected failure' },
     ]);
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${c} > fails`] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${c} > fails`] })))), {
       status: MutantRunStatus.Killed,
       killedBy: [`${c} > fails`],
       failureMessage: 'expected failure',
@@ -892,7 +893,7 @@ describe('NodeTestRunner', () => {
     const runner = await initRunner(['a.test.mjs']);
     const testFilter = [`${join(dir, 'a.test.mjs')} > sees the mutant`];
 
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -923,7 +924,7 @@ describe('NodeTestRunner', () => {
     const runner = await initRunner(['*.test.mjs']);
     const testFilter = [`${join(dir, file)} > ${test}`];
 
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ mutantActivation: 'runtime', testFilter })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -946,7 +947,7 @@ describe('NodeTestRunner', () => {
       status: MutantRunStatus.Timeout,
       reason: 'Hit limit reached (11/10)',
     });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 11 }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 11 })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -974,7 +975,7 @@ describe('NodeTestRunner', () => {
       status: MutantRunStatus.Timeout,
       reason: 'Hit limit reached (11/10)',
     });
-    assert.deepEqual(await settle((await initRunner(['b.test.mjs'])).mutantRun(options)), {
+    assert.deepEqual(timed(await settle((await initRunner(['b.test.mjs'])).mutantRun(options))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });

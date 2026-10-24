@@ -14,9 +14,9 @@
     "lint": "eslint ."
   },
   "devDependencies": {
-    "@stryker-mutator/api": "^10.0.0",
-    "@stryker-mutator/core": "^10.0.0",
-    "@stryker-mutator/typescript-checker": "^10.0.0",
+    "@stryker-mutator/api": "^10.1.1",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/typescript-checker": "^10.1.1",
     "@types/node": "^22.20.5",
     "@typescript-eslint/parser": "^8.72.0",
     "ajv": "^8.20.0",

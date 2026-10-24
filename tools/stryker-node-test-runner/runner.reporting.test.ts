@@ -16,6 +16,7 @@ import {
   settle,
   shareCompileCache,
   summary,
+  timed,
 } from './index.fixtures.ts';
 
 shareCompileCache();
@@ -139,7 +140,7 @@ describe('NodeTestRunner results', () => {
         { id: hook, name: '"after" hook', status: TestStatus.Failed, startPosition: { line: 6, column: 0 } },
       ],
     );
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions())), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions()))), {
       status: MutantRunStatus.Killed,
       killedBy: [hook],
       failureMessage: 'after failure',
@@ -179,7 +180,7 @@ describe('NodeTestRunner results', () => {
       [`${a} > parent > child`]: { child: 1 },
       ...(expectFailure && { [`${a} > expects a failure`]: { expected: 1 } }),
     });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > parent > child`] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > parent > child`] })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 2,
     });
@@ -216,7 +217,7 @@ describe('NodeTestRunner results', () => {
       [ids[1] as string]: { 'in suite': 1 },
       [ids[2] as string]: { 'after await': 1 },
     });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[2] as string] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[2] as string] })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 2,
     });
@@ -269,7 +270,7 @@ describe('NodeTestRunner results', () => {
       [`${a} > <anonymous>`]: { empty: 1 },
       [`${a} > optionsFirst`]: { 'options first': 1 },
     });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > <anonymous>`] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > <anonymous>`] })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
@@ -307,7 +308,7 @@ describe('NodeTestRunner results', () => {
       [ids[2] as string]: { nested: 1 },
       [ids[3] as string]: { separator: 1 },
     });
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[1] as string] }))), {
+    assert.deepEqual(timed(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [ids[1] as string] })))), {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
