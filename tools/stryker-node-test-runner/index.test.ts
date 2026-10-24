@@ -17,7 +17,7 @@ import {
   filesFor,
   isOwn,
   isRunning,
-  memoryLimitMB,
+  memoryLimitFor,
   mergeCoverage,
   parseRecord,
   processEnd,
@@ -573,14 +573,14 @@ describe('testRunnerConcurrency', () => {
   });
 });
 
-describe('memoryLimitMB', () => {
+describe('memoryLimitFor', () => {
   testEach([
     [0, undefined, 1024],
     [101, undefined, 1176],
     [370, undefined, 1579],
     [370, 300, 300],
   ])('gives a file whose dry run peaked at %d MB, with maxMemoryMB %s, a limit of %d MB', (peak, max, limit) => {
-    assert.equal(memoryLimitMB(peak, max), limit);
+    assert.equal(memoryLimitFor(peak, max), limit);
   });
 });
 

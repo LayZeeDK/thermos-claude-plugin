@@ -329,7 +329,7 @@ export function testRunnerConcurrency(
  * mutant fails can need more memory than it did passing, and Node.js's assertion diff grows with the square of the
  * lines it compares (nodejs/node#62792).
  */
-export function memoryLimitMB(peakMB: number, maxMemoryMB: number | undefined): number {
+export function memoryLimitFor(peakMB: number, maxMemoryMB: number | undefined): number {
   return maxMemoryMB ?? Math.round(peakMB * 1.5 + 1024);
 }
 
@@ -632,7 +632,7 @@ export class NodeTestRunner implements TestRunner {
       files,
       run.dryRun ? this.#dryRunConcurrency : 1,
       async (file) => {
-        const limitMB = memoryLimitMB(this.#peakMemoryMB.get(file) ?? 0, this.#maxMemoryMB);
+        const limitMB = memoryLimitFor(this.#peakMemoryMB.get(file) ?? 0, this.#maxMemoryMB);
         const started = performance.now();
         const fileRun = await this.runFile(file, run.dryRun ? run : { ...run, memoryLimitMB: limitMB });
 
