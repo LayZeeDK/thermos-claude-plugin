@@ -151,25 +151,17 @@ describe('hook', () => {
     assert.deepEqual(records[`${process.pid}.json`]?.tests, []);
   });
 
-  it('starts the memory watchdog and records the peak memory when the runner asks for them', async (t) => {
+  it('starts the memory watchdog, drops it when it fails, and records the peak memory, when the runner asks', async (t) => {
     const outDir = tempDir(t);
     const global = globalThis as HookDependencies['global'];
-    t.after(async () => {
-      await (global[watchdog] as Worker | undefined)?.terminate();
-      delete global[watchdog];
-    });
 
     const added = await loadRunnerStartedHook(outDir, { [ENV.dryRun]: 'true', [ENV.memoryLimit]: '1000000' });
 
     const watching = global[watchdog];
     assert.ok(watching instanceof Worker, String(watching));
-    const write = t.mock.method(process.stderr, 'write', () => true);
+    t.after(() => watching.terminate());
     watching.emit('error', new Error('preload failed'));
-    write.mock.restore();
-    assert.deepEqual(
-      write.mock.calls.map((call) => call.arguments[0]),
-      ['Memory watchdog not running: preload failed\n'],
-    );
+    assert.equal(global[watchdog], undefined);
 
     const rssMB = Math.floor(process.memoryUsage.rss() / 1048576);
     added.exit[0]?.();
