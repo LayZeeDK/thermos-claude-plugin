@@ -171,3 +171,28 @@ on the delay argument, where no built-in mutator places one, so no built-in muta
     + 36:47 NodeTimerDelay 50 + 1
     + 36:47 NodeTimerDelay 50 - 1
 ```
+
+### NodeEventName
+
+Run on 2026-10-25 with the same command, with `NodeTimerDelay`, `NodeEventName` and `AssertLiveness` (under a
+second). `NodeEventName` adds 4 mutants and removes none: the process's `exit` and `beforeExit` listeners in
+`hook.ts` (`onExit` and `onBeforeExit`; whether their mutants come out static is for a `stryker run` to show), and a
+test file's `exit` and `close` listeners in `process-end.ts`. Each
+sits on a string literal that the built-in `StringLiteral` mutator also mutates to `""`, which stays. The other
+seven files show no `NodeEventName` mutant. Its lines from the output:
+
+```text
+### tools/stryker-node-test-runner/hook.ts
+
+20 mutants without the operators, 22 with them.
+
+    + 21:36 NodeEventName "beforeExit"
+    + 22:42 NodeEventName "exit"
+
+### tools/stryker-node-test-runner/process-end.ts
+
+54 mutants without the operators, 58 with them.
+
+    + 72:14 NodeEventName "close"
+    + 78:14 NodeEventName "exit"
+```
