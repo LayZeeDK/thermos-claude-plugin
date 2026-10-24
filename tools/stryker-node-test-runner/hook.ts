@@ -9,14 +9,17 @@ import { install, type HookDependencies, type NodeTestModule } from './hook-core
 
 // A worker thread polls while the main thread is blocked. From a worker, process.exit and process.abort do not end a
 // blocked process, and a signal does. An eval worker loads no `--import` preload, so the hook stays out of it, and it
-// runs as an ES module under --input-type=module, which has no require.
+// runs as an ES module under --input-type=module, which has no require. The first process over the limit writes the
+// marker; another one at the same time leaves it whole.
 const WATCHDOG = `
 const { writeFileSync } = process.getBuiltinModule('node:fs');
 const { workerData: { limitMB, markerPath } } = process.getBuiltinModule('node:worker_threads');
 setInterval(() => {
   const rssMB = Math.round(process.memoryUsage.rss() / 1048576);
   if (rssMB > limitMB) {
-    writeFileSync(markerPath, JSON.stringify({ rssMB, limitMB }));
+    try {
+      writeFileSync(markerPath, JSON.stringify({ rssMB, limitMB }), { flag: 'wx' });
+    } catch {}
     process.kill(process.pid, 'SIGKILL');
   }
 }, 50);
