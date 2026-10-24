@@ -1,0 +1,67 @@
+/**
+ * How a test file's process is spawned: on POSIX in a process group of its own, so that `endGroup` can end the
+ * processes its tests leave running. On Windows libuv's job object already ends them with the test file's process.
+ */
+export function groupOptions(platform: NodeJS.Platform): { detached: boolean; windowsHide: true } {
+  return { detached: platform !== 'win32', windowsHide: true };
+}
+
+/**
+ * Ends what is left of a test file's process group once its run is over: processes its tests started and left
+ * running, also when the memory watchdog or a crash ended the test file's process. A process that detached itself has
+ * a group of its own and stays.
+ */
+export function endGroup(
+  pid: number,
+  platform: NodeJS.Platform,
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
+): void {
+  if (!groupOptions(platform).detached) {
+    return;
+  }
+
+  try {
+    kill(-pid, 'SIGKILL');
+  } catch (error) {
+    // The group no longer exists once every process in it has ended.
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Waits for a process to end and collects its stderr. Processes it started inherit stderr and can keep it open after
+ * it exits; the records of those that end soon arrive by the time stderr closes, so this waits for that, but at most
+ * `graceMs` after the exit, and then lets go of stderr.
+ */
+export function processEnd(child: EndingProcess, graceMs: number): Promise<{ exitCode: number | null; stderr: string }> {
+  return new Promise((done, fail) => {
+    let errors = '';
+    let grace: NodeJS.Timeout | undefined;
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => (errors += chunk));
+    child.on('error', fail);
+    child.on('exit', (code) => {
+      grace = setTimeout(() => {
+        child.stderr.destroy();
+        done({ exitCode: code, stderr: errors });
+      }, graceMs);
+    });
+    child.on('close', (code) => {
+      clearTimeout(grace);
+      done({ exitCode: code, stderr: errors });
+    });
+  });
+}
+
+/** The part of a child process that `processEnd` uses. */
+export interface EndingProcess {
+  stderr: {
+    setEncoding(encoding: 'utf8'): unknown;
+    on(event: 'data', listener: (chunk: string) => void): unknown;
+    destroy(): unknown;
+  };
+  on(event: 'error', listener: (error: Error) => void): unknown;
+  on(event: 'exit' | 'close', listener: (code: number | null) => void): unknown;
+}

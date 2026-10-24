@@ -23,7 +23,8 @@ import {
   shareCompileCache,
   summary,
 } from './index.fixtures.ts';
-import { fileError, isRunning } from './index.ts';
+import { isRunning } from './dirs.ts';
+import { fileError } from './index.ts';
 
 shareCompileCache();
 

@@ -5,15 +5,12 @@ import { createHash } from 'node:crypto';
 import {
   existsSync,
   globSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -50,6 +47,8 @@ import {
   type ProcessRecord,
   type RecordedTest,
 } from './hook-core.ts';
+import { ownDir, removeDir, removeLeftDirs } from './dirs.ts';
+import { endGroup, groupOptions, processEnd } from './process-end.ts';
 
 /** Options under `nodeTest` in the Stryker configuration. */
 export interface NodeTestOptions {
@@ -105,8 +104,6 @@ const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
 const REPORTER_URL = pathToFileURL(resolve(import.meta.dirname, 'reporter.ts')).href;
 /** How long a run waits, after a test file's process exits, for the processes it started to close stderr. */
 const CLOSE_GRACE_MS = 1_500;
-/** How long a run waits for its directory to be removed. */
-const REMOVE_WAIT_MS = 2_000;
 
 /**
  * Merges the mutant coverage of several processes by adding up the hit counts. Without `perTest`, the hits inside
@@ -352,18 +349,6 @@ export function peakMemoryDir(strykerPid: number): string {
   return join(tmpdir(), `stryker-node-test-peaks-${strykerPid}-dry-run`);
 }
 
-/**
- * Creates `dir` for this user alone, or checks that the one that exists is this user's: in a temporary directory that
- * other users share, someone else could have made it first, with links in it, to read or plant the peaks.
- */
-export function ownDir(dir: string, owned: (path: string) => boolean = isOwn): void {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-
-  if (!owned(dir)) {
-    throw new Error(`"${dir}" belongs to another user; remove it, or run Stryker as that user.`);
-  }
-}
-
 function peakMemoryPath(dir: string, testFile: string): string {
   return join(dir, createHash('sha256').update(testFile).digest('hex'));
 }
@@ -452,167 +437,6 @@ export function runEnv(
   }
 
   return env;
-}
-
-/**
- * How a test file's process is spawned: on POSIX in a process group of its own, so that `endGroup` can end the
- * processes its tests leave running. On Windows libuv's job object already ends them with the test file's process.
- */
-export function groupOptions(platform: NodeJS.Platform): { detached: boolean; windowsHide: true } {
-  return { detached: platform !== 'win32', windowsHide: true };
-}
-
-/**
- * Ends what is left of a test file's process group once its run is over: processes its tests started and left
- * running, also when the memory watchdog or a crash ended the test file's process. A process that detached itself has
- * a group of its own and stays.
- */
-export function endGroup(
-  pid: number,
-  platform: NodeJS.Platform,
-  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
-): void {
-  if (!groupOptions(platform).detached) {
-    return;
-  }
-
-  try {
-    kill(-pid, 'SIGKILL');
-  } catch (error) {
-    // The group no longer exists once every process in it has ended.
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
-      throw error;
-    }
-  }
-}
-
-/**
- * Waits for a process to end and collects its stderr. Processes it started inherit stderr and can keep it open after
- * it exits; the records of those that end soon arrive by the time stderr closes, so this waits for that, but at most
- * `graceMs` after the exit, and then lets go of stderr.
- */
-export function processEnd(child: EndingProcess, graceMs: number): Promise<{ exitCode: number | null; stderr: string }> {
-  return new Promise((done, fail) => {
-    let errors = '';
-    let grace: NodeJS.Timeout | undefined;
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => (errors += chunk));
-    child.on('error', fail);
-    child.on('exit', (code) => {
-      grace = setTimeout(() => {
-        child.stderr.destroy();
-        done({ exitCode: code, stderr: errors });
-      }, graceMs);
-    });
-    child.on('close', (code) => {
-      clearTimeout(grace);
-      done({ exitCode: code, stderr: errors });
-    });
-  });
-}
-
-/** The part of a child process that `processEnd` uses. */
-export interface EndingProcess {
-  stderr: {
-    setEncoding(encoding: 'utf8'): unknown;
-    on(event: 'data', listener: (chunk: string) => void): unknown;
-    destroy(): unknown;
-  };
-  on(event: 'error', listener: (error: Error) => void): unknown;
-  on(event: 'exit' | 'close', listener: (code: number | null) => void): unknown;
-}
-
-/**
- * Removes a directory the runner created, waiting at most `waitMs`. A process that a test file started can outlive the
- * file's process, and Windows refuses to remove a directory that a running process works in. With retries, `rm` gives
- * up after about a second when the process works in the directory itself, but waits until the process ends when it
- * works in a directory inside it, as in the run's temporary directory. What is left is for `removeLeftDirs` of a later
- * runner, with a warning.
- */
-export function removeDir(
-  dir: string,
-  log: Logger,
-  {
-    waitMs = REMOVE_WAIT_MS,
-    remove = (path: string) => rm(path, { recursive: true, maxRetries: 10, retryDelay: 20 }),
-  } = {},
-): Promise<void> {
-  return new Promise((done) => {
-    let waiting = true;
-    const timer = setTimeout(() => {
-      waiting = false;
-      log.warn(`Stopped waiting for ${dir} to be removed after ${waitMs} ms; a later runner removes what is left.`);
-      done();
-    }, waitMs);
-
-    remove(dir).then(
-      () => {
-        clearTimeout(timer);
-        done();
-      },
-      (error: Error) => {
-        clearTimeout(timer);
-
-        if (waiting) {
-          log.warn(`Left ${dir} for a later runner to remove: ${error.message}`);
-          done();
-        }
-      },
-    );
-  });
-}
-
-/** Whether a process with this id runs; one that exists but may not be signalled runs too. */
-export function isRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
-
-/**
- * Whether this user owns the file or directory itself, not what a link points to. Windows has no user ids, so there
- * every one counts as owned.
- */
-export function isOwn(
-  path: string,
-  user: { getuid?: () => number } = process,
-  stat: (path: string) => { uid: number } = lstatSync,
-): boolean {
-  return user.getuid === undefined || stat(path).uid === user.getuid();
-}
-
-/**
- * Removes the directories in `dir` that runners of this user's processes that no longer run left behind; a shared
- * temporary directory holds other users' directories too. Stryker kills a worker whose run takes too long, and a
- * killed worker cannot remove its run directory or its compile cache. The dry-run peaks of a Stryker run go once
- * Stryker's own process has ended. A directory that cannot be removed yet is left for a later runner.
- */
-export function removeLeftDirs(
-  dir: string,
-  {
-    running = isRunning,
-    owned = isOwn,
-    remove = (path: string) => rmSync(path, { recursive: true }),
-  } = {},
-): void {
-  for (const name of readdirSync(dir)) {
-    const pid = /^stryker-node-test-(?:cache-|peaks-)?(\d+)-/.exec(name)?.[1];
-    const path = join(dir, name);
-
-    if (pid !== undefined && !running(Number(pid))) {
-      try {
-        if (owned(path)) {
-          remove(path);
-        }
-      } catch {
-        // A process that the killed worker started may still work in it, or another runner removed it first.
-      }
-    }
-  }
 }
 
 export class NodeTestRunner implements TestRunner {
