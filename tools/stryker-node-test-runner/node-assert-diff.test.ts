@@ -3,8 +3,9 @@ import { execFileSync } from 'node:child_process';
 import { it } from 'node:test';
 
 // Fails a deep assertion on `lines` nulls against as many strings in a fresh process, and prints how many MB its peak
-// grew over the memory it held at the start. On Linux a forked child can start with its parent's peak, which can hide
-// the growth; the test subtracts a small diff's growth to take that out.
+// grew over the memory it held at the start. On Linux a forked child can start with its parent's peak, so the child is
+// started by a small process of its own, whose peak is all it can carry over, and the test subtracts a small diff's
+// growth.
 const CHILD = `
 const assert = require('node:assert');
 const lines = Number(process.argv[1]);
@@ -15,8 +16,17 @@ try {
 console.log(Math.round((process.resourceUsage().maxRSS - before) / 1024));
 `;
 
+/** Runs the script in its first argument, with the rest as its arguments, and prints what it prints. */
+const STARTER = `
+const { execFileSync } = require('node:child_process');
+const [script, ...args] = process.argv.slice(1);
+process.stdout.write(execFileSync(process.execPath, ['-e', script, ...args], { encoding: 'utf8', windowsHide: true }));
+`;
+
 function growthMB(lines: number): number {
-  return Number(execFileSync(process.execPath, ['-e', CHILD, String(lines)], { encoding: 'utf8', windowsHide: true }));
+  return Number(
+    execFileSync(process.execPath, ['-e', STARTER, CHILD, String(lines)], { encoding: 'utf8', windowsHide: true }),
+  );
 }
 
 it("still has Node.js's assertion diff grow with the square of the lines it compares", () => {
