@@ -343,19 +343,23 @@ describe('runInPool', () => {
   function setup(count: number, limit: number, stops: (result: number) => boolean = () => false) {
     const started: number[] = [];
     const settle: ((result: number) => void)[] = [];
+    const fail: ((error: Error) => void)[] = [];
     const pool = runInPool(
       Array.from({ length: count }, (_, index) => index),
       limit,
       (item) => {
         started.push(item);
 
-        return new Promise<number>((resolve) => (settle[item] = resolve));
+        return new Promise<number>((resolve, reject) => {
+          settle[item] = resolve;
+          fail[item] = reject;
+        });
       },
       stops,
     );
     const turn = () => new Promise((resolve) => setImmediate(resolve));
 
-    return { started, settle, pool, turn };
+    return { started, settle, fail, pool, turn };
   }
 
   it('runs at most `limit` items at once, starting them in order, and returns their results in order', async () => {
@@ -390,6 +394,21 @@ describe('runInPool', () => {
 
     assert.deepEqual(started, [0, 1]);
     assert.deepEqual(await pool, [0, 1]);
+  });
+
+  it('starts no more items once an item fails, and rejects with its error', async () => {
+    const { started, settle, fail, pool, turn } = setup(5, 2);
+    const error = new Error('spawn EAGAIN');
+    const rejected = assert.rejects(pool, error);
+
+    await turn();
+    fail[1]?.(error);
+    await turn();
+    settle[0]?.(0);
+    await turn();
+
+    assert.deepEqual(started, [0, 1]);
+    await rejected;
   });
 
   it('runs every item when the limit exceeds their number, and nothing for no items', async () => {

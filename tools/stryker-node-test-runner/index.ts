@@ -205,7 +205,7 @@ type FileOutcome =
 
 /**
  * Runs `work` on the items, at most `limit` at a time and starting them in order, and starts no more once a result
- * `stops` the run. Returns the results of the items it started, which are the first ones, in order.
+ * `stops` the run or `work` rejects. Returns the results of the items it started, which are the first ones, in order.
  */
 export async function runInPool<T, R>(
   items: T[],
@@ -218,11 +218,16 @@ export async function runInPool<T, R>(
   let stopped = false;
   const lane = async () => {
     for (let index = next++; !stopped && index < items.length; index = next++) {
-      const result = await work(items[index] as T);
-      results[index] = result;
+      try {
+        const result = await work(items[index] as T);
+        results[index] = result;
 
-      if (stops(result)) {
+        if (stops(result)) {
+          stopped = true;
+        }
+      } catch (error) {
         stopped = true;
+        throw error;
       }
     }
   };
