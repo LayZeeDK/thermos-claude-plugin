@@ -19,6 +19,7 @@ import {
   testId,
   uniqueIds,
   watchdog,
+  workersAllowed,
   wrappedNodeTest,
   type HookDependencies,
   type ModuleHooks,
@@ -750,5 +751,28 @@ describe('install', () => {
       { tests: [], hitCount: 7 },
       { tests: [], hitCount: 7 },
     ]);
+  });
+});
+
+describe('workersAllowed', () => {
+  testFor([
+    ['outside the permission model', undefined, true],
+    ['under the permission model with workers', true, true],
+    ['under the permission model without workers', false, false],
+  ] as const)('lets a process start workers %s, or not', ([, allowed, expected]) => {
+    const asked: string[] = [];
+    const permission =
+      allowed === undefined
+        ? undefined
+        : {
+            has: (scope: string) => {
+              asked.push(scope);
+
+              return allowed;
+            },
+          };
+
+    assert.equal(workersAllowed(permission), expected);
+    assert.deepEqual(asked, allowed === undefined ? [] : ['worker']);
   });
 });

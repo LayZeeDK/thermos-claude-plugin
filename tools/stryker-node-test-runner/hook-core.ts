@@ -203,6 +203,11 @@ export const reporting = Symbol.for('thermos.stryker-node-test-runner.reporting'
 /** Where the hook of a test file's process keeps the wrapped node:test module that imports of node:test give. */
 export const wrappedNodeTest = Symbol.for('thermos.stryker-node-test-runner.node-test');
 
+/** Whether a process may start worker threads: always, unless it runs under the permission model without them. */
+export function workersAllowed(permission: { has(scope: string): boolean } | undefined): boolean {
+  return permission?.has('worker') !== false;
+}
+
 /** Where the hook keeps the memory watchdog it started. */
 export const watchdog = Symbol.for('thermos.stryker-node-test-runner.watchdog');
 

@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { getCallSites } from 'node:util';
 import { isMainThread, Worker } from 'node:worker_threads';
 
-import { install, watchdog, type HookDependencies, type NodeTestModule } from './hook-core.ts';
+import { install, watchdog, workersAllowed, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 
 // A worker thread polls while the main thread is blocked. From a worker, process.exit and process.abort do not end a
 // blocked process, and a signal does. An eval worker runs as an ES module under --input-type=module, which has no
@@ -36,7 +36,7 @@ install({
   onBeforeExit: (listener) => process.on('beforeExit', listener),
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
-  canWatchMemory: isMainThread && process.permission?.has('worker') !== false,
+  canWatchMemory: isMainThread && workersAllowed(process.permission),
   watchMemory: (workerData) => {
     const worker = new Worker(WATCHDOG, { eval: true, workerData });
     // A preload that cannot run in a worker, such as a --require one that calls process.chdir, stops the watchdog
