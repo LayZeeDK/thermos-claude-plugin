@@ -60,6 +60,14 @@ export function fixture(...lines: string[]): string {
 }
 
 export const PASSING = fixture("it('passes', () => {});");
+
+/**
+ * Code that grows by 16 MB about every 10 ms to 400 MB and blocks for 5 s, so a process running it ends by itself when
+ * no memory watchdog ends it first.
+ */
+export const GROWS =
+  'const held = []; const end = Date.now() + 5_000; while (Date.now() < end) { ' +
+  'if (held.length < 25) held.push(new Int32Array(4e6).fill(1)); const pause = Date.now() + 10; while (Date.now() < pause); }';
 export const FAILING = fixture("it('fails', () => { throw new Error('expected failure'); });");
 
 /** Creates the files in a temporary directory and makes it the working directory for the rest of the test. */

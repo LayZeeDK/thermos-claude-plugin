@@ -21,7 +21,7 @@ import {
   type TestEvent,
   watchdog,
 } from './hook-core.ts';
-import { fixture, HOOK_URL, REPORTER_ARG, shareCompileCache } from './index.fixtures.ts';
+import { fixture, GROWS, HOOK_URL, REPORTER_ARG, shareCompileCache } from './index.fixtures.ts';
 import reporter from './reporter.ts';
 
 // Loaded here, outside any test, the hook stays inactive (the runner did not start this process, or its own hook is
@@ -393,18 +393,7 @@ describe('hook', () => {
 
   it('ends a process that holds more memory than the memory limit, leaving only the marker with both numbers', async (t) => {
     const outDir = tempDir(t);
-    // Grows by 16 MB about every 10 ms to 400 MB, and blocks for 5 s, so it ends by itself without a watchdog.
-    const grows = [
-      'const held = [];',
-      'const end = Date.now() + 5_000;',
-      'while (Date.now() < end) {',
-      '  if (held.length < 25) held.push(new Int32Array(4e6).fill(1));',
-      '  const pause = Date.now() + 10;',
-      '  while (Date.now() < pause);',
-      '}',
-    ].join(' ');
-
-    const { code } = await runWithHook(['-e', grows], { [ENV.out]: outDir, [ENV.memoryLimit]: '200' });
+    const { code } = await runWithHook(['-e', GROWS], { [ENV.out]: outDir, [ENV.memoryLimit]: '200' });
 
     assert.notEqual(code, 0);
     assert.deepEqual(readdirSync(outDir), [MEMORY_MARKER]);
