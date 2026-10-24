@@ -8,3 +8,8 @@ export const productionOperators: readonly Operator[] = [nodeTimerDelay, nodeEve
 
 /** The operators that mutate test code, in place of Stryker's own mutators. */
 export const testOperators: readonly Operator[] = [assertLiveness];
+
+/** The operators for the file `name`: the test-code operators for a `.test.ts` file, else the production ones. */
+export function operatorsFor(name: string): readonly Operator[] {
+  return name.endsWith('.test.ts') ? testOperators : productionOperators;
+}

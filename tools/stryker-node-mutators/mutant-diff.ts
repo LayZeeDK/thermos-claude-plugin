@@ -19,21 +19,21 @@ export function mutantDiff(before: readonly InstrumentedMutant[], after: readonl
 }
 
 /**
- * A Markdown section per TypeScript file in `names` that lists the mutants `operators` add to and remove from what
- * Stryker's own mutators make there. A removed mutant is one that a mutator's filter drops once an operator's mutant
- * shares its scope, as the CallExpression mutator does.
+ * A Markdown section per TypeScript file in `names` that lists the mutants that the file's operators add to and
+ * remove from what Stryker's own mutators make there. A removed mutant is one that a mutator's filter drops once an
+ * operator's mutant shares its scope, as the CallExpression mutator does.
  */
 export async function corpusDiff(
   names: readonly string[],
-  operators: readonly Operator[],
+  operatorsFor: (name: string) => readonly Operator[],
   resolve: () => Promise<Instrumenter> = resolveFromCore,
   read: (name: string) => string = (name) => readFileSync(name, 'utf8'),
 ): Promise<string> {
   const instrumenter = await resolve();
-  const mutators = operators.map((operator) => toNodeMutator(operator, instrumenter.types));
   const sections: string[] = [];
 
   for (const name of names) {
+    const mutators = operatorsFor(name).map((operator) => toNodeMutator(operator, instrumenter.types));
     const files = [{ name, content: read(name) }];
     const before = await instrumenter.instrument(files, instrumenter.allMutators);
     const after = await instrumenter.instrument(files, [...instrumenter.allMutators, ...mutators]);

@@ -36,8 +36,9 @@ describe('mutantDiff', () => {
 
 describe('corpusDiff', () => {
   /**
-   * corpusDiff over `names` with one operator, Own, run by a stand-in instrumenter whose list holds Stryker's
-   * StringLiteral. Each mutator makes one mutant per file, except that Own makes none in a file without "own" in it.
+   * corpusDiff over `names`, run by a stand-in instrumenter whose list holds Stryker's StringLiteral and in which each
+   * mutator makes one mutant per file. The operator Own is for the files whose name has "owned" in it, and no operator
+   * is for the others.
    */
   async function setup(names: string[]) {
     const read: string[] = [];
@@ -50,15 +51,13 @@ describe('corpusDiff', () => {
       async instrument(files, mutators: readonly NodeMutatorLike[] = []) {
         instrumented.push([[...files], mutators.map(({ name }) => name)]);
 
-        return mutators
-          .filter(({ name }) => name !== 'Own' || files[0].content.includes('own'))
-          .map(({ name }) => mutant(name, 0, 0));
+        return mutators.map(({ name }) => mutant(name, 0, 0));
       },
     };
     const own: Operator = { name: 'Own', sample: '', *mutate() {} };
     const text = await corpusDiff(
       names,
-      [own],
+      (name) => (name.includes('owned') ? [own] : []),
       async () => instrumenter,
       (name) => {
         read.push(name);
@@ -70,7 +69,7 @@ describe('corpusDiff', () => {
     return { text, read, instrumented };
   }
 
-  it('reports each file, relative to the working directory, with and without the operators', async () => {
+  it("reports each file, relative to the working directory, with and without that file's operators", async () => {
     const owned = resolve('tools', 'owned.ts');
     const { text, read, instrumented } = await setup([owned, 'plain.ts']);
 
@@ -84,7 +83,7 @@ describe('corpusDiff', () => {
       [[{ name: owned, content: `content of ${owned}` }], ['StringLiteral']],
       [[{ name: owned, content: `content of ${owned}` }], ['StringLiteral', 'Own']],
       [[{ name: 'plain.ts', content: 'content of plain.ts' }], ['StringLiteral']],
-      [[{ name: 'plain.ts', content: 'content of plain.ts' }], ['StringLiteral', 'Own']],
+      [[{ name: 'plain.ts', content: 'content of plain.ts' }], ['StringLiteral']],
     ]);
   });
 
@@ -100,7 +99,7 @@ describe('corpusDiff', () => {
     };
 
     assert.equal(
-      await corpusDiff(['a.ts'], [{ name: 'Own', sample: '', *mutate() {} }], async () => instrumenter, () => ''),
+      await corpusDiff(['a.ts'], () => [{ name: 'Own', sample: '', *mutate() {} }], async () => instrumenter, () => ''),
       '### a.ts\n\n1 mutants without the operators, 1 with them.\n\n    + 1:1 Own ;\n    - 1:1 CallExpression ;\n',
     );
   });
