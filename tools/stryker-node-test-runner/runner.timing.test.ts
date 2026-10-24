@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { describe, it, type TestContext } from 'node:test';
 
 import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
@@ -41,8 +41,11 @@ describe('NodeTestRunner timing', () => {
     }
   });
 
-  it("runs as many of the dry run's test files at once as Stryker runs test runners, and a mutant run's one at a time", async (t) => {
-    // Each file marks that it started, then waits up to 3 s for the other file to start.
+  /**
+   * Two test files that each mark that they started, then wait up to 3 s for the other to start, and a runner for them
+   * that runs `concurrency` test runners.
+   */
+  async function meetingFiles(t: TestContext, concurrency: number) {
     const meets = (self: string, other: string) =>
       fixture(
         "const { existsSync, writeFileSync } = await import('node:fs');",
@@ -57,11 +60,15 @@ describe('NodeTestRunner timing', () => {
         '});',
       );
     const dir = project(t, { 'a.test.mjs': meets('a', 'b'), 'b.test.mjs': meets('b', 'a') });
-    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency: 2 };
+    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency };
     const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
     await runner.init();
-    const a = `${join(dir, 'a.test.mjs')} > meets b`;
-    const b = `${join(dir, 'b.test.mjs')} > meets a`;
+
+    return { dir, runner, a: `${join(dir, 'a.test.mjs')} > meets b`, b: `${join(dir, 'b.test.mjs')} > meets a` };
+  }
+
+  it("runs as many of the dry run's test files at once as Stryker runs test runners, and a mutant run's one at a time", async (t) => {
+    const { dir, runner, a, b } = await meetingFiles(t, 2);
 
     assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
       { id: a, status: TestStatus.Success, failureMessage: undefined },
@@ -78,6 +85,15 @@ describe('NodeTestRunner timing', () => {
       failureMessage: 'b never started',
       nrOfTests: 2,
     });
+  });
+
+  it("runs the dry run's test files one at a time when Stryker runs one test runner", async (t) => {
+    const { runner, a, b } = await meetingFiles(t, 1);
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun({ ...DRY_RUN, disableBail: true }))).tests), [
+      { id: a, status: TestStatus.Failed, failureMessage: 'b never started' },
+      { id: b, status: TestStatus.Success, failureMessage: undefined },
+    ]);
   });
 
   it("reports a mutant run's duration as the time of its file processes, once per file", async (t) => {
