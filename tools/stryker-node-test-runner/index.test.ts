@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 
@@ -21,6 +21,7 @@ import {
   isRunning,
   memoryLimitFor,
   mergeCoverage,
+  ownDir,
   parseRecord,
   peakMemoryDir,
   processEnd,
@@ -503,6 +504,35 @@ describe('isRunning', () => {
     const system = process.platform === 'win32' ? 4 : 1;
 
     assert.deepEqual([process.pid, system, NO_PROCESS].map(isRunning), [true, true, false]);
+  });
+});
+
+describe('ownDir', () => {
+  it("creates the directory, and keeps one that is this user's", (t) => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'own-dir-')), 'peaks');
+    t.after(() => rmSync(dirname(dir), { recursive: true, force: true }));
+
+    ownDir(dir, () => true);
+    ownDir(dir, () => true);
+
+    assert.ok(lstatSync(dir).isDirectory());
+  });
+
+  it("refuses a directory that is another user's, and names it", (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'own-dir-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const asked: string[] = [];
+
+    assert.throws(
+      () =>
+        ownDir(dir, (path) => {
+          asked.push(path);
+
+          return false;
+        }),
+      { message: `"${dir}" belongs to another user; remove it, or run Stryker as that user.` },
+    );
+    assert.deepEqual(asked, [dir]);
   });
 });
 

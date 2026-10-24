@@ -347,6 +347,18 @@ export function peakMemoryDir(strykerPid: number): string {
   return join(tmpdir(), `stryker-node-test-peaks-${strykerPid}-dry-run`);
 }
 
+/**
+ * Creates `dir` for this user alone, or checks that the one that exists is this user's: in a temporary directory that
+ * other users share, someone else could have made it first, with links in it, to read or plant the peaks.
+ */
+export function ownDir(dir: string, owned: (path: string) => boolean = isOwn): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+  if (!owned(dir)) {
+    throw new Error(`"${dir}" belongs to another user; remove it, or run Stryker as that user.`);
+  }
+}
+
 function peakMemoryPath(dir: string, testFile: string): string {
   return join(dir, createHash('sha256').update(testFile).digest('hex'));
 }
@@ -659,7 +671,7 @@ export class NodeTestRunner implements TestRunner {
       disableBail: options.disableBail,
       coverageAnalysis: options.coverageAnalysis,
     } satisfies RunOptions;
-    mkdirSync(this.#peakMemoryDir, { recursive: true });
+    ownDir(this.#peakMemoryDir);
 
     // The dry run runs as many files at once as Stryker later runs test runners for the mutants, so the test times it
     // reports, which size each mutant's timeout, include the slowdown of processes competing for the cores.
