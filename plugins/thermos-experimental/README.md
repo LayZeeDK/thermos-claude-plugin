@@ -21,7 +21,16 @@ It installs next to `thermos` and does not need it.
 |:------------|:-------------------------------------|
 | `/thermos-experimental:thermos-lenses` | The topology. Seven narrow lens reviewers and a PR-discussion reconciler replace the two broad reviewers. The rubric text is upstream's, split across the lenses in upstream order. The lens files only cut fragments, change names, and drop or renumber steps; they add no wording of their own. |
 
-Whether the lens split finds more confirmed issues per token than `/thermos` is not measured yet.
+A first measurement compared both on 7 real changes: 3 from this repository and 4 merged pull requests from nrwl/nx, angular/angular and angular/angular-cli. Each change got one review per arm, with Opus 5.5 and with Sonnet 5.5 reviewers at `--effort medium`, and an independent judge checked every finding against the code. Averaged over the 7:
+
+| Reviewers | Arm | Confirmed issues found | Findings that held up | Cost per review |
+|:----------|:----|:-----------------------|:----------------------|:----------------|
+| Opus 5.5 | `thermos-lenses` | 91% | 81% | $6.17 |
+| Opus 5.5 | `/thermos` | 85% | 84% | $2.55 |
+| Sonnet 5.5 | `thermos-lenses` | 80% | 71% | $3.27 |
+| Sonnet 5.5 | `/thermos` | 73% | 77% | $1.50 |
+
+Lenses found somewhat more confirmed issues at about 2.2 to 2.4 times the cost, with lower precision. The gain was uneven: lenses led on some changes and trailed on others, and on the four open-source pull requests the two were about even. Both caught the same known defects. With one run per cell, treat these as a first read, not a settled result.
 
 ## `thermos-lenses`
 
@@ -71,7 +80,7 @@ Run `/thermos-experimental:thermos-lenses` with the same arguments as `/thermos`
 - `--effort <level>`, for example `--effort xhigh`, runs every lens and the reconciler at that effort level through the Agent tool's per-call `effort` parameter. It needs Claude Code v2.1.292 or later. The orchestrator runs at the session's effort.
 - `--model <model>`, for example `--model sonnet`, runs every lens and the reconciler on that model through the Agent tool's per-call `model` parameter. The orchestrator and its synthesis stay on the session model. Use `opus` or `sonnet`. Fable 5.1 works but is unmeasured, so `fable` is accepted without any statement about its cost or quality.
 
-A review runs seven reviewer agents, plus the reconciler when it is needed, where `/thermos` runs two. Each lens reads the same diff. What that costs relative to `/thermos` is not measured yet.
+A review runs seven reviewer agents, plus the reconciler when it is needed, where `/thermos` runs two. Each lens reads the same diff. In the first measurement above, a lens review cost about 2.2 to 2.4 times as much as `/thermos` on the same reviewer model.
 
 ## Maintenance
 
