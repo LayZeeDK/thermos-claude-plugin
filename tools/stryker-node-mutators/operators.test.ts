@@ -6,7 +6,7 @@ import { operatorsFor, productionOperators, testOperators } from './operators.ts
 
 describe('the catalogues', () => {
   testEach([
-    ['production', productionOperators, ['NodeTimerDelay', 'NodeEventName']],
+    ['production', productionOperators, ['NodeTimerDelay', 'NodeEventName', 'AssertRemoval']],
     ['test', testOperators, ['AssertLiveness', 'AssertValidator']],
   ])('name the %s operators', (_title, operators, names) => {
     assert.deepEqual(
