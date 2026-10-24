@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 
 import { isOwn, isRunning, ownDir, removeDir, removeLeftDirs } from './dirs.ts';
 import { logger, NO_PROCESS } from './index.fixtures.ts';
-import { peakMemoryDir } from './index.ts';
+import { peakMemoryDir } from './memory-limits.ts';
 
 describe('removeDir', () => {
   const DIR = join('/tmp', 'run');

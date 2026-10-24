@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import type { StrykerOptions } from '@stryker-mutator/api/core';
@@ -14,7 +15,6 @@ import {
   initRunner,
   logger,
   mutantRunOptions,
-  PASSING,
   project,
   settle,
   shareCompileCache,
@@ -138,16 +138,24 @@ describe('NodeTestRunner limits', () => {
     },
   );
 
-  it('ends a dry run as an error when a process of a test file held more than nodeTest.maxMemoryMB', async (t) => {
-    const dir = project(t, { 'a.test.mjs': PASSING });
-    const options = { nodeTest: { testFiles: ['a.test.mjs'], maxMemoryMB: 10 } };
+  it('ends a dry run under nodeTest.maxMemoryMB as an error that names the first file, in order, that held more', async (t) => {
+    // Each waits a second, longer than the watchdog takes to see a process over 10 MB.
+    const waits = fixture("it('waits', async () => { await new Promise((resolve) => setTimeout(resolve, 1_000)); });");
+    const dir = project(t, { 'a.test.mjs': waits, 'b.test.mjs': waits });
+    const options = { nodeTest: { testFiles: ['*.test.mjs'], maxMemoryMB: 10 }, concurrency: 2 };
     const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
     await runner.init();
 
     const result = await settle(runner.dryRun(DRY_RUN));
 
     assert.ok(result.status === DryRunStatus.Error, `expected an error, got ${JSON.stringify(result)}`);
-    assert.match(result.errorMessage, /held \d+ MB in the dry run, more than nodeTest\.maxMemoryMB \(10 MB\)/);
-    assert.ok(result.errorMessage.includes(`"${dir}`), result.errorMessage);
+    const rssMB = Number(/ held (\d+) MB /.exec(result.errorMessage)?.[1]);
+    assert.ok(rssMB > 10, result.errorMessage);
+    assert.equal(
+      result.errorMessage,
+      `A process of "${join(dir, 'a.test.mjs')}" held ${rssMB} MB in the dry run, more than nodeTest.maxMemoryMB ` +
+        "(10 MB), so its mutant runs would time out. Raise nodeTest.maxMemoryMB, or leave it out to derive each file's " +
+        'limit from the dry run.',
+    );
   });
 });

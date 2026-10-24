@@ -12,7 +12,6 @@ import { ACTIVE_MUTANT, HOOK_URL, logger } from './index.fixtures.ts';
 import {
   fileError,
   filesFor,
-  memoryLimitFor,
   mergeCoverage,
   parseRecord,
   runEnv,
@@ -344,17 +343,6 @@ describe('testRunnerConcurrency', () => {
   });
 });
 
-describe('memoryLimitFor', () => {
-  testEach([
-    [0, undefined, 1024],
-    [101, undefined, 1176],
-    [370, undefined, 1579],
-    [370, 300, 300],
-  ])('gives a file whose dry run peaked at %d MB, with maxMemoryMB %s, a limit of %d MB', (peak, max, limit) => {
-    assert.equal(memoryLimitFor(peak, max), limit);
-  });
-});
-
 describe('runEnv', () => {
   const OUT = join('/tmp', 'out');
   const TMP = join('/tmp', 'tmp');
@@ -421,7 +409,7 @@ describe('runEnv', () => {
     assert.equal(runEnv(inherited, FILE, OUT, TMP, run, undefined).NODE_COMPILE_CACHE, 'inherited');
   });
 
-  it('passes the run state on to the test file', () => {
+  it('passes the run state and the memory limit on to the test file', () => {
     assert.deepEqual(
       runEnv(
         {},
@@ -434,9 +422,9 @@ describe('runEnv', () => {
           activeMutant: '12',
           hitLimit: 40,
           testFilter: [`${FILE} > test`],
-          memoryLimitMB: 1500,
         },
         undefined,
+        1500,
       ),
       {
         NODE_OPTIONS: `--import ${JSON.stringify(HOOK_URL)}`,
