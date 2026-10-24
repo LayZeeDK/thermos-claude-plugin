@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { getCallSites } from 'node:util';
 import { isMainThread, Worker } from 'node:worker_threads';
 
-import { install, watchdog, workersAllowed, type HookDependencies, type NodeTestModule } from './hook-core.ts';
+import { install, workersAllowed, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 
 // A worker thread polls while the main thread is blocked. From a worker, process.exit and process.abort do not end a
 // blocked process, and a signal does. An eval worker runs as an ES module under --input-type=module, which has no
@@ -42,9 +42,7 @@ install({
     const worker = new Worker(WATCHDOG, { eval: true, workerData, execArgv: [] });
     // A preload that cannot run in a worker, such as a --require one that calls process.chdir, stops the watchdog
     // alone, and the process runs as it would outside Stryker, its output untouched.
-    worker.on('error', () => {
-      delete (globalThis as HookDependencies['global'])[watchdog];
-    });
+    worker.on('error', () => {});
     worker.unref();
 
     return worker;

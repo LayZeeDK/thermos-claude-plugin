@@ -151,7 +151,7 @@ describe('hook', () => {
     assert.deepEqual(records[`${process.pid}.json`]?.tests, []);
   });
 
-  it('starts the memory watchdog, drops it when it fails, and records the peak memory, when the runner asks', async (t) => {
+  it('starts the memory watchdog, survives its failure, and records the peak memory, when the runner asks', async (t) => {
     const outDir = tempDir(t);
     const global = globalThis as HookDependencies['global'];
     const unref = t.mock.method(Worker.prototype, 'unref');
@@ -166,8 +166,7 @@ describe('hook', () => {
       unref.mock.calls.map((call) => call.this),
       [watching],
     );
-    watching.emit('error', new Error('preload failed'));
-    assert.equal(global[watchdog], undefined);
+    assert.doesNotThrow(() => watching.emit('error', new Error('preload failed')));
 
     const rssMB = Math.floor(process.memoryUsage.rss() / 1048576);
     added.exit[0]?.();
