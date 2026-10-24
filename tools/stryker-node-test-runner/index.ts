@@ -531,6 +531,7 @@ export class NodeTestRunner implements TestRunner {
   }
 
   async mutantRun(options: MutantRunOptions): Promise<MutantRunResult> {
+    const started = performance.now();
     const result = await this.#run(filesFor(this.#testFiles, options.testFilter), {
       dryRun: false,
       disableBail: options.disableBail,
@@ -539,8 +540,13 @@ export class NodeTestRunner implements TestRunner {
       hitLimit: options.hitLimit,
       testFilter: options.testFilter,
     });
+    const mutantResult = toMutantRunResult(result);
 
-    return toMutantRunResult(result);
+    // toMutantRunResult sums the test times, which count each file's time outside its tests once per test. A mutant
+    // run runs one file at a time, so its own time is the time of the file processes it ran.
+    return 'duration' in mutantResult
+      ? { ...mutantResult, duration: Math.round(performance.now() - started) }
+      : mutantResult;
   }
 
   async #run(files: string[], run: RunOptions): Promise<DryRunResult> {

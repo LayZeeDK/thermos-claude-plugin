@@ -824,6 +824,20 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it("reports a mutant run's duration as the time of its file processes, once per file", async (t) => {
+    const tests = Array.from({ length: 10 }, (_, index) => `it('passes ${index}', () => {});`);
+    project(t, { 'a.test.mjs': fixture('await new Promise((resolve) => setTimeout(resolve, 300));', ...tests) });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const started = performance.now();
+    const result = await settle(runner.mutantRun(mutantRunOptions()));
+    const elapsed = performance.now() - started;
+
+    assert.ok(result.status === MutantRunStatus.Survived, `expected a survived mutant, got ${JSON.stringify(result)}`);
+    assert.ok(result.duration !== undefined, 'expected a duration');
+    assert.ok(result.duration >= 300 && result.duration <= Math.ceil(elapsed), `${result.duration} ms of ${elapsed} ms`);
+  });
+
   it("runs every test of a file that a mutant run's filter names, as Stryker does with --testFiles", async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture("it('passes', () => {});", "it('fails', () => { throw new Error('expected failure'); });"),
