@@ -6,7 +6,7 @@ import { describe, it, type TestContext } from 'node:test';
 
 import { testFor } from '../test-each/test-for.ts';
 import { logger } from './index.fixtures.ts';
-import { MemoryLimits } from './memory-limits.ts';
+import { memoryLimits } from './memory-limits.ts';
 
 /** MemoryLimits over a peaks directory of the test's own, each made with a logger that keeps its warnings. */
 function setup(t: TestContext, maxMemoryMB?: number) {
@@ -14,17 +14,17 @@ function setup(t: TestContext, maxMemoryMB?: number) {
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const dir = join(parent, 'peaks');
   const warnings: string[] = [];
-  const limits = () => new MemoryLimits(maxMemoryMB, dir, logger([], true, warnings));
+  const limits = () => memoryLimits(maxMemoryMB, dir, logger([], true, warnings));
 
   return { dir, warnings, limits };
 }
 
-describe('MemoryLimits', () => {
+describe('memoryLimits', () => {
   it('runs the dry run and every mutant run under nodeTest.maxMemoryMB, and keeps no peaks', (t) => {
     const { dir, warnings, limits } = setup(t, 1500);
     const dryRun = limits();
 
-    assert.equal(dryRun.forDryRun(), 1500);
+    assert.equal(dryRun.startDryRun(), 1500);
     dryRun.record('a.test.ts', [{ tests: [], peakMemoryMB: 2000 }]);
 
     assert.deepEqual([dryRun.forMutantRun('a.test.ts'), limits().forMutantRun('b.test.ts')], [1500, 1500]);
@@ -44,7 +44,7 @@ describe('MemoryLimits', () => {
       const { dir, warnings, limits } = setup(t);
       const dryRun = limits();
 
-      assert.equal(dryRun.forDryRun(), undefined);
+      assert.equal(dryRun.startDryRun(), undefined);
       assert.ok(existsSync(dir));
       dryRun.record(
         'a.test.ts',
@@ -58,7 +58,7 @@ describe('MemoryLimits', () => {
 
   it('gives a file without a dry-run peak 1024 MB, warning about it once', (t) => {
     const { warnings, limits } = setup(t);
-    limits().forDryRun();
+    limits().startDryRun();
     const mutantRuns = limits();
 
     assert.deepEqual([mutantRuns.forMutantRun('a.test.ts'), mutantRuns.forMutantRun('a.test.ts')], [1024, 1024]);

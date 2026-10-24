@@ -46,7 +46,7 @@ import {
   type RecordedTest,
 } from './hook-core.ts';
 import { removeDir, removeLeftDirs } from './dirs.ts';
-import { MemoryLimits, peakMemoryDir } from './memory-limits.ts';
+import { memoryLimits, peakMemoryDir, type MemoryLimits } from './memory-limits.ts';
 import { groupOptions, processEnd } from './process-end.ts';
 
 /** Options under `nodeTest` in the Stryker configuration. */
@@ -450,7 +450,7 @@ export class NodeTestRunner implements TestRunner {
       (options.checkers ?? []).length > 0,
       availableParallelism(),
     );
-    this.#memoryLimits = new MemoryLimits(nodeTest?.maxMemoryMB, peakMemoryDir(process.ppid), log);
+    this.#memoryLimits = memoryLimits(nodeTest?.maxMemoryMB, peakMemoryDir(process.ppid), log);
     this.#log = log;
   }
 
@@ -487,7 +487,7 @@ export class NodeTestRunner implements TestRunner {
       disableBail: options.disableBail,
       coverageAnalysis: options.coverageAnalysis,
     } satisfies RunOptions;
-    const memoryLimitMB = this.#memoryLimits.forDryRun();
+    const memoryLimitMB = this.#memoryLimits.startDryRun();
 
     // The dry run runs as many files at once as Stryker later runs test runners for the mutants, so the test times it
     // reports, which size each mutant's timeout, include the slowdown of processes competing for the cores.
