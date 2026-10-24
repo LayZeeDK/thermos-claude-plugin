@@ -4,10 +4,13 @@
 
 `corpus-diff.ts` instruments each file with Stryker's real instrumenter twice, once with Stryker's 17 mutators and
 once with this package's operators added after them, and lists the mutants that differ. A `-` line is a mutant that
-a mutator's filter drops once an operator's mutant shares its scope.
+a mutator's filter drops once an operator's mutant shares its scope. Each section below records the run made when
+that operator landed, with `@stryker-mutator/instrumenter` 10.1.1, from the worktree root. A run applies every operator
+in `operators.ts` at the time, so each section lists only what its operator changed.
 
-Run on 2026-10-25 with `@stryker-mutator/instrumenter` 10.1.1 and the one operator so far, `AssertLiveness`, from the
-worktree root (the run took about one second):
+### AssertLiveness
+
+Run on 2026-10-25 with `AssertLiveness` the only operator (the run took about one second):
 
 ```sh
 R=tools/stryker-node-test-runner
@@ -130,4 +133,41 @@ Output:
     - 36:11 CallExpression ;
     - 94:5 CallExpression ;
     - 120:5 CallExpression ;
+```
+
+### NodeTimerDelay
+
+Run on 2026-10-25 over the runner's nine production files, with `NodeTimerDelay` and `AssertLiveness` (under a
+second):
+
+```sh
+R=tools/stryker-node-test-runner
+node tools/stryker-node-mutators/corpus-diff.ts $R/dirs.ts $R/hook.ts $R/hook-core.ts $R/index.ts \
+  $R/memory-limits.ts $R/process-end.ts $R/reporter.ts $R/watchdog.ts $R/watchdog-worker.ts
+```
+
+6 mutants added at the three timer sites, none removed; the other six files show no difference. The added mutants sit
+on the delay argument, where no built-in mutator places one, so no built-in mutant gives way.
+
+```text
+### tools/stryker-node-test-runner/dirs.ts
+
+68 mutants without the operators, 70 with them.
+
+    + 43:8 NodeTimerDelay waitMs + 1
+    + 43:8 NodeTimerDelay waitMs - 1
+
+### tools/stryker-node-test-runner/process-end.ts
+
+54 mutants without the operators, 56 with them.
+
+    + 76:10 NodeTimerDelay graceMs + 1
+    + 76:10 NodeTimerDelay graceMs - 1
+
+### tools/stryker-node-test-runner/watchdog.ts
+
+14 mutants without the operators, 16 with them.
+
+    + 36:47 NodeTimerDelay 50 + 1
+    + 36:47 NodeTimerDelay 50 - 1
 ```
