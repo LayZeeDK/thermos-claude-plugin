@@ -12,6 +12,13 @@
       "description": "Claude Code port of Cursor's Thermos: parallel thermo-nuclear branch review (deep bug/security/devex audit + strict maintainability rubric).",
       "category": "developer-tools",
       "tags": ["review", "quality", "shipping", "automation"]
+    },
+    {
+      "name": "thermos-experimental",
+      "source": "./plugins/thermos-experimental",
+      "description": "Experimental Thermos variants for measuring against the thermos plugin: the review split into seven narrow lens subagents plus a PR-discussion reconciler.",
+      "category": "developer-tools",
+      "tags": ["review", "quality", "experimental"]
     }
   ]
 }

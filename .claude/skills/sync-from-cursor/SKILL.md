@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 This repo is a Claude Code port of Cursor's Thermos plugin. Upstream lives in a 17-plugin
 monorepo (`cursor/plugins`) with Thermos under the `thermos/` subdirectory; here the plugin
-lives in `plugins/thermos/` (a single-plugin marketplace). Conveniently, upstream `thermos/`
+lives in `plugins/thermos/`. Conveniently, upstream `thermos/`
 maps **1:1** onto our `plugins/thermos/`, which keeps syncing mechanical. Two facts drive the workflow:
 
 - **The `thermos/` prefix must be re-based onto `plugins/thermos/`.** `git diff --relative=thermos` strips the upstream prefix; `git apply --directory=plugins/thermos` re-roots the patch into our plugin directory.
@@ -58,6 +58,11 @@ and keep that line removed.
 6. **Advance the baseline** once the sync is applied and verified, so the next run diffs from here. The script writes upstream's version and commit into the manifest's `metadata.upstream` and prints the "Based on Cursor Thermos ..." line for the next CHANGELOG entry:
    ```bash
    node .claude/skills/sync-from-cursor/advance-baseline.ts
+   ```
+
+7. **Regenerate `thermos-experimental`.** Its skills and agents are generated from the files this sync just updated. The generator fails and names any upstream rubric line that no lens takes; add that line to `tools/thermos-experimental-generator/slice-map.ts` and run it again:
+   ```bash
+   npm run generate
    ```
 
 Then review the working tree (`git status`, `git diff`) and commit the sync.
