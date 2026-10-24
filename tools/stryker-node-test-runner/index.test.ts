@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 
 import { TestStatus } from '@stryker-mutator/api/test-runner';
 
+import { testEach } from '../test-each/test-each.ts';
 import { testFor } from '../test-each/test-for.ts';
 import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
 import { ACTIVE_MUTANT, HOOK_URL, logger, NO_PROCESS } from './index.fixtures.ts';
@@ -16,6 +17,7 @@ import {
   filesFor,
   isOwn,
   isRunning,
+  memoryLimitMB,
   mergeCoverage,
   parseRecord,
   processEnd,
@@ -521,6 +523,17 @@ describe('isOwn', () => {
   });
 });
 
+describe('memoryLimitMB', () => {
+  testEach([
+    [0, undefined, 1024],
+    [101, undefined, 1176],
+    [370, undefined, 1579],
+    [370, 300, 300],
+  ])('gives a file whose dry run peaked at %d MB, with maxMemoryMB %s, a limit of %d MB', (peak, max, limit) => {
+    assert.equal(memoryLimitMB(peak, max), limit);
+  });
+});
+
 describe('runEnv', () => {
   const OUT = join('/tmp', 'out');
   const TMP = join('/tmp', 'tmp');
@@ -538,6 +551,7 @@ describe('runEnv', () => {
       TEMP: 'outer temp',
       [ENV.current]: 'outer test',
       [ENV.hitLimit]: '5',
+      [ENV.memoryLimit]: '500',
       [ENV.filter]: JSON.stringify(['outer']),
       [ENV.bail]: 'true',
       [ENV.activeMutant]: '8',
@@ -593,7 +607,14 @@ describe('runEnv', () => {
         FILE,
         OUT,
         TMP,
-        { dryRun: false, disableBail: true, activeMutant: '12', hitLimit: 40, testFilter: [`${FILE} > test`] },
+        {
+          dryRun: false,
+          disableBail: true,
+          activeMutant: '12',
+          hitLimit: 40,
+          testFilter: [`${FILE} > test`],
+          memoryLimitMB: 1500,
+        },
         undefined,
       ),
       {
@@ -606,6 +627,7 @@ describe('runEnv', () => {
         TMP,
         [ACTIVE_MUTANT]: '12',
         [ENV.hitLimit]: '40',
+        [ENV.memoryLimit]: '1500',
         [ENV.filter]: JSON.stringify([`${FILE} > test`]),
       },
     );

@@ -994,4 +994,47 @@ describe('NodeTestRunner', () => {
       nrOfTests: 1,
     });
   });
+
+  it('times out a mutant run whose process holds more memory than maxMemoryMB while a test blocks it', async (t) => {
+    project(t, {
+      'a.test.mjs': fixture(
+        "it('grows', () => {",
+        '  const held = [];',
+        '  for (;;) {',
+        '    held.push(new Int32Array(4e6).fill(1));',
+        '    const until = Date.now() + 10;',
+        '    while (Date.now() < until);',
+        '  }',
+        '});',
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs'], { maxMemoryMB: 200 });
+
+    const result = await settle(runner.mutantRun(mutantRunOptions()), 10_000);
+
+    assert.ok(result.status === MutantRunStatus.Timeout, `expected a timeout, got ${JSON.stringify(result)}`);
+    assert.match(result.reason ?? '', /^Memory limit reached \(\d+\/200 MB\)$/);
+  });
+
+  it("limits each mutant run's processes to their file's dry-run peak memory, times 1.5, plus 1024 MB", async (t) => {
+    const limit = `process.env.${ENV.memoryLimit}`;
+    project(t, { 'a.test.mjs': fixture(`it('fails with its memory limit', () => { if (${limit}) throw new Error(${limit}); });`) });
+    const runner = await initRunner(['a.test.mjs']);
+
+    assert.deepEqual(
+      complete(await settle(runner.dryRun(DRY_RUN))).tests.map((test) => test.status),
+      [TestStatus.Success],
+    );
+    const limits = [];
+
+    for (const run of [1, 2]) {
+      const result = await settle(runner.mutantRun(mutantRunOptions()));
+      assert.ok(result.status === MutantRunStatus.Killed, `expected run ${run} to be killed, got ${JSON.stringify(result)}`);
+      limits.push(Number(result.failureMessage));
+    }
+
+    // A Node.js process that runs one empty test holds well under 500 MB.
+    assert.ok(limits[0] !== undefined && limits[0] > 1024 && limits[0] < 1024 + 1.5 * 500, String(limits));
+    assert.equal(limits[1], limits[0]);
+  });
 });

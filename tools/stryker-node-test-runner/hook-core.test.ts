@@ -12,6 +12,7 @@ import {
   ENV,
   install,
   installed,
+  MEMORY_MARKER,
   recordEvents,
   redirectNodeTest,
   reporting,
@@ -396,6 +397,10 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     writeRecord: (path, record) => {
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
     },
+    peakMemoryMB: () => 123,
+    watchMemory: (limitMB, markerPath) => {
+      calls.push(`watchMemory ${limitMB} ${markerPath}`);
+    },
     callSites: () => [],
     ...overrides,
   };
@@ -480,6 +485,20 @@ describe('install', () => {
 
     assert.equal(deps.global.__stryker__?.hitLimit, 25);
     assert.equal(deps.global.__stryker__?.hitCount, 0);
+  });
+
+  it("watches the process's memory when the memory limit is positive, with its marker in the out directory", () => {
+    const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.memoryLimit]: '1500' });
+    install(deps);
+
+    assert.deepEqual(calls, [`watchMemory 1500 ${join(OUT, MEMORY_MARKER)}`, 'onExit']);
+  });
+
+  testEach([undefined, '0', 'none'])('watches no memory with the memory limit %s', (memoryLimit) => {
+    const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.memoryLimit]: memoryLimit });
+    install(deps);
+
+    assert.deepEqual(calls, ['onExit']);
   });
 
   testEach([undefined, '0', 'none'])('counts no hits with the hit limit %s', (hitLimit) => {
@@ -699,7 +718,7 @@ describe('install', () => {
     assert.ok(!(ENV.bail in env));
   });
 
-  it('writes the hit count and, only in the dry run, the mutant coverage', () => {
+  it('writes the hit count and, only in the dry run, the mutant coverage and the peak memory', () => {
     const coverage = { static: { 1: 2 }, perTest: { [`${TEST_FILE} > t`]: { 3: 1 } } };
     const written = ['true', 'false', undefined].map((dryRun) => {
       const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.dryRun]: dryRun, [ENV.hitLimit]: '9' });
@@ -714,7 +733,7 @@ describe('install', () => {
     });
 
     assert.deepEqual(written, [
-      { tests: [], hitCount: 7, mutantCoverage: coverage },
+      { tests: [], hitCount: 7, mutantCoverage: coverage, peakMemoryMB: 123 },
       { tests: [], hitCount: 7 },
       { tests: [], hitCount: 7 },
     ]);

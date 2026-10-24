@@ -26,6 +26,7 @@ describe('plugin declaration', () => {
     { nodeTest: {} },
     { nodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } },
     { nodeTest: { nodeArgs: ['--enable-source-maps', '--stack-size=900'] } },
+    { nodeTest: { maxMemoryMB: 1500 } },
   ])('accepts the options %j', (options) => {
     assert.ok(validator()(options));
   });
@@ -37,6 +38,8 @@ describe('plugin declaration', () => {
     { nodeTest: { testfiles: ['*.test.ts'] } },
     { nodeTest: { nodeArgs: '--enable-source-maps' } },
     { nodeTest: { nodeArgs: [1] } },
+    { nodeTest: { maxMemoryMB: '1500' } },
+    { nodeTest: { maxMemoryMB: 0 } },
   ])('rejects the options %j', (options) => {
     assert.ok(!validator()(options));
   });

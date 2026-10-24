@@ -19,7 +19,7 @@ import {
   type TestResult,
 } from '@stryker-mutator/api/test-runner';
 
-import { NodeTestRunner, runEnv } from './index.ts';
+import { NodeTestRunner, runEnv, type NodeTestOptions } from './index.ts';
 
 export const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 export const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
@@ -105,8 +105,8 @@ export function logger(debug: string[] = [], debugEnabled = true, warnings: stri
   };
 }
 
-export async function initRunner(testFiles: string[] | undefined): Promise<NodeTestRunner> {
-  const options = testFiles ? { nodeTest: { testFiles } } : {};
+export async function initRunner(testFiles: string[] | undefined, nodeTest: NodeTestOptions = {}): Promise<NodeTestRunner> {
+  const options = { nodeTest: { ...nodeTest, ...(testFiles && { testFiles }) } };
   const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
   await runner.init();
 

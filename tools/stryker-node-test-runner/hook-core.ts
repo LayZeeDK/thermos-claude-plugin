@@ -68,6 +68,8 @@ export interface ProcessRecord {
   hitCount?: number;
   /** Only written during the dry run. */
   mutantCoverage?: MutantCoverage;
+  /** The most memory the process held, in MB. Only written during the dry run. */
+  peakMemoryMB?: number;
   /** What node:test reported about errors raised after their test ended, which fail the file outside any test. */
   diagnostics?: string[];
   /**
@@ -129,6 +131,7 @@ export const ENV = {
   file: 'STRYKER_NODE_TEST_FILE',
   dryRun: 'STRYKER_NODE_TEST_DRY_RUN',
   hitLimit: 'STRYKER_NODE_TEST_HIT_LIMIT',
+  memoryLimit: 'STRYKER_NODE_TEST_MEMORY_LIMIT_MB',
   current: 'STRYKER_NODE_TEST_CURRENT',
   filter: 'STRYKER_NODE_TEST_FILTER',
   bail: 'STRYKER_NODE_TEST_BAIL',
@@ -138,6 +141,14 @@ export const ENV = {
 
 /** Stryker's variable for the active mutant, which instrumented code reads when it loads. */
 export const ACTIVE_MUTANT_ENV = '__STRYKER_ACTIVE_MUTANT__';
+
+/** The file in the run's out directory that a process ended for holding too much memory writes first. */
+export const MEMORY_MARKER = 'memory-limit.json';
+
+export interface MemoryLimitReached {
+  rssMB: number;
+  limitMB: number;
+}
 
 export interface HookDependencies {
   env: Record<string, string | undefined>;
@@ -156,6 +167,13 @@ export interface HookDependencies {
   /** Registers a `beforeExit` listener, which a process that ends by itself calls and `process.exit()` skips. */
   onBeforeExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
+  /** The most memory the process has held so far, in MB. */
+  peakMemoryMB: () => number;
+  /**
+   * Ends the process once it holds more than `limitMB`, after writing a `MemoryLimitReached` to `markerPath`. It must
+   * work while a test blocks the process: Node.js's assertion diff can fill gigabytes in one synchronous call.
+   */
+  watchMemory: (limitMB: number, markerPath: string) => void;
   /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
   callSites: (
     frameCount: number,
@@ -195,6 +213,12 @@ export function install(deps: HookDependencies): boolean {
   if (hitLimit > 0) {
     ns.hitLimit = hitLimit;
     ns.hitCount = 0;
+  }
+
+  const memoryLimit = Number(deps.env[ENV.memoryLimit]);
+
+  if (memoryLimit > 0) {
+    deps.watchMemory(memoryLimit, join(outDir, MEMORY_MARKER));
   }
 
   ns.currentTestId = deps.env[ENV.current] || undefined;
@@ -259,6 +283,7 @@ export function install(deps: HookDependencies): boolean {
       tests,
       hitCount: ns.hitCount,
       mutantCoverage: dryRun ? ns.mutantCoverage : undefined,
+      peakMemoryMB: dryRun ? deps.peakMemoryMB() : undefined,
       ...(diagnostics.length > 0 && { diagnostics }),
       ...(main && !summarized && !natural && { unfinished: true }),
     });
