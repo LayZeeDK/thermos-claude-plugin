@@ -134,8 +134,10 @@ export function complete(result: DryRunResult): CompleteDryRunResult {
   return result;
 }
 
-/** A killed or survived mutant's result without its `duration`, which varies from run to run, once it is a time. */
-export function timed(result: MutantRunResult): Omit<MutantRunResult, 'duration'> {
+/** A mutant run's result without its `duration`, which varies from run to run, after checking that it has one. */
+export function withoutDuration(
+  result: MutantRunResult,
+): MutantRunResult extends infer R ? (R extends unknown ? Omit<R, 'duration'> : never) : never {
   if (result.status === MutantRunStatus.Killed || result.status === MutantRunStatus.Survived) {
     const { duration, ...rest } = result;
 
