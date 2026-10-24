@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
@@ -53,6 +53,23 @@ describe('memoryLimits', () => {
 
       assert.deepEqual([dryRun.forMutantRun('a.test.ts'), limits().forMutantRun('a.test.ts')], [limitMB, limitMB]);
       assert.deepEqual(warnings, []);
+    },
+  );
+
+  testFor([[''], ['not a number'], ['12x'], ['x12']] as const)(
+    'gives a file whose stored peak reads %j 1024 MB, warning about it as about a missing peak',
+    ([stored], t) => {
+      const { dir, warnings, limits } = setup(t);
+      const dryRun = limits();
+      dryRun.startDryRun();
+      dryRun.record('a.test.ts', [{ tests: [], peakMemoryMB: 370 }]);
+
+      for (const name of readdirSync(dir)) {
+        writeFileSync(join(dir, name), stored);
+      }
+
+      assert.equal(limits().forMutantRun('a.test.ts'), 1024);
+      assert.equal(warnings.length, 1);
     },
   );
 

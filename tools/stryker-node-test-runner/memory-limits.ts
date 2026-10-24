@@ -67,11 +67,13 @@ class DryRunPeaks implements MemoryLimits {
 
   /**
    * A file the dry run did not run, as when Stryker's --testFiles names fewer files than nodeTest.testFiles, has no
-   * peak; it gets the floor, with a warning.
+   * peak; it gets the floor, with a warning, as does a file whose peak cannot be read.
    */
   forMutantRun(file: string): number {
     const path = this.#path(file);
-    const peakMB = existsSync(path) ? Number(readFileSync(path, 'utf8')) : undefined;
+    const stored = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    // A peak that does not read as a whole number counts as none.
+    const peakMB = /^\d+$/.test(stored) ? Number(stored) : undefined;
     const limitMB = Math.round((peakMB ?? 0) * 1.5 + 1024);
 
     if (peakMB === undefined && !this.#unmeasured.has(file)) {
