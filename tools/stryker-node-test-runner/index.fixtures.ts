@@ -113,9 +113,17 @@ export function logger(debug: string[] = [], debugEnabled = true, warnings: stri
   };
 }
 
-/** Stryker's options as a test runner gets them: `options` over the defaults that the runner reads. */
-export function strykerOptions(options: object = {}): StrykerOptions {
-  return { checkers: [], ...options } as unknown as StrykerOptions;
+/** The options the runner reads, which its tests set. */
+export interface RunnerOptions {
+  nodeTest?: NodeTestOptions;
+  testFiles?: string[];
+  concurrency?: number;
+  checkers?: string[];
+}
+
+/** Stryker's options as a test runner gets them: `options` over Stryker's defaults for what the runner reads. */
+export function strykerOptions(options: RunnerOptions = {}): StrykerOptions {
+  return { checkers: [], testFiles: [], ...options } as unknown as StrykerOptions;
 }
 
 export async function initRunner(testFiles: string[] | undefined, nodeTest: NodeTestOptions = {}): Promise<NodeTestRunner> {

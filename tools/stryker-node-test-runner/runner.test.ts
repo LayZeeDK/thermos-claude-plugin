@@ -26,6 +26,7 @@ import {
   PASSING,
   project,
   REPORTER_ARG,
+  type RunnerOptions,
   runNodeOptions,
   settle,
   shareCompileCache,
@@ -350,7 +351,7 @@ describe('NodeTestRunner', () => {
         "it('passes', () => {});",
       ),
     });
-    const execArgv = async (options: object) => {
+    const execArgv = async (options: RunnerOptions) => {
       const runner = new NodeTestRunner(strykerOptions(options), logger());
       await runner.init();
       await settle(runner.runFile(join(dir, 'a.test.mjs'), { dryRun: false, disableBail: false }));

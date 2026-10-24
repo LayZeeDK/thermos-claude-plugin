@@ -435,7 +435,7 @@ export class NodeTestRunner implements TestRunner {
     const nodeTest = (options as { nodeTest?: NodeTestOptions }).nodeTest;
     const patterns = nodeTest?.testFiles ?? ['**/*.test.ts'];
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
-    this.#patterns = options.testFiles ? [...patterns, ...options.testFiles] : patterns;
+    this.#patterns = [...patterns, ...options.testFiles];
     this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? []);
     this.#dryRunConcurrency = testRunnerConcurrency(
       options.concurrency,
