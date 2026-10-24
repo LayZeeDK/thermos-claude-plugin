@@ -113,9 +113,14 @@ export function logger(debug: string[] = [], debugEnabled = true, warnings: stri
   };
 }
 
+/** Stryker's options as a test runner gets them: `options` over the defaults that the runner reads. */
+export function strykerOptions(options: object = {}): StrykerOptions {
+  return { checkers: [], ...options } as unknown as StrykerOptions;
+}
+
 export async function initRunner(testFiles: string[] | undefined, nodeTest: NodeTestOptions = {}): Promise<NodeTestRunner> {
   const options = { nodeTest: { ...nodeTest, ...(testFiles && { testFiles }) } };
-  const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
+  const runner = new NodeTestRunner(strykerOptions(options), logger());
   await runner.init();
 
   return runner;

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { DryRunStatus, MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 
 import { testFor } from '../test-each/test-for.ts';
@@ -18,6 +17,7 @@ import {
   project,
   settle,
   shareCompileCache,
+  strykerOptions,
   withoutDuration,
 } from './index.fixtures.ts';
 import { NodeTestRunner } from './index.ts';
@@ -122,7 +122,7 @@ describe('NodeTestRunner limits', () => {
       });
       const warnings: string[] = [];
       const options = { nodeTest: { testFiles: ['a.test.mjs'], maxMemoryMB } };
-      const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger([], true, warnings));
+      const runner = new NodeTestRunner(strykerOptions(options), logger([], true, warnings));
       await runner.init();
       const limits = [];
 
@@ -143,7 +143,7 @@ describe('NodeTestRunner limits', () => {
     const waits = fixture("it('waits', async () => { await new Promise((resolve) => setTimeout(resolve, 1_000)); });");
     const dir = project(t, { 'a.test.mjs': waits, 'b.test.mjs': waits });
     const options = { nodeTest: { testFiles: ['*.test.mjs'], maxMemoryMB: 10 }, concurrency: 2 };
-    const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
+    const runner = new NodeTestRunner(strykerOptions(options), logger());
     await runner.init();
 
     const result = await settle(runner.dryRun(DRY_RUN));

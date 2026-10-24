@@ -447,7 +447,7 @@ export class NodeTestRunner implements TestRunner {
     this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? []);
     this.#dryRunConcurrency = testRunnerConcurrency(
       options.concurrency,
-      (options.checkers ?? []).length > 0,
+      options.checkers.length > 0,
       availableParallelism(),
     );
     this.#memoryLimits = memoryLimits(nodeTest?.maxMemoryMB, peakMemoryDir(process.ppid), log);

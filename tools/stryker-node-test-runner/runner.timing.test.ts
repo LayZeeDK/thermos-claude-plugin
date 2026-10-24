@@ -3,7 +3,6 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 
-import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 
 import {
@@ -17,6 +16,7 @@ import {
   settle,
   shareCompileCache,
   summary,
+  strykerOptions,
   withoutDuration,
 } from './index.fixtures.ts';
 import { NodeTestRunner } from './index.ts';
@@ -61,7 +61,7 @@ describe('NodeTestRunner timing', () => {
       );
     const dir = project(t, { 'a.test.mjs': meets('a', 'b'), 'b.test.mjs': meets('b', 'a') });
     const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency, checkers };
-    const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
+    const runner = new NodeTestRunner(strykerOptions(options), logger());
     await runner.init();
 
     return { dir, runner, a: `${join(dir, 'a.test.mjs')} > meets b`, b: `${join(dir, 'b.test.mjs')} > meets a` };

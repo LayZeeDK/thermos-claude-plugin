@@ -14,11 +14,10 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import type { StrykerOptions } from '@stryker-mutator/api/core';
 import { DryRunStatus, MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 import { Bench } from 'tinybench';
 
-import { COVER, DRY_RUN, fixture, logger, mutantRunOptions } from './index.fixtures.ts';
+import { COVER, DRY_RUN, fixture, logger, mutantRunOptions, strykerOptions } from './index.fixtures.ts';
 import type { NodeTestRunner } from './index.ts';
 
 type RunnerModule = typeof import('./index.ts');
@@ -163,7 +162,7 @@ async function round(tasks: [name: string, fn: () => unknown][]): Promise<Map<st
 async function loadRunner(path: string, dir: string): Promise<NodeTestRunner> {
   const module = (await import(pathToFileURL(resolve(path)).href)) as RunnerModule;
   const options = { nodeTest: { testFiles: [join(dir, '*.test.mjs').replaceAll('\\', '/')] } };
-  const runner = new module.NodeTestRunner(options as unknown as StrykerOptions, logger([], false));
+  const runner = new module.NodeTestRunner(strykerOptions(options), logger([], false));
   await runner.init();
 
   return runner;
