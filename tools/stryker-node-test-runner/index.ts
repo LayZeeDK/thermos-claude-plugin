@@ -217,7 +217,7 @@ type FileOutcome =
 /**
  * Runs `work` on the items, at most `limit` at a time and starting them in order, and starts no more once a result
  * `stops` the run or `work` rejects. Returns the results of the first items, in order, up to the first that `stops`
- * the run.
+ * the run. A rejection comes once the items already started have settled, so no work outlives the call.
  */
 export async function runInPool<T, R>(
   items: T[],
@@ -227,27 +227,33 @@ export async function runInPool<T, R>(
 ): Promise<R[]> {
   const results: R[] = [];
   let next = 0;
-  let stopped = false;
+  // One past the first item, in order, whose result stops the run.
+  let end = items.length;
+  let failed = false;
   const lane = async () => {
-    for (let index = next++; !stopped && index < items.length; index = next++) {
+    for (let index = next++; !failed && index < end; index = next++) {
       try {
         const result = await work(items[index] as T);
         results[index] = result;
 
         if (stops(result)) {
-          stopped = true;
+          end = Math.min(end, index + 1);
         }
       } catch (error) {
-        stopped = true;
+        failed = true;
         throw error;
       }
     }
   };
 
-  await Promise.all(Array.from({ length: limit }, lane));
-  const end = results.findIndex(stops);
+  const lanes = await Promise.allSettled(Array.from({ length: limit }, lane));
+  const rejected = lanes.find((settled) => settled.status === 'rejected');
 
-  return end === -1 ? results : results.slice(0, end + 1);
+  if (rejected) {
+    throw rejected.reason;
+  }
+
+  return results.slice(0, end);
 }
 
 /** Turns one test file's run, which took `fileMs`, into its outcome. */

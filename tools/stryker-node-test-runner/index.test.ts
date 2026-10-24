@@ -464,14 +464,19 @@ describe('runInPool', () => {
     assert.deepEqual(await pool, [0]);
   });
 
-  it('starts no more items once an item fails, and rejects with its error', async () => {
+  it('starts no more items once an item fails, and rejects with its error once the started items settle', async () => {
     const { started, settle, fail, pool, turn } = setup(5, 2);
     const error = new Error('spawn EAGAIN');
-    const rejected = assert.rejects(pool, error);
+    let settled = false;
+    const rejected = assert.rejects(
+      pool.finally(() => (settled = true)),
+      error,
+    );
 
     await turn();
     fail[1]?.(error);
     await turn();
+    assert.equal(settled, false);
     settle[0]?.(0);
     await turn();
 
