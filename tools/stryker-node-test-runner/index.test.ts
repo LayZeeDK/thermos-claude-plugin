@@ -649,26 +649,36 @@ describe('isOwn', () => {
 
 describe('testRunnerConcurrency', () => {
   testEach([
-    [undefined, 8, 7],
-    [undefined, 4, 4],
-    [3, 8, 3],
-    ['50%', 3, 2],
-    ['0%', 8, 1],
-    ['100%', 8, 8],
-    ['50', 8, 7],
-    ['150%', 8, 7],
-    ['x50%', 8, 7],
-    ['50%x', 8, 7],
-  ])('gives concurrency %j on %d cores %d test runners, as Stryker does', (concurrency, cores, runners) => {
-    assert.equal(testRunnerConcurrency(concurrency, cores), runners);
-  });
+    [undefined, false, 8, 7],
+    [undefined, false, 4, 4],
+    [3, false, 8, 3],
+    ['50%', false, 3, 2],
+    ['0%', false, 8, 1],
+    ['100%', false, 8, 8],
+    ['50', false, 8, 7],
+    ['150%', false, 8, 7],
+    ['x50%', false, 8, 7],
+    ['50%x', false, 8, 7],
+    [1, true, 8, 2],
+    ['0%', true, 8, 2],
+    [3, true, 8, 3],
+    [4, true, 8, 4],
+  ])(
+    'gives concurrency %j, with checkers %j, on %d cores %d test runners, as Stryker does',
+    (concurrency, checkers, cores, runners) => {
+      assert.equal(testRunnerConcurrency(concurrency, checkers, cores), runners);
+    },
+  );
 
   testEach([
     [[], undefined],
     [[], 3],
     [[], '50%'],
     [[], '150%'],
+    [[], '0%'],
     [['typescript'], undefined],
+    [['typescript'], 1],
+    [['typescript'], '0%'],
     [['typescript'], 3],
   ])("matches Stryker core's test runner count once checking is done, for checkers %j and concurrency %j", async (checkers, concurrency) => {
     // The computation is private to @stryker-mutator/core; this fails when a release of it changes the count.
@@ -685,7 +695,7 @@ describe('testRunnerConcurrency', () => {
     provider.freeCheckers();
     provider.dispose();
 
-    assert.equal(testRunnerConcurrency(concurrency, availableParallelism()), tokens.length);
+    assert.equal(testRunnerConcurrency(concurrency, checkers.length > 0, availableParallelism()), tokens.length);
   });
 });
 

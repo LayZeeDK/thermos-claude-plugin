@@ -323,20 +323,24 @@ export function filesFor(testFiles: string[], testFilter: string[] | undefined):
 /**
  * How many test runner processes Stryker runs the mutants in, as `ConcurrencyTokenProvider` in `@stryker-mutator/core`
  * computes them: `concurrency` as a number or a percentage of the cores, by default one less than the cores above 4.
- * Checkers take half of them only until checking is done (`freeCheckers`).
+ * Beside checkers, Stryker splits it between checkers and test runners, at least one each, and hands the checkers'
+ * share to test runners once checking is done (`freeCheckers`), so a concurrency of 1 ends with 2 test runners.
  */
-export function testRunnerConcurrency(concurrency: StrykerOptions['concurrency'], cores: number): number {
+export function testRunnerConcurrency(
+  concurrency: StrykerOptions['concurrency'],
+  checkers: boolean,
+  cores: number,
+): number {
   const percentage = /^(100|[1-9]?[0-9])%$/.exec(String(concurrency))?.[1];
+  let total = cores > 4 ? cores - 1 : cores;
 
   if (percentage !== undefined) {
-    return Math.max(1, Math.round((cores * Number(percentage)) / 100));
+    total = Math.max(1, Math.round((cores * Number(percentage)) / 100));
+  } else if (typeof concurrency === 'number') {
+    total = concurrency;
   }
 
-  if (typeof concurrency === 'number') {
-    return concurrency;
-  }
-
-  return cores > 4 ? cores - 1 : cores;
+  return checkers ? Math.max(Math.ceil(total / 2), 1) + Math.max(Math.floor(total / 2), 1) : total;
 }
 
 /**
@@ -636,7 +640,11 @@ export class NodeTestRunner implements TestRunner {
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
     this.#patterns = options.testFiles ? [...patterns, ...options.testFiles] : patterns;
     this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? []);
-    this.#dryRunConcurrency = testRunnerConcurrency(options.concurrency, availableParallelism());
+    this.#dryRunConcurrency = testRunnerConcurrency(
+      options.concurrency,
+      (options.checkers ?? []).length > 0,
+      availableParallelism(),
+    );
     this.#maxMemoryMB = nodeTest?.maxMemoryMB;
     this.#log = log;
   }
