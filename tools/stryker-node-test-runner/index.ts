@@ -2,7 +2,6 @@
 // spawn reports mutant coverage too, attributed to the test that spawned it.
 import { spawn } from 'node:child_process';
 import {
-  existsSync,
   globSync,
   mkdirSync,
   mkdtempSync,
@@ -36,15 +35,7 @@ import {
   type TestRunnerCapabilities,
 } from '@stryker-mutator/api/test-runner';
 
-import {
-  ENV,
-  MEMORY_MARKER,
-  testId,
-  within,
-  type MemoryLimitReached,
-  type ProcessRecord,
-  type RecordedTest,
-} from './hook-core.ts';
+import { ENV, testId, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 import { removeDir, removeLeftDirs } from './dirs.ts';
 import { memoryLimits, peakMemoryDir, type MemoryLimits } from './memory-limits.ts';
 import { groupOptions, processEnd } from './process-end.ts';
@@ -93,7 +84,6 @@ export interface FileRun {
   args: string[];
   nodeOptions: string;
   unreadable?: string;
-  memoryLimitReached?: MemoryLimitReached;
 }
 
 const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
@@ -253,9 +243,10 @@ export async function runInPool<T, R>(
 
 /** Turns one test file's run, which took `fileMs`, into its outcome. */
 function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOptions): FileOutcome {
-  const { records, exitCode, unreadable, memoryLimitReached } = fileRun;
+  const { records, exitCode, unreadable } = fileRun;
+  const memoryLimitReached = records.find((record) => record.memoryLimitReached)?.memoryLimitReached;
 
-  // The ended process wrote no record, so this comes before the checks of the records.
+  // Its watchdog wrote the ended process's record, without its tests, so this comes before the checks of the tests.
   if (memoryLimitReached) {
     const { rssMB, limitMB } = memoryLimitReached;
 
@@ -609,20 +600,7 @@ export class NodeTestRunner implements TestRunner {
         }
       });
 
-      const markerPath = join(outDir, MEMORY_MARKER);
-      const memoryLimitReached = existsSync(markerPath)
-        ? (JSON.parse(readFileSync(markerPath, 'utf8')) as MemoryLimitReached)
-        : undefined;
-
-      return {
-        records,
-        exitCode,
-        stderr,
-        args,
-        nodeOptions: env.NODE_OPTIONS,
-        ...(unreadable && { unreadable }),
-        memoryLimitReached,
-      };
+      return { records, exitCode, stderr, args, nodeOptions: env.NODE_OPTIONS, ...(unreadable && { unreadable }) };
     } finally {
       await removeDir(runDir, this.#log);
     }

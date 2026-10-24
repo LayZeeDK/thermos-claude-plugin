@@ -12,7 +12,6 @@ import {
   ENV,
   install,
   installed,
-  MEMORY_MARKER,
   recordEvents,
   redirectNodeTest,
   reporting,
@@ -401,8 +400,8 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     },
     peakMemoryMB: () => 123,
     canWatchMemory: true,
-    watchMemory: ({ limitMB, markerPath }) => {
-      calls.push(`watchMemory ${limitMB} ${markerPath}`);
+    watchMemory: (options) => {
+      calls.push(`watchMemory ${JSON.stringify(options)}`);
 
       return 'the watchdog';
     },
@@ -492,11 +491,12 @@ describe('install', () => {
     assert.equal(deps.global.__stryker__?.hitCount, 0);
   });
 
-  it("watches the process's memory when the memory limit is positive, with its marker in the out directory", () => {
+  it("watches the process's memory when the memory limit is positive, with the process's record in the out directory", () => {
     const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.memoryLimit]: '1500' });
     install(deps);
 
-    assert.deepEqual(calls, [`watchMemory 1500 ${join(OUT, MEMORY_MARKER)}`, 'onExit']);
+    const options = { workerData: { limitMB: 1500, recordPath: join(OUT, '4321.json') }, execArgv: [] };
+    assert.deepEqual(calls, [`watchMemory ${JSON.stringify(options)}`, 'onExit']);
     assert.equal(deps.global[watchdog], 'the watchdog');
   });
 

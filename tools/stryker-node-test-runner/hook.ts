@@ -7,23 +7,9 @@ import { isMainThread, Worker } from 'node:worker_threads';
 
 import { install, workersAllowed, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 
-// A worker thread polls while the main thread is blocked. From a worker, process.exit and process.abort do not end a
-// blocked process, and a signal does. An eval worker runs as an ES module under --input-type=module, which has no
-// require, and then loads the `--import` preloads, this hook included, which starts no watchdog outside the main
-// thread. The first process over the limit writes the marker; another one at the same time leaves it whole.
-const WATCHDOG = `
-const { writeFileSync } = process.getBuiltinModule('node:fs');
-const { workerData: { limitMB, markerPath } } = process.getBuiltinModule('node:worker_threads');
-setInterval(() => {
-  const rssMB = Math.round(process.memoryUsage.rss() / 1048576);
-  if (rssMB > limitMB) {
-    try {
-      writeFileSync(markerPath, JSON.stringify({ rssMB, limitMB }), { flag: 'wx' });
-    } catch {}
-    process.kill(process.pid, 'SIGKILL');
-  }
-}, 50);
-`;
+// The memory watchdog's thread loads watchdog-worker.ts, whose code TypeScript, the linter and Stryker all reach. The
+// eval script only imports it: a worker's `eval` takes code, not a file URL.
+const WATCHDOG = `import(${JSON.stringify(new URL('./watchdog-worker.ts', import.meta.url).href)});`;
 
 install({
   env: process.env,
@@ -37,11 +23,10 @@ install({
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
   canWatchMemory: isMainThread && workersAllowed(process.permission),
-  watchMemory: (workerData) => {
-    // Without the process's options, such as --require ts-node/register, which would load in the thread again.
-    const worker = new Worker(WATCHDOG, { eval: true, workerData, execArgv: [] });
-    // A preload that cannot run in a worker, such as a --require one that calls process.chdir, stops the watchdog
-    // alone, and the process runs as it would outside Stryker, its output untouched.
+  watchMemory: (options) => {
+    const worker = new Worker(WATCHDOG, { eval: true, ...options });
+    // A preload that NODE_OPTIONS names and that cannot run in a worker, such as one that calls process.chdir, stops
+    // the watchdog alone, and the process runs as it would outside Stryker, its output untouched.
     worker.on('error', () => {});
     worker.unref();
 

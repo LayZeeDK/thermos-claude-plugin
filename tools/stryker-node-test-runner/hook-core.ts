@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import type { InstrumenterContext, MutantCoverage, Position } from '@stryker-mutator/api/core';
 
+import type { WatchdogData } from './watchdog.ts';
+
 /**
  * The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name.
  * A name with a `>` that could form the separator, inside the name or with the separator next to it, has each `>` and
@@ -70,6 +72,8 @@ export interface ProcessRecord {
   mutantCoverage?: MutantCoverage;
   /** The most memory the process held, in MB. Only written during the dry run. */
   peakMemoryMB?: number;
+  /** Set by the memory watchdog of a process it ended for holding more memory than its limit, in MB. */
+  memoryLimitReached?: MemoryLimitReached;
   /** What node:test reported about errors raised after their test ended, which fail the file outside any test. */
   diagnostics?: string[];
   /**
@@ -142,9 +146,6 @@ export const ENV = {
 /** Stryker's variable for the active mutant, which instrumented code reads when it loads. */
 export const ACTIVE_MUTANT_ENV = '__STRYKER_ACTIVE_MUTANT__';
 
-/** The file in the run's out directory that a process ended for holding too much memory writes first. */
-export const MEMORY_MARKER = 'memory-limit.json';
-
 export interface MemoryLimitReached {
   rssMB: number;
   limitMB: number;
@@ -176,11 +177,10 @@ export interface HookDependencies {
    */
   canWatchMemory: boolean;
   /**
-   * Starts a watchdog that ends the process once it holds more than `limitMB`, after writing a `MemoryLimitReached` to
-   * `markerPath`, and returns it. It must work while a test blocks the process: Node.js's assertion diff can fill
-   * gigabytes in one synchronous call.
+   * Starts the memory watchdog of watchdog.ts in a worker thread with these options, and returns it. It must work while
+   * a test blocks the process: Node.js's assertion diff can fill gigabytes in one synchronous call.
    */
-  watchMemory: (workerData: { limitMB: number; markerPath: string }) => unknown;
+  watchMemory: (options: { workerData: WatchdogData; execArgv: string[] }) => unknown;
   /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
   callSites: (
     frameCount: number,
@@ -233,7 +233,11 @@ export function install(deps: HookDependencies): boolean {
   const memoryLimit = Number(deps.env[ENV.memoryLimit]);
 
   if (memoryLimit > 0 && deps.canWatchMemory) {
-    deps.global[watchdog] = deps.watchMemory({ limitMB: memoryLimit, markerPath: join(outDir, MEMORY_MARKER) });
+    deps.global[watchdog] = deps.watchMemory({
+      workerData: { limitMB: memoryLimit, recordPath: join(outDir, `${deps.pid}.json`) },
+      // Without the process's options, such as --require ts-node/register, which would load in the thread again.
+      execArgv: [],
+    });
   }
 
   ns.currentTestId = deps.env[ENV.current] || undefined;

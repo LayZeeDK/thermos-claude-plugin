@@ -13,10 +13,8 @@ import { testFor } from '../test-each/test-for.ts';
 import {
   ENV,
   installed,
-  MEMORY_MARKER,
   reporting,
   type HookDependencies,
-  type MemoryLimitReached,
   type ProcessRecord,
   type TestEvent,
   watchdog,
@@ -388,16 +386,30 @@ describe('hook', () => {
     assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
   });
 
-  it('ends a process that holds more memory than the memory limit, leaving only the marker with both numbers', async (t) => {
-    const outDir = tempDir(t);
-    const { code } = await runWithHook(['-e', GROWS], { [ENV.out]: outDir, [ENV.memoryLimit]: '200' });
+  testFor([
+    ['', {}],
+    // The watchdog's thread then runs as an ES module, which has no require.
+    [' run as an ES module', { NODE_OPTIONS: '--input-type=module' }],
+  ] as const)(
+    'ends a process%s that holds more memory than the memory limit, leaving its record with both numbers',
+    async ([, env], t) => {
+      const outDir = tempDir(t);
 
-    assert.notEqual(code, 0);
-    assert.deepEqual(readdirSync(outDir), [MEMORY_MARKER]);
-    const { rssMB, limitMB } = JSON.parse(readFileSync(join(outDir, MEMORY_MARKER), 'utf8')) as MemoryLimitReached;
-    assert.equal(limitMB, 200);
-    assert.ok(rssMB > 200 && rssMB < 400, String(rssMB));
-  });
+      const { code, pid } = await runWithHook(['-e', GROWS], {
+        [ENV.out]: outDir,
+        [ENV.memoryLimit]: '200',
+        ...env,
+      });
+
+      assert.notEqual(code, 0);
+      const records = readRecords(outDir);
+      assert.deepEqual(Object.keys(records), [`${pid}.json`]);
+      const { tests, memoryLimitReached } = records[`${pid}.json`] as ProcessRecord;
+      assert.deepEqual(tests, []);
+      assert.equal(memoryLimitReached?.limitMB, 200);
+      assert.ok(memoryLimitReached.rssMB > 200 && memoryLimitReached.rssMB < 400, String(memoryLimitReached.rssMB));
+    },
+  );
 
   it('records the most memory the process held in MB, in the dry run', async (t) => {
     const outDir = tempDir(t);
@@ -472,16 +484,11 @@ describe('hook', () => {
     assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
   });
 
-  testFor([
-    ['as an ES module', ['--input-type=module', '-e', 'await new Promise((resolve) => setTimeout(resolve, 500));']],
-    [
-      'under the permission model without workers',
-      ['--permission', '--allow-fs-read=*', '--allow-fs-write=*', '-e', 'setTimeout(() => {}, 500);'],
-    ],
-  ] as const)('runs a process %s with a memory limit as it would without one', async ([, args], t) => {
+  it('runs a process under the permission model without workers with a memory limit as it would without one', async (t) => {
     const outDir = tempDir(t);
+    const args = ['--permission', '--allow-fs-read=*', '--allow-fs-write=*', '-e', 'setTimeout(() => {}, 500);'];
 
-    const { code, pid } = await runWithHook([...args], { [ENV.out]: outDir, [ENV.memoryLimit]: '1500' });
+    const { code, pid } = await runWithHook(args, { [ENV.out]: outDir, [ENV.memoryLimit]: '1500' });
 
     assert.equal(code, 0);
     assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
