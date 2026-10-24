@@ -37,6 +37,11 @@ install({
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
   watchMemory: (limitMB, markerPath) => {
+    // A process under --permission without --allow-worker cannot start one, and runs as it would outside Stryker.
+    if (process.permission?.has('worker') === false) {
+      return;
+    }
+
     new Worker(WATCHDOG, { eval: true, workerData: { limitMB, markerPath } }).unref();
   },
   callSites: getCallSites,

@@ -394,6 +394,10 @@ describe('hook', () => {
 
   testFor([
     ['as an ES module', ['--input-type=module', '-e', 'await new Promise((resolve) => setTimeout(resolve, 500));']],
+    [
+      'under the permission model without workers',
+      ['--permission', '--allow-fs-read=*', '--allow-fs-write=*', '-e', 'setTimeout(() => {}, 500);'],
+    ],
   ] as const)('runs a process %s with a memory limit as it would without one', async ([, args], t) => {
     const outDir = tempDir(t);
 
