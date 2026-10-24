@@ -303,6 +303,27 @@ export function filesFor(testFiles: string[], testFilter: string[] | undefined):
 }
 
 /**
+ * How many test runner processes Stryker starts, as `ConcurrencyTokenProvider` in `@stryker-mutator/core` computes
+ * them: `concurrency` as a number or a percentage of the cores, by default one less than the cores above 4, and half
+ * of that when checkers run beside the test runners.
+ */
+export function testRunnerConcurrency(
+  { concurrency, checkers }: Partial<Pick<StrykerOptions, 'concurrency' | 'checkers'>>,
+  cores: number,
+): number {
+  const percentage = /^(100|[1-9]?[0-9])%$/.exec(String(concurrency))?.[1];
+  let total = cores > 4 ? cores - 1 : cores;
+
+  if (percentage !== undefined) {
+    total = Math.max(1, Math.round((cores * Number(percentage)) / 100));
+  } else if (typeof concurrency === 'number') {
+    total = concurrency;
+  }
+
+  return checkers?.length ? Math.max(Math.floor(total / 2), 1) : total;
+}
+
+/**
  * The memory in MB that each process of a test file's mutant run may hold: `maxMemoryMB` when set, otherwise the most
  * a process of the file held in the dry run, scaled and padded as Stryker scales and pads its timeouts. A test that a
  * mutant fails can need more memory than it did passing, and Node.js's assertion diff grows with the square of the
@@ -529,6 +550,7 @@ export class NodeTestRunner implements TestRunner {
   #cacheDir?: string;
   readonly #patterns: string[];
   readonly #nodeArgs: string[];
+  readonly #dryRunConcurrency: number;
   readonly #maxMemoryMB: number | undefined;
   /** The most memory a process of each test file held in the dry run, in MB. */
   readonly #peakMemoryMB = new Map<string, number>();
@@ -540,6 +562,7 @@ export class NodeTestRunner implements TestRunner {
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
     this.#patterns = options.testFiles ? [...patterns, ...options.testFiles] : patterns;
     this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? []);
+    this.#dryRunConcurrency = testRunnerConcurrency(options, availableParallelism());
     this.#maxMemoryMB = nodeTest?.maxMemoryMB;
     this.#log = log;
   }
@@ -603,11 +626,11 @@ export class NodeTestRunner implements TestRunner {
     const tests: TestResult[] = [];
     const coverages: (MutantCoverage | undefined)[] = [];
     const ends = (outcome: FileOutcome) => 'end' in outcome || (!run.disableBail && outcome.failed);
-    // The dry run runs as many files at once as Stryker later runs mutants, so the test times it reports, which size
-    // each mutant's timeout, include the slowdown of processes competing for the cores.
+    // The dry run runs as many files at once as Stryker later runs test runners for the mutants, so the test times it
+    // reports, which size each mutant's timeout, include the slowdown of processes competing for the cores.
     const outcomes = await runInPool(
       files,
-      run.dryRun ? availableParallelism() : 1,
+      run.dryRun ? this.#dryRunConcurrency : 1,
       async (file) => {
         const limitMB = memoryLimitMB(this.#peakMemoryMB.get(file) ?? 0, this.#maxMemoryMB);
         const started = performance.now();

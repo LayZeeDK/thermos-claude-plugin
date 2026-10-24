@@ -26,6 +26,7 @@ import {
   runEnv,
   runInPool,
   type RunOptions,
+  testRunnerConcurrency,
   toTestResults,
 } from './index.ts';
 
@@ -552,6 +553,23 @@ describe('isOwn', () => {
     t.after(() => rmSync(dir, { recursive: true, force: true }));
 
     assert.equal(isOwn(dir), true);
+  });
+});
+
+describe('testRunnerConcurrency', () => {
+  testEach([
+    [{}, 8, 7],
+    [{}, 4, 4],
+    [{ concurrency: 3 }, 8, 3],
+    [{ concurrency: '50%' }, 3, 2],
+    [{ concurrency: '0%' }, 8, 1],
+    [{ concurrency: '100%' }, 8, 8],
+    [{ concurrency: '50' }, 8, 7],
+    [{ checkers: ['typescript'] }, 8, 3],
+    [{ checkers: ['typescript'], concurrency: 1 }, 8, 1],
+    [{ checkers: [] }, 8, 7],
+  ])('gives %j on %d cores %d test runners, as Stryker does', (options, cores, runners) => {
+    assert.equal(testRunnerConcurrency(options, cores), runners);
   });
 });
 

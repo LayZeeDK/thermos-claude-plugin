@@ -767,7 +767,7 @@ describe('NodeTestRunner', () => {
     });
   });
 
-  it("runs the dry run's test files at once, and a mutant run's one at a time", async (t) => {
+  it("runs as many of the dry run's test files at once as Stryker runs test runners, and a mutant run's one at a time", async (t) => {
     // Each file marks that it started, then waits up to 3 s for the other file to start.
     const meets = (self: string, other: string) =>
       fixture(
@@ -783,7 +783,9 @@ describe('NodeTestRunner', () => {
         '});',
       );
     const dir = project(t, { 'a.test.mjs': meets('a', 'b'), 'b.test.mjs': meets('b', 'a') });
-    const runner = await initRunner(['*.test.mjs']);
+    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency: 2 };
+    const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
+    await runner.init();
     const a = `${join(dir, 'a.test.mjs')} > meets b`;
     const b = `${join(dir, 'b.test.mjs')} > meets a`;
 
