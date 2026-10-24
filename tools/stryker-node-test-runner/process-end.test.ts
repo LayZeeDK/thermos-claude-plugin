@@ -58,10 +58,16 @@ describe('endGroup', () => {
 });
 
 describe('processEnd', () => {
-  /** A stand-in for a child process, and how its end promise stands after pending callbacks ran. */
-  function ending(graceMs: number) {
-    const child = Object.assign(new EventEmitter(), { stderr: new PassThrough() });
-    const end = processEnd(child, graceMs);
+  /**
+   * A stand-in for a child process with pid 123, how its end promise stands after pending callbacks ran, and the kills
+   * that ended its group on `platform`.
+   */
+  function ending(graceMs: number, platform: NodeJS.Platform = 'win32') {
+    const child = Object.assign(new EventEmitter(), { pid: 123, stderr: new PassThrough() });
+    const kills: unknown[][] = [];
+    const end = processEnd(child, graceMs, platform, (pid, signal) => {
+      kills.push([pid, signal]);
+    });
     let state: unknown = 'pending';
     end.then(
       (value) => (state = value),
@@ -73,8 +79,26 @@ describe('processEnd', () => {
       return state;
     };
 
-    return { child, settled };
+    return { child, settled, kills };
   }
+
+  it("ends what is left of a POSIX process's group once the process ends, whether stderr closes or not", async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const closes = ending(1_000, 'linux');
+    closes.child.emit('exit', 0);
+    await closes.settled();
+
+    assert.deepEqual(closes.kills, []);
+
+    closes.child.emit('close', 0);
+    await closes.settled();
+    const staysOpen = ending(1_000, 'linux');
+    staysOpen.child.emit('exit', 0);
+    t.mock.timers.tick(1_000);
+    await staysOpen.settled();
+
+    assert.deepEqual([closes.kills, staysOpen.kills], [[[-123, 'SIGKILL']], [[-123, 'SIGKILL']]]);
+  });
 
   it('ends when the process closes its stdio, with its exit code and stderr, without waiting', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });

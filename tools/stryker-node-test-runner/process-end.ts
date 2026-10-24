@@ -33,30 +33,40 @@ export function endGroup(
 /**
  * Waits for a process to end and collects its stderr. Processes it started inherit stderr and can keep it open after
  * it exits; the records of those that end soon arrive by the time stderr closes, so this waits for that, but at most
- * `graceMs` after the exit, and then lets go of stderr.
+ * `graceMs` after the exit, and then lets go of stderr. Then it ends what is left of the process's group on `platform`.
  */
-export function processEnd(child: EndingProcess, graceMs: number): Promise<{ exitCode: number | null; stderr: string }> {
+export function processEnd(
+  child: EndingProcess,
+  graceMs: number,
+  platform: NodeJS.Platform,
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
+): Promise<{ exitCode: number | null; stderr: string }> {
   return new Promise((done, fail) => {
     let errors = '';
     let grace: NodeJS.Timeout | undefined;
+    const end = (code: number | null) => {
+      endGroup(child.pid as number, platform, kill);
+      done({ exitCode: code, stderr: errors });
+    };
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => (errors += chunk));
     child.on('error', fail);
     child.on('exit', (code) => {
       grace = setTimeout(() => {
         child.stderr.destroy();
-        done({ exitCode: code, stderr: errors });
+        end(code);
       }, graceMs);
     });
     child.on('close', (code) => {
       clearTimeout(grace);
-      done({ exitCode: code, stderr: errors });
+      end(code);
     });
   });
 }
 
 /** The part of a child process that `processEnd` uses. */
 export interface EndingProcess {
+  pid?: number;
   stderr: {
     setEncoding(encoding: 'utf8'): unknown;
     on(event: 'data', listener: (chunk: string) => void): unknown;

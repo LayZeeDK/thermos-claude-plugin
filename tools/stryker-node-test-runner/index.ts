@@ -47,7 +47,7 @@ import {
 } from './hook-core.ts';
 import { removeDir, removeLeftDirs } from './dirs.ts';
 import { MemoryLimits, peakMemoryDir } from './memory-limits.ts';
-import { endGroup, groupOptions, processEnd } from './process-end.ts';
+import { groupOptions, processEnd } from './process-end.ts';
 
 /** Options under `nodeTest` in the Stryker configuration. */
 export interface NodeTestOptions {
@@ -588,8 +588,7 @@ export class NodeTestRunner implements TestRunner {
         stdio: ['ignore', 'ignore', 'pipe'],
         ...groupOptions(process.platform),
       });
-      const { exitCode, stderr } = await processEnd(child, CLOSE_GRACE_MS);
-      endGroup(child.pid as number, process.platform);
+      const { exitCode, stderr } = await processEnd(child, CLOSE_GRACE_MS, process.platform);
       let unreadable: string | undefined;
       const records = readdirSync(outDir).flatMap((name) => {
         try {
