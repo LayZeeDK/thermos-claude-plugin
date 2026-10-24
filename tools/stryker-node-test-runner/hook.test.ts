@@ -391,6 +391,17 @@ describe('hook', () => {
     const peakMB = readRecords(outDir)[`${pid}.json`]?.peakMemoryMB;
     assert.ok(Number.isInteger(peakMB) && (peakMB as number) >= 100 && (peakMB as number) < 1000, String(peakMB));
   });
+
+  testFor([
+    ['as an ES module', ['--input-type=module', '-e', 'await new Promise((resolve) => setTimeout(resolve, 500));']],
+  ] as const)('runs a process %s with a memory limit as it would without one', async ([, args], t) => {
+    const outDir = tempDir(t);
+
+    const { code, pid } = await runWithHook([...args], { [ENV.out]: outDir, [ENV.memoryLimit]: '1500' });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
+  });
 });
 
 describe('reporter', () => {

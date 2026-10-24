@@ -8,10 +8,11 @@ import { Worker } from 'node:worker_threads';
 import { install, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 
 // A worker thread polls while the main thread is blocked. From a worker, process.exit and process.abort do not end a
-// blocked process, and a signal does. An eval worker loads no `--import` preload, so the hook stays out of it.
+// blocked process, and a signal does. An eval worker loads no `--import` preload, so the hook stays out of it, and it
+// runs as an ES module under --input-type=module, which has no require.
 const WATCHDOG = `
-const { writeFileSync } = require('node:fs');
-const { workerData: { limitMB, markerPath } } = require('node:worker_threads');
+const { writeFileSync } = process.getBuiltinModule('node:fs');
+const { workerData: { limitMB, markerPath } } = process.getBuiltinModule('node:worker_threads');
 setInterval(() => {
   const rssMB = Math.round(process.memoryUsage.rss() / 1048576);
   if (rssMB > limitMB) {
