@@ -434,6 +434,38 @@ export function runEnv(
 }
 
 /**
+ * How a test file's process is spawned: on POSIX in a process group of its own, so that `endGroup` can end the
+ * processes its tests leave running. On Windows libuv's job object already ends them with the test file's process.
+ */
+export function groupOptions(platform: NodeJS.Platform): { detached: boolean; windowsHide: true } {
+  return { detached: platform !== 'win32', windowsHide: true };
+}
+
+/**
+ * Ends what is left of a test file's process group once its run is over: processes its tests started and left
+ * running, also when the memory watchdog or a crash ended the test file's process. A process that detached itself has
+ * a group of its own and stays.
+ */
+export function endGroup(
+  pid: number,
+  platform: NodeJS.Platform,
+  kill: (pid: number, signal: NodeJS.Signals) => void = (target, signal) => process.kill(target, signal),
+): void {
+  if (!groupOptions(platform).detached) {
+    return;
+  }
+
+  try {
+    kill(-pid, 'SIGKILL');
+  } catch (error) {
+    // The group no longer exists once every process in it has ended.
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+      throw error;
+    }
+  }
+}
+
+/**
  * Waits for a process to end and collects its stderr. Processes it started inherit stderr and can keep it open after
  * it exits; the records of those that end soon arrive by the time stderr closes, so this waits for that, but at most
  * `graceMs` after the exit, and then lets go of stderr.
@@ -711,8 +743,13 @@ export class NodeTestRunner implements TestRunner {
         this.#log.debug(`Running: \`${nodeCommand(args)}\` in ${process.cwd()}`);
       }
 
-      const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
+      const child = spawn(process.execPath, args, {
+        env,
+        stdio: ['ignore', 'ignore', 'pipe'],
+        ...groupOptions(process.platform),
+      });
       const { exitCode, stderr } = await processEnd(child, CLOSE_GRACE_MS);
+      endGroup(child.pid as number, process.platform);
       let unreadable: string | undefined;
       const records = readdirSync(outDir).flatMap((name) => {
         try {

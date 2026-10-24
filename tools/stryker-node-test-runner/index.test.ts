@@ -13,8 +13,10 @@ import { testFor } from '../test-each/test-for.ts';
 import { ACTIVE_MUTANT_ENV, ENV } from './hook-core.ts';
 import { ACTIVE_MUTANT, HOOK_URL, logger, NO_PROCESS } from './index.fixtures.ts';
 import {
+  endGroup,
   fileError,
   filesFor,
+  groupOptions,
   isOwn,
   isRunning,
   memoryLimitFor,
@@ -157,6 +159,57 @@ describe('fileError', () => {
       fileError(FILE, run),
       [`Error running file "${FILE}": node exited with code ${exitCode} outside any test.`, command, ...end].join('\n'),
     );
+  });
+});
+
+describe('groupOptions', () => {
+  testEach([
+    ['linux', { detached: true, windowsHide: true }],
+    ['darwin', { detached: true, windowsHide: true }],
+    ['win32', { detached: false, windowsHide: true }],
+  ] as const)('spawns a test file on %s with %j', (platform, options) => {
+    assert.deepEqual(groupOptions(platform), options);
+  });
+});
+
+describe('endGroup', () => {
+  /** endGroup with a kill that records its calls and throws `error` when given one. */
+  function setup(platform: NodeJS.Platform, error?: NodeJS.ErrnoException) {
+    const calls: unknown[][] = [];
+    const end = () =>
+      endGroup(123, platform, (pid, signal) => {
+        calls.push([pid, signal]);
+
+        if (error) {
+          throw error;
+        }
+      });
+
+    return { calls, end };
+  }
+
+  it("kills a POSIX test file's whole process group", () => {
+    const { calls, end } = setup('linux');
+
+    end();
+
+    assert.deepEqual(calls, [[-123, 'SIGKILL']]);
+  });
+
+  it('leaves Windows, where the processes end with the test file, alone', () => {
+    const { calls, end } = setup('win32');
+
+    end();
+
+    assert.deepEqual(calls, []);
+  });
+
+  it('takes a group that no longer exists as ended, and throws any other error', () => {
+    const gone = Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    const denied = Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+
+    setup('linux', gone).end();
+    assert.throws(() => setup('linux', denied).end(), denied);
   });
 });
 

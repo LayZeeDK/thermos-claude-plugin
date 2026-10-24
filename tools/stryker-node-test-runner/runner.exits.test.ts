@@ -1,10 +1,11 @@
 // How the runner reports a test file by the way its process ends: by itself, through process.exit(), without its
 // record, or killed.
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { DryRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
+import { DryRunStatus, MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 
 import { testFor } from '../test-each/test-for.ts';
 import {
@@ -13,6 +14,7 @@ import {
   fixture,
   fixtureCoverage,
   initRunner,
+  mutantRunOptions,
   PASSING,
   project,
   REPORTER_ARG,
@@ -21,11 +23,38 @@ import {
   shareCompileCache,
   summary,
 } from './index.fixtures.ts';
-import { fileError } from './index.ts';
+import { fileError, isRunning } from './index.ts';
 
 shareCompileCache();
 
 describe('NodeTestRunner endings', () => {
+  it('ends the processes that the tests of a test file leave running once its run is over', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { spawn } from 'node:child_process';",
+        "import { writeFileSync } from 'node:fs';",
+        "it('leaves a process running', () => {",
+        "  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20_000)'], {",
+        "    stdio: 'ignore',",
+        '    windowsHide: true,',
+        '  });',
+        '  child.unref();',
+        "  writeFileSync('child.pid', String(child.pid));",
+        '});',
+      ),
+    });
+    const pidFile = join(dir, 'child.pid');
+    t.after(() => {
+      if (existsSync(pidFile) && isRunning(Number(readFileSync(pidFile, 'utf8')))) {
+        process.kill(Number(readFileSync(pidFile, 'utf8')));
+      }
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    assert.equal((await settle(runner.mutantRun(mutantRunOptions()))).status, MutantRunStatus.Survived);
+    assert.equal(isRunning(Number(readFileSync(pidFile, 'utf8'))), false);
+  });
+
   it('reports no tests for a test file that declares none', async (t) => {
     project(t, { 'a.test.mjs': fixture("cover('s');") });
     const runner = await initRunner(['a.test.mjs']);
