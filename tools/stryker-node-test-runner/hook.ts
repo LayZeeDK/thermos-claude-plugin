@@ -38,7 +38,8 @@ install({
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
   canWatchMemory: isMainThread && workersAllowed(process.permission),
   watchMemory: (workerData) => {
-    const worker = new Worker(WATCHDOG, { eval: true, workerData });
+    // Without the process's options, such as --require ts-node/register, which would load in the thread again.
+    const worker = new Worker(WATCHDOG, { eval: true, workerData, execArgv: [] });
     // A preload that cannot run in a worker, such as a --require one that calls process.chdir, stops the watchdog
     // alone, and the process runs as it would outside Stryker, its output untouched.
     worker.on('error', () => {

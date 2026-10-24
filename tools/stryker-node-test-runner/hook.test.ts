@@ -443,15 +443,30 @@ describe('hook', () => {
     assert.equal(code, 0);
   });
 
-  it('runs a process whose --require preload cannot run in a worker with a memory limit', async (t) => {
+  it('loads a --require preload once, not again in the memory watchdog', async (t) => {
     const dir = tempDir(t);
     const outDir = tempDir(t);
-    // process.chdir throws in a worker thread, which loads --require preloads too.
-    writeFileSync(join(dir, 'chdir.cjs'), 'process.chdir(__dirname);\n');
+    writeFileSync(join(dir, 'count.cjs'), "require('node:fs').appendFileSync(__dirname + '/loads.txt', 'load\\n');\n");
 
-    const { code, pid } = await runWithHook(['--require', join(dir, 'chdir.cjs'), '-e', 'setTimeout(() => {}, 500);'], {
+    const { code } = await runWithHook(['--require', join(dir, 'count.cjs'), '-e', 'setTimeout(() => {}, 500);'], {
       [ENV.out]: outDir,
       [ENV.memoryLimit]: '1500',
+    });
+
+    assert.equal(code, 0);
+    assert.equal(readFileSync(join(dir, 'loads.txt'), 'utf8'), 'load\n');
+  });
+
+  it('runs a process whose NODE_OPTIONS preload cannot run in a worker with a memory limit', async (t) => {
+    const dir = tempDir(t);
+    const outDir = tempDir(t);
+    // process.chdir throws in a worker thread, which loads the preloads that NODE_OPTIONS names too.
+    writeFileSync(join(dir, 'chdir.cjs'), 'process.chdir(__dirname);\n');
+
+    const { code, pid } = await runWithHook(['-e', 'setTimeout(() => {}, 500);'], {
+      [ENV.out]: outDir,
+      [ENV.memoryLimit]: '1500',
+      NODE_OPTIONS: `--require ${JSON.stringify(join(dir, 'chdir.cjs'))}`,
     });
 
     assert.equal(code, 0);
