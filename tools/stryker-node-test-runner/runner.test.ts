@@ -766,6 +766,43 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it("runs the dry run's test files at once, and a mutant run's one at a time", async (t) => {
+    // Each file marks that it started, then waits up to 3 s for the other file to start.
+    const meets = (self: string, other: string) =>
+      fixture(
+        "const { existsSync, writeFileSync } = await import('node:fs');",
+        "const { join } = await import('node:path');",
+        `writeFileSync(join(import.meta.dirname, '${self}.started'), '');`,
+        `it('meets ${other}', async () => {`,
+        '  const deadline = Date.now() + 3_000;',
+        `  while (!existsSync(join(import.meta.dirname, '${other}.started'))) {`,
+        `    assert.ok(Date.now() < deadline, '${other} never started');`,
+        '    await new Promise((resolve) => setTimeout(resolve, 20));',
+        '  }',
+        '});',
+      );
+    const dir = project(t, { 'a.test.mjs': meets('a', 'b'), 'b.test.mjs': meets('b', 'a') });
+    const runner = await initRunner(['*.test.mjs']);
+    const a = `${join(dir, 'a.test.mjs')} > meets b`;
+    const b = `${join(dir, 'b.test.mjs')} > meets a`;
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
+      { id: a, status: TestStatus.Success, failureMessage: undefined },
+      { id: b, status: TestStatus.Success, failureMessage: undefined },
+    ]);
+
+    for (const marker of ['a.started', 'b.started']) {
+      rmSync(join(dir, marker));
+    }
+
+    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ disableBail: true }))), {
+      status: MutantRunStatus.Killed,
+      killedBy: [a],
+      failureMessage: 'b never started',
+      nrOfTests: 2,
+    });
+  });
+
   it('runs only the filtered tests of the files that contain them, as a mutant run', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(

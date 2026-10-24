@@ -22,6 +22,7 @@ import {
   removeDir,
   removeLeftDirs,
   runEnv,
+  runInPool,
   type RunOptions,
   toTestResults,
 } from './index.ts';
@@ -332,6 +333,73 @@ describe('filesFor', () => {
     assert.deepEqual(filesFor(files, [`${longer} > suite > test`]), [longer]);
     assert.deepEqual(filesFor(files, [`${a} > test`]), [a]);
     assert.deepEqual(filesFor(files, [b, `${a} > test`]), [a, b]);
+  });
+});
+
+describe('runInPool', () => {
+  /** A pool over `count` items whose work the test settles itself, item by item. */
+  function setup(count: number, limit: number, stops: (result: number) => boolean = () => false) {
+    const started: number[] = [];
+    const settle: ((result: number) => void)[] = [];
+    const pool = runInPool(
+      Array.from({ length: count }, (_, index) => index),
+      limit,
+      (item) => {
+        started.push(item);
+
+        return new Promise<number>((resolve) => (settle[item] = resolve));
+      },
+      stops,
+    );
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+    return { started, settle, pool, turn };
+  }
+
+  it('runs at most `limit` items at once, starting them in order, and returns their results in order', async () => {
+    const { started, settle, pool, turn } = setup(5, 2);
+
+    await turn();
+    assert.deepEqual(started, [0, 1]);
+    settle[1]?.(10);
+    await turn();
+    assert.deepEqual(started, [0, 1, 2]);
+    settle[0]?.(0);
+    await turn();
+    assert.deepEqual(started, [0, 1, 2, 3]);
+    settle[3]?.(30);
+    settle[2]?.(20);
+    await turn();
+    settle[4]?.(40);
+    await turn();
+
+    assert.deepEqual(started, [0, 1, 2, 3, 4]);
+    assert.deepEqual(await pool, [0, 10, 20, 30, 40]);
+  });
+
+  it('starts no more items once a result stops the run, and returns the results of those it started', async () => {
+    const { started, settle, pool, turn } = setup(5, 2, (result) => result === 1);
+
+    await turn();
+    settle[1]?.(1);
+    await turn();
+    settle[0]?.(0);
+    await turn();
+
+    assert.deepEqual(started, [0, 1]);
+    assert.deepEqual(await pool, [0, 1]);
+  });
+
+  it('runs every item when the limit exceeds their number, and nothing for no items', async () => {
+    const { started, settle, pool, turn } = setup(2, 4);
+
+    await turn();
+    assert.deepEqual(started, [0, 1]);
+    settle[0]?.(0);
+    settle[1]?.(1);
+
+    assert.deepEqual(await pool, [0, 1]);
+    assert.deepEqual(await runInPool([], 4, () => Promise.reject(new Error('no work')), () => false), []);
   });
 });
 

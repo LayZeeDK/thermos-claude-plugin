@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process';
 import { globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -179,6 +179,88 @@ export function parseRecord(json: string): ProcessRecord {
   }
 
   return record as ProcessRecord;
+}
+
+/** What one test file's run says: the result that ends the whole run, or its tests and coverage. */
+type FileOutcome =
+  | { end: DryRunResult }
+  | { results: TestResult[]; coverages: (MutantCoverage | undefined)[]; failed: boolean };
+
+/**
+ * Runs `work` on the items, at most `limit` at a time and starting them in order, and starts no more once a result
+ * `stops` the run. Returns the results of the items it started, which are the first ones, in order.
+ */
+export async function runInPool<T, R>(
+  items: T[],
+  limit: number,
+  work: (item: T) => Promise<R>,
+  stops: (result: R) => boolean,
+): Promise<R[]> {
+  const results: R[] = [];
+  let next = 0;
+  let stopped = false;
+  const lane = async () => {
+    for (let index = next++; !stopped && index < items.length; index = next++) {
+      const result = await work(items[index] as T);
+      results[index] = result;
+
+      if (stops(result)) {
+        stopped = true;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, lane));
+
+  return results;
+}
+
+/** Turns one test file's run, which took `fileMs`, into its outcome. */
+function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOptions): FileOutcome {
+  const { records, exitCode, unreadable } = fileRun;
+
+  if (unreadable !== undefined) {
+    return { end: { status: DryRunStatus.Error, errorMessage: `Unreadable test results for "${file}": ${unreadable}` } };
+  }
+
+  for (const record of records) {
+    const timeout = determineHitLimitReached(record.hitCount, run.hitLimit);
+
+    if (timeout) {
+      return { end: timeout };
+    }
+  }
+
+  const results = toTestResults(file, records.flatMap((record) => record.tests), fileMs);
+  const failed = results.some((result) => result.status === TestStatus.Failed);
+
+  // Like Stryker's own runners, a failure that no test explains is an error, not a killed mutant.
+  if (exitCode !== 0 && !failed) {
+    return { end: { status: DryRunStatus.Error, errorMessage: fileError(file, fileRun) } };
+  }
+
+  // Without its record the file's results are unknown, as when jest's runner misses a file's coverage.
+  const main = records.find((record) => record.main);
+
+  if (!main) {
+    const errorMessage =
+      `Missing test results for "${file}": its process ended without writing them. Either the Stryker hook ` +
+      'did not run in it, or it left without running exit listeners (process.reallyExit, process.abort).';
+
+    return { end: { status: DryRunStatus.Error, errorMessage } };
+  }
+
+  // Stryker treats a test runner that exits during a run as crashed, whatever its exit code, and so do its runners
+  // that run the tests in their own process; the tests that node:test did not report are unknown.
+  if (!failed && main.unfinished) {
+    const errorMessage =
+      `Unfinished test results for "${file}": its process exited before node:test reported every test, as when ` +
+      'a test calls process.exit().';
+
+    return { end: { status: DryRunStatus.Error, errorMessage } };
+  }
+
+  return { results, coverages: records.map((record) => record.mutantCoverage), failed };
 }
 
 export function filesFor(testFiles: string[], testFilter: string[] | undefined): string[] {
@@ -464,59 +546,30 @@ export class NodeTestRunner implements TestRunner {
   async #run(files: string[], run: RunOptions): Promise<DryRunResult> {
     const tests: TestResult[] = [];
     const coverages: (MutantCoverage | undefined)[] = [];
+    const ends = (outcome: FileOutcome) => 'end' in outcome || (!run.disableBail && outcome.failed);
+    // The dry run runs as many files at once as Stryker later runs mutants, so the test times it reports, which size
+    // each mutant's timeout, include the slowdown of processes competing for the cores.
+    const outcomes = await runInPool(
+      files,
+      run.dryRun ? availableParallelism() : 1,
+      async (file) => {
+        const started = performance.now();
+        const fileRun = await this.runFile(file, run);
 
-    for (const file of files) {
-      const started = performance.now();
-      const fileRun = await this.runFile(file, run);
-      const fileMs = performance.now() - started;
-      const { records, exitCode, unreadable } = fileRun;
+        return fileOutcome(file, fileRun, performance.now() - started, run);
+      },
+      ends,
+    );
 
-      if (unreadable !== undefined) {
-        return { status: DryRunStatus.Error, errorMessage: `Unreadable test results for "${file}": ${unreadable}` };
+    for (const outcome of outcomes) {
+      if ('end' in outcome) {
+        return outcome.end;
       }
 
-      for (const record of records) {
-        const timeout = determineHitLimitReached(record.hitCount, run.hitLimit);
+      tests.push(...outcome.results);
+      coverages.push(...outcome.coverages);
 
-        if (timeout) {
-          return timeout;
-        }
-
-        coverages.push(record.mutantCoverage);
-      }
-
-      const results = toTestResults(file, records.flatMap((record) => record.tests), fileMs);
-      const failed = results.some((result) => result.status === TestStatus.Failed);
-
-      // Like Stryker's own runners, a failure that no test explains is an error, not a killed mutant.
-      if (exitCode !== 0 && !failed) {
-        return { status: DryRunStatus.Error, errorMessage: fileError(file, fileRun) };
-      }
-
-      // Without its record the file's results are unknown, as when jest's runner misses a file's coverage.
-      const main = records.find((record) => record.main);
-
-      if (!main) {
-        const errorMessage =
-          `Missing test results for "${file}": its process ended without writing them. Either the Stryker hook ` +
-          'did not run in it, or it left without running exit listeners (process.reallyExit, process.abort).';
-
-        return { status: DryRunStatus.Error, errorMessage };
-      }
-
-      // Stryker treats a test runner that exits during a run as crashed, whatever its exit code, and so do its runners
-      // that run the tests in their own process; the tests that node:test did not report are unknown.
-      if (!failed && main.unfinished) {
-        const errorMessage =
-          `Unfinished test results for "${file}": its process exited before node:test reported every test, as when ` +
-          'a test calls process.exit().';
-
-        return { status: DryRunStatus.Error, errorMessage };
-      }
-
-      tests.push(...results);
-
-      if (!run.disableBail && failed) {
+      if (ends(outcome)) {
         break;
       }
     }
