@@ -8,7 +8,16 @@ import { describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { testFor } from '../test-each/test-for.ts';
-import { ENV, installed, reporting, type HookDependencies, type ProcessRecord, type TestEvent } from './hook-core.ts';
+import {
+  ENV,
+  installed,
+  MEMORY_MARKER,
+  reporting,
+  type HookDependencies,
+  type MemoryLimitReached,
+  type ProcessRecord,
+  type TestEvent,
+} from './hook-core.ts';
 import { fixture, HOOK_URL, REPORTER_ARG, shareCompileCache } from './index.fixtures.ts';
 import reporter from './reporter.ts';
 
@@ -347,6 +356,40 @@ describe('hook', () => {
 
     assert.equal(code, 0);
     assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
+  });
+
+  it('ends a process that holds more memory than the memory limit, leaving only the marker with both numbers', async (t) => {
+    const outDir = tempDir(t);
+    // Grows by 16 MB about every 10 ms to 400 MB, and blocks for 5 s, so it ends by itself without a watchdog.
+    const grows = [
+      'const held = [];',
+      'const end = Date.now() + 5_000;',
+      'while (Date.now() < end) {',
+      '  if (held.length < 25) held.push(new Int32Array(4e6).fill(1));',
+      '  const pause = Date.now() + 10;',
+      '  while (Date.now() < pause);',
+      '}',
+    ].join(' ');
+
+    const { code } = await runWithHook(['-e', grows], { [ENV.out]: outDir, [ENV.memoryLimit]: '200' });
+
+    assert.notEqual(code, 0);
+    assert.deepEqual(readdirSync(outDir), [MEMORY_MARKER]);
+    const { rssMB, limitMB } = JSON.parse(readFileSync(join(outDir, MEMORY_MARKER), 'utf8')) as MemoryLimitReached;
+    assert.equal(limitMB, 200);
+    assert.ok(rssMB > 200 && rssMB < 400, String(rssMB));
+  });
+
+  it('records the most memory the process held in MB, in the dry run', async (t) => {
+    const outDir = tempDir(t);
+
+    const { pid } = await runWithHook(['-e', 'new Int32Array(25e6).fill(1);'], {
+      [ENV.out]: outDir,
+      [ENV.dryRun]: 'true',
+    });
+
+    const peakMB = readRecords(outDir)[`${pid}.json`]?.peakMemoryMB;
+    assert.ok(Number.isInteger(peakMB) && (peakMB as number) >= 100 && (peakMB as number) < 1000, String(peakMB));
   });
 });
 
