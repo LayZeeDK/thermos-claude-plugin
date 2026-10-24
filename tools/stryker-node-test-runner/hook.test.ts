@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import type { EventEmitter } from 'node:events';
 import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 
 import { testFor } from '../test-each/test-for.ts';
 import {
@@ -17,6 +19,7 @@ import {
   type MemoryLimitReached,
   type ProcessRecord,
   type TestEvent,
+  watchdog,
 } from './hook-core.ts';
 import { fixture, HOOK_URL, REPORTER_ARG, shareCompileCache } from './index.fixtures.ts';
 import reporter from './reporter.ts';
@@ -28,11 +31,14 @@ await import('./hook.ts');
 shareCompileCache();
 
 /**
- * Loads a fresh copy of hook.ts into this process as if the runner had started it, with its own output directory and
- * no test file, then restores this process's hook state. Returns the `exit` and `beforeExit` listeners the copy added,
- * detached.
+ * Loads a fresh copy of hook.ts into this process as if the runner had started it, with its own output directory, no
+ * test file and the hook variables in `env`, then restores this process's hook state. Returns the `exit` and
+ * `beforeExit` listeners the copy added, detached.
  */
-async function loadRunnerStartedHook(outDir: string): Promise<Record<'exit' | 'beforeExit', (() => void)[]>> {
+async function loadRunnerStartedHook(
+  outDir: string,
+  env: Record<string, string> = {},
+): Promise<Record<'exit' | 'beforeExit', (() => void)[]>> {
   const global = globalThis as HookDependencies['global'];
   const previousMark = global[installed];
   // The current test id stays, so the copy leaves this process's attribution of coverage alone.
@@ -48,11 +54,12 @@ async function loadRunnerStartedHook(outDir: string): Promise<Record<'exit' | 'b
     delete process.env[key];
   }
 
-  process.env[ENV.out] = outDir;
+  Object.assign(process.env, { [ENV.out]: outDir, ...env });
   delete global[installed];
 
   try {
-    await import(`${HOOK_URL}?runner-started`);
+    // A query of its own makes each load run the hook's module again.
+    await import(`${HOOK_URL}?runner-started-${randomUUID()}`);
   } finally {
     for (const [key, value] of previousEnv) {
       if (value === undefined) {
@@ -142,6 +149,32 @@ describe('hook', () => {
     const records = readRecords(outDir);
     assert.deepEqual(Object.keys(records), [`${process.pid}.json`]);
     assert.deepEqual(records[`${process.pid}.json`]?.tests, []);
+  });
+
+  it('starts the memory watchdog and records the peak memory when the runner asks for them', async (t) => {
+    const outDir = tempDir(t);
+    const global = globalThis as HookDependencies['global'];
+    t.after(async () => {
+      await (global[watchdog] as Worker | undefined)?.terminate();
+      delete global[watchdog];
+    });
+
+    const added = await loadRunnerStartedHook(outDir, { [ENV.dryRun]: 'true', [ENV.memoryLimit]: '1000000' });
+
+    const watching = global[watchdog];
+    assert.ok(watching instanceof Worker, String(watching));
+    const write = t.mock.method(process.stderr, 'write', () => true);
+    watching.emit('error', new Error('preload failed'));
+    write.mock.restore();
+    assert.deepEqual(
+      write.mock.calls.map((call) => call.arguments[0]),
+      ['Memory watchdog not running: preload failed\n'],
+    );
+
+    const rssMB = Math.floor(process.memoryUsage.rss() / 1048576);
+    added.exit[0]?.();
+    const peakMB = readRecords(outDir)[`${process.pid}.json`]?.peakMemoryMB;
+    assert.ok(peakMB !== undefined && Number.isInteger(peakMB) && peakMB >= rssMB && peakMB < 100_000, String(peakMB));
   });
 
   it('records the tests and coverage of the test file it runs in, in a file named after the process', async (t) => {
@@ -390,6 +423,52 @@ describe('hook', () => {
 
     const peakMB = readRecords(outDir)[`${pid}.json`]?.peakMemoryMB;
     assert.ok(Number.isInteger(peakMB) && (peakMB as number) >= 100 && (peakMB as number) < 1000, String(peakMB));
+  });
+
+  it("watches memory from the main thread only, not from a test's own worker threads", async (t) => {
+    const dir = tempDir(t);
+    const outDir = tempDir(t);
+    const symbol = "Symbol.for('thermos.stryker-node-test-runner.watchdog')";
+    writeFileSync(
+      join(dir, 'worker.mjs'),
+      `import { parentPort } from 'node:worker_threads';\nparentPort.postMessage(globalThis[${symbol}] !== undefined);\n`,
+    );
+    // A file, as a worker thread takes the process's options and refuses --input-type.
+    writeFileSync(
+      join(dir, 'main.mjs'),
+      [
+        "import { Worker } from 'node:worker_threads';",
+        `const inMain = globalThis[${symbol}] !== undefined;`,
+        "const worker = new Worker(new URL('./worker.mjs', import.meta.url));",
+        "worker.on('message', (inWorker) => {",
+        '  process.exitCode = inMain && !inWorker ? 0 : 1;',
+        '  worker.terminate();',
+        '});',
+        '',
+      ].join('\n'),
+    );
+
+    const { code } = await runWithHook([join(dir, 'main.mjs')], {
+      [ENV.out]: outDir,
+      [ENV.memoryLimit]: '1500',
+    });
+
+    assert.equal(code, 0);
+  });
+
+  it('runs a process whose --require preload cannot run in a worker with a memory limit', async (t) => {
+    const dir = tempDir(t);
+    const outDir = tempDir(t);
+    // process.chdir throws in a worker thread, which loads --require preloads too.
+    writeFileSync(join(dir, 'chdir.cjs'), 'process.chdir(__dirname);\n');
+
+    const { code, pid } = await runWithHook(['--require', join(dir, 'chdir.cjs'), '-e', 'setTimeout(() => {}, 500);'], {
+      [ENV.out]: outDir,
+      [ENV.memoryLimit]: '1500',
+    });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
   });
 
   testFor([

@@ -18,6 +18,7 @@ import {
   reporting,
   testId,
   uniqueIds,
+  watchdog,
   wrappedNodeTest,
   type HookDependencies,
   type ModuleHooks,
@@ -398,8 +399,11 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
     },
     peakMemoryMB: () => 123,
-    watchMemory: (limitMB, markerPath) => {
+    canWatchMemory: true,
+    watchMemory: ({ limitMB, markerPath }) => {
       calls.push(`watchMemory ${limitMB} ${markerPath}`);
+
+      return 'the watchdog';
     },
     callSites: () => [],
     ...overrides,
@@ -492,6 +496,15 @@ describe('install', () => {
     install(deps);
 
     assert.deepEqual(calls, [`watchMemory 1500 ${join(OUT, MEMORY_MARKER)}`, 'onExit']);
+    assert.equal(deps.global[watchdog], 'the watchdog');
+  });
+
+  it('watches no memory in a thread that may not start the watchdog', () => {
+    const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.memoryLimit]: '1500' }, { canWatchMemory: false });
+    install(deps);
+
+    assert.deepEqual(calls, ['onExit']);
+    assert.equal(deps.global[watchdog], undefined);
   });
 
   testEach([undefined, '0', 'none'])('watches no memory with the memory limit %s', (memoryLimit) => {

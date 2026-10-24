@@ -160,6 +160,7 @@ export interface HookDependencies {
     [installed]?: true;
     [reporting]?: (event: TestEvent) => void;
     [wrappedNodeTest]?: NodeTestModule;
+    [watchdog]?: unknown;
   };
   nodeTest: () => NodeTestModule;
   registerHooks: (hooks: ModuleHooks) => unknown;
@@ -170,10 +171,16 @@ export interface HookDependencies {
   /** The most memory the process has held so far, in MB. */
   peakMemoryMB: () => number;
   /**
-   * Ends the process once it holds more than `limitMB`, after writing a `MemoryLimitReached` to `markerPath`. It must
-   * work while a test blocks the process: Node.js's assertion diff can fill gigabytes in one synchronous call.
+   * Whether this thread starts the memory watchdog: the main thread only, so a test's own worker threads, which load
+   * the hook too, start no second one, and only where the permission model lets it start a worker.
    */
-  watchMemory: (limitMB: number, markerPath: string) => void;
+  canWatchMemory: boolean;
+  /**
+   * Starts a watchdog that ends the process once it holds more than `limitMB`, after writing a `MemoryLimitReached` to
+   * `markerPath`, and returns it. It must work while a test blocks the process: Node.js's assertion diff can fill
+   * gigabytes in one synchronous call.
+   */
+  watchMemory: (workerData: { limitMB: number; markerPath: string }) => unknown;
   /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
   callSites: (
     frameCount: number,
@@ -196,6 +203,9 @@ export const reporting = Symbol.for('thermos.stryker-node-test-runner.reporting'
 /** Where the hook of a test file's process keeps the wrapped node:test module that imports of node:test give. */
 export const wrappedNodeTest = Symbol.for('thermos.stryker-node-test-runner.node-test');
 
+/** Where the hook keeps the memory watchdog it started. */
+export const watchdog = Symbol.for('thermos.stryker-node-test-runner.watchdog');
+
 /**
  * Installs the hook when the runner started this process tree. Returns whether it installed.
  */
@@ -217,8 +227,8 @@ export function install(deps: HookDependencies): boolean {
 
   const memoryLimit = Number(deps.env[ENV.memoryLimit]);
 
-  if (memoryLimit > 0) {
-    deps.watchMemory(memoryLimit, join(outDir, MEMORY_MARKER));
+  if (memoryLimit > 0 && deps.canWatchMemory) {
+    deps.global[watchdog] = deps.watchMemory({ limitMB: memoryLimit, markerPath: join(outDir, MEMORY_MARKER) });
   }
 
   ns.currentTestId = deps.env[ENV.current] || undefined;

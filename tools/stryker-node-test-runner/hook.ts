@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { resolve } from 'node:path';
 import { getCallSites } from 'node:util';
-import { Worker } from 'node:worker_threads';
+import { isMainThread, Worker } from 'node:worker_threads';
 
 import { install, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 
@@ -36,13 +36,15 @@ install({
   onBeforeExit: (listener) => process.on('beforeExit', listener),
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
-  watchMemory: (limitMB, markerPath) => {
-    // A process under --permission without --allow-worker cannot start one, and runs as it would outside Stryker.
-    if (process.permission?.has('worker') === false) {
-      return;
-    }
+  canWatchMemory: isMainThread && process.permission?.has('worker') !== false,
+  watchMemory: (workerData) => {
+    const worker = new Worker(WATCHDOG, { eval: true, workerData });
+    // A preload that cannot run in a worker, such as a --require one that calls process.chdir, stops the watchdog
+    // alone, and the process runs as it would outside Stryker.
+    worker.on('error', (error) => process.stderr.write(`Memory watchdog not running: ${error.message}\n`));
+    worker.unref();
 
-    new Worker(WATCHDOG, { eval: true, workerData: { limitMB, markerPath } }).unref();
+    return worker;
   },
   callSites: getCallSites,
 });
