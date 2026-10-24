@@ -1,4 +1,4 @@
-// Named to sort after the runner's other test files: the runner runs test files in path order and stops at the first
+// Named to sort after the runner's quicker test files: the runner runs test files in path order and stops at the first
 // failing file, so the quick tests kill a mutant they cover before these slow ones start.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -434,23 +434,6 @@ describe('NodeTestRunner', () => {
     assert.equal(mutantCoverage?.perTest[`${file} > spawns`]?.['f-child'], 1);
   });
 
-  it("times each test with the time its file's run spent outside the tests, such as starting node", async (t) => {
-    project(t, { 'a.test.mjs': fixture("it('first', () => {});", "it('second', () => {});") });
-    const runner = await initRunner(['*.test.mjs']);
-    const started = performance.now();
-
-    const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
-    // Test times are rounded to whole milliseconds.
-    const wall = Math.ceil(performance.now() - started);
-
-    assert.equal(tests.length, 2);
-
-    // Starting node takes tens of milliseconds, and neither test takes one.
-    for (const test of tests) {
-      assert.ok(test.timeSpentMs >= 20 && test.timeSpentMs <= wall, `${test.timeSpentMs} ms of a ${wall} ms run`);
-    }
-  });
-
   it('logs the node command and directory of each test file, only when debug logging is on', async (t) => {
     const dir = project(t, { 'a.test.mjs': PASSING });
     const file = join(dir, 'a.test.mjs');
@@ -767,45 +750,6 @@ describe('NodeTestRunner', () => {
     });
   });
 
-  it("runs as many of the dry run's test files at once as Stryker runs test runners, and a mutant run's one at a time", async (t) => {
-    // Each file marks that it started, then waits up to 3 s for the other file to start.
-    const meets = (self: string, other: string) =>
-      fixture(
-        "const { existsSync, writeFileSync } = await import('node:fs');",
-        "const { join } = await import('node:path');",
-        `writeFileSync(join(import.meta.dirname, '${self}.started'), '');`,
-        `it('meets ${other}', async () => {`,
-        '  const deadline = Date.now() + 3_000;',
-        `  while (!existsSync(join(import.meta.dirname, '${other}.started'))) {`,
-        `    assert.ok(Date.now() < deadline, '${other} never started');`,
-        '    await new Promise((resolve) => setTimeout(resolve, 20));',
-        '  }',
-        '});',
-      );
-    const dir = project(t, { 'a.test.mjs': meets('a', 'b'), 'b.test.mjs': meets('b', 'a') });
-    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency: 2 };
-    const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
-    await runner.init();
-    const a = `${join(dir, 'a.test.mjs')} > meets b`;
-    const b = `${join(dir, 'b.test.mjs')} > meets a`;
-
-    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
-      { id: a, status: TestStatus.Success, failureMessage: undefined },
-      { id: b, status: TestStatus.Success, failureMessage: undefined },
-    ]);
-
-    for (const marker of ['a.started', 'b.started']) {
-      rmSync(join(dir, marker));
-    }
-
-    assert.deepEqual(withoutDuration(await settle(runner.mutantRun(mutantRunOptions({ disableBail: true })))), {
-      status: MutantRunStatus.Killed,
-      killedBy: [a],
-      failureMessage: 'b never started',
-      nrOfTests: 2,
-    });
-  });
-
   it('runs only the filtered tests of the files that contain them, as a mutant run', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
@@ -824,20 +768,6 @@ describe('NodeTestRunner', () => {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
-  });
-
-  it("reports a mutant run's duration as the time of its file processes, once per file", async (t) => {
-    const tests = Array.from({ length: 10 }, (_, index) => `it('passes ${index}', () => {});`);
-    project(t, { 'a.test.mjs': fixture('await new Promise((resolve) => setTimeout(resolve, 300));', ...tests) });
-    const runner = await initRunner(['a.test.mjs']);
-
-    const started = performance.now();
-    const result = await settle(runner.mutantRun(mutantRunOptions()));
-    const elapsed = performance.now() - started;
-
-    assert.ok(result.status === MutantRunStatus.Survived, `expected a survived mutant, got ${JSON.stringify(result)}`);
-    assert.ok(result.duration !== undefined, 'expected a duration');
-    assert.ok(result.duration >= 300 && result.duration <= Math.ceil(elapsed), `${result.duration} ms of ${elapsed} ms`);
   });
 
   it("runs every test of a file that a mutant run's filter names, as Stryker does with --testFiles", async (t) => {
@@ -944,99 +874,5 @@ describe('NodeTestRunner', () => {
       status: MutantRunStatus.Survived,
       nrOfTests: 1,
     });
-  });
-
-  /** Code that counts `hits` hits as instrumented code does, throwing like it once they pass the hit limit. */
-  const loop = (hits: number) =>
-    [
-      'const ns = globalThis.__stryker__;',
-      `for (let i = 0; i < ${hits}; i++) {`,
-      "  if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) throw new Error('Hit limit reached');",
-      '}',
-    ].join(' ');
-
-  it('times out a mutant run that exceeds the hit limit', async (t) => {
-    project(t, { 'a.test.mjs': fixture(`it('loops', () => { ${loop(11)} });`) });
-    const runner = await initRunner(['*.test.mjs']);
-
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 10, disableBail: true }))), {
-      status: MutantRunStatus.Timeout,
-      reason: 'Hit limit reached (11/10)',
-    });
-    assert.deepEqual(withoutDuration(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 11 })))), {
-      status: MutantRunStatus.Survived,
-      nrOfTests: 1,
-    });
-  });
-
-  it('times out a mutant run whose test file exceeds the hit limit while it loads, which fails it outside any test', async (t) => {
-    project(t, { 'a.test.mjs': fixture(loop(11), "it('passes', () => {});") });
-    const runner = await initRunner(['a.test.mjs']);
-
-    assert.deepEqual(await settle(runner.mutantRun(mutantRunOptions({ hitLimit: 10 }))), {
-      status: MutantRunStatus.Timeout,
-      reason: 'Hit limit reached (11/10)',
-    });
-  });
-
-  it('times out when a process a test starts exceeds the hit limit, counting each process apart', async (t) => {
-    const spawnLoop = (hits: number) => `spawnSync(process.execPath, ['-e', ${JSON.stringify(loop(hits))}]);`;
-    project(t, {
-      'a.test.mjs': fixture(`it('spawns a loop', () => { ${spawnLoop(11)} });`),
-      'b.test.mjs': fixture(`it('spawns two loops', () => { ${spawnLoop(6)} ${spawnLoop(6)} });`),
-    });
-    const options = mutantRunOptions({ hitLimit: 10 });
-
-    assert.deepEqual(await settle((await initRunner(['a.test.mjs'])).mutantRun(options)), {
-      status: MutantRunStatus.Timeout,
-      reason: 'Hit limit reached (11/10)',
-    });
-    assert.deepEqual(withoutDuration(await settle((await initRunner(['b.test.mjs'])).mutantRun(options))), {
-      status: MutantRunStatus.Survived,
-      nrOfTests: 1,
-    });
-  });
-
-  it('times out a mutant run whose process holds more memory than maxMemoryMB while a test blocks it', async (t) => {
-    project(t, {
-      'a.test.mjs': fixture(
-        "it('grows', () => {",
-        '  const held = [];',
-        '  for (;;) {',
-        '    held.push(new Int32Array(4e6).fill(1));',
-        '    const until = Date.now() + 10;',
-        '    while (Date.now() < until);',
-        '  }',
-        '});',
-      ),
-    });
-    const runner = await initRunner(['a.test.mjs'], { maxMemoryMB: 200 });
-
-    const result = await settle(runner.mutantRun(mutantRunOptions()), 10_000);
-
-    assert.ok(result.status === MutantRunStatus.Timeout, `expected a timeout, got ${JSON.stringify(result)}`);
-    assert.match(result.reason ?? '', /^Memory limit reached \(\d+\/200 MB\)$/);
-  });
-
-  it("limits each mutant run's processes to their file's dry-run peak memory, times 1.5, plus 1024 MB", async (t) => {
-    const limit = `process.env.${ENV.memoryLimit}`;
-    project(t, { 'a.test.mjs': fixture(`it('fails with its memory limit', () => { if (${limit}) throw new Error(${limit}); });`) });
-    const runner = await initRunner(['a.test.mjs']);
-
-    assert.deepEqual(
-      complete(await settle(runner.dryRun(DRY_RUN))).tests.map((test) => test.status),
-      [TestStatus.Success],
-    );
-    const limits = [];
-
-    for (const run of [1, 2]) {
-      const result = await settle(runner.mutantRun(mutantRunOptions()));
-      assert.ok(result.status === MutantRunStatus.Killed, `expected run ${run} to be killed, got ${JSON.stringify(result)}`);
-      limits.push(Number(result.failureMessage));
-    }
-
-    // A Node.js process that runs one empty test holds well under 500 MB.
-    assert.ok(limits[0] !== undefined && limits[0] > 1024 && limits[0] < 1024 + 1.5 * 500, String(limits));
-    assert.equal(limits[1], limits[0]);
   });
 });
