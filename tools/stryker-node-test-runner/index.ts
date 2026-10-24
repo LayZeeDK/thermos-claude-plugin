@@ -466,7 +466,7 @@ export function groupOptions(platform: NodeJS.Platform): { detached: boolean; wi
 export function endGroup(
   pid: number,
   platform: NodeJS.Platform,
-  kill: (pid: number, signal: NodeJS.Signals) => void = (target, signal) => process.kill(target, signal),
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
 ): void {
   if (!groupOptions(platform).detached) {
     return;
