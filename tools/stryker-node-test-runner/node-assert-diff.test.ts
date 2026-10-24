@@ -37,7 +37,7 @@ it("still has Node.js's assertion diff grow with the square of the lines it comp
     diffMB >= 64,
     `The assertion diff took ${diffMB} MB, so this Node.js release no longer builds it with memory that grows with ` +
       'the square of the lines (nodejs/node#62792, nodejs/node#61347). Releases without the fix still need the ' +
-      "hook's memory watchdog (nodeTest.maxMemoryMB) that guards mutant runs against it. Either raise package.json " +
-      'engines to releases with the fix and remove the watchdog, or skip this test on releases with the fix.',
+      'memory watchdog in watchdog.ts, which guards every mutant run against it. Either raise package.json engines ' +
+      'to releases with the fix and remove the watchdog, or skip this test on releases with the fix.',
   );
 });
