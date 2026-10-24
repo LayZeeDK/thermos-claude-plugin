@@ -314,24 +314,25 @@ export function filesFor(testFiles: string[], testFilter: string[] | undefined):
 }
 
 /**
- * How many test runner processes Stryker starts, as `ConcurrencyTokenProvider` in `@stryker-mutator/core` computes
- * them: `concurrency` as a number or a percentage of the cores, by default one less than the cores above 4, and half
- * of that when checkers run beside the test runners.
+ * How many test runner processes Stryker runs the mutants in, as `ConcurrencyTokenProvider` in `@stryker-mutator/core`
+ * computes them: `concurrency` as a number or a percentage of the cores, by default one less than the cores above 4.
+ * Checkers take half of them only until checking is done (`freeCheckers`).
  */
 export function testRunnerConcurrency(
-  { concurrency, checkers }: Partial<Pick<StrykerOptions, 'concurrency' | 'checkers'>>,
+  { concurrency }: Partial<Pick<StrykerOptions, 'concurrency'>>,
   cores: number,
 ): number {
   const percentage = /^(100|[1-9]?[0-9])%$/.exec(String(concurrency))?.[1];
-  let total = cores > 4 ? cores - 1 : cores;
 
   if (percentage !== undefined) {
-    total = Math.max(1, Math.round((cores * Number(percentage)) / 100));
-  } else if (typeof concurrency === 'number') {
-    total = concurrency;
+    return Math.max(1, Math.round((cores * Number(percentage)) / 100));
   }
 
-  return checkers?.length ? Math.max(Math.floor(total / 2), 1) : total;
+  if (typeof concurrency === 'number') {
+    return concurrency;
+  }
+
+  return cores > 4 ? cores - 1 : cores;
 }
 
 /**

@@ -621,9 +621,6 @@ describe('testRunnerConcurrency', () => {
     [{ concurrency: '0%' }, 8, 1],
     [{ concurrency: '100%' }, 8, 8],
     [{ concurrency: '50' }, 8, 7],
-    [{ checkers: ['typescript'] }, 8, 3],
-    [{ checkers: ['typescript'], concurrency: 1 }, 8, 1],
-    [{ checkers: [] }, 8, 7],
   ])('gives %j on %d cores %d test runners, as Stryker does', (options, cores, runners) => {
     assert.equal(testRunnerConcurrency(options, cores), runners);
   });
