@@ -59,14 +59,25 @@ describe('endGroup', () => {
 
 describe('processEnd', () => {
   /**
-   * A stand-in for a child process with pid 123, how its end promise stands after pending callbacks ran, and the kills
-   * that ended its group on `platform`.
+   * A stand-in for a child process with `pid`, how its end promise stands after pending callbacks ran, and the kills
+   * that ended its group on `platform`, which throw `killError` when given one.
    */
-  function ending(graceMs: number, platform: NodeJS.Platform = 'win32') {
-    const child = Object.assign(new EventEmitter(), { pid: 123, stderr: new PassThrough() });
+  function ending(
+    graceMs: number,
+    platform: NodeJS.Platform = 'win32',
+    options: { pid?: number | undefined; killError?: Error } = {},
+  ) {
+    const { killError } = options;
+    // An explicit undefined stands for a process that never started.
+    const pid = 'pid' in options ? options.pid : 123;
+    const child = Object.assign(new EventEmitter(), { pid, stderr: new PassThrough() });
     const kills: unknown[][] = [];
-    const end = processEnd(child, graceMs, platform, (pid, signal) => {
-      kills.push([pid, signal]);
+    const end = processEnd(child, graceMs, platform, (target, signal) => {
+      kills.push([target, signal]);
+
+      if (killError) {
+        throw killError;
+      }
     });
     let state: unknown = 'pending';
     end.then(
@@ -95,9 +106,30 @@ describe('processEnd', () => {
     const staysOpen = ending(1_000, 'linux');
     staysOpen.child.emit('exit', 0);
     t.mock.timers.tick(1_000);
+    // Node.js closes the process once the grace period lets go of stderr.
+    staysOpen.child.emit('close', 0);
     await staysOpen.settled();
 
     assert.deepEqual([closes.kills, staysOpen.kills], [[[-123, 'SIGKILL']], [[-123, 'SIGKILL']]]);
+  });
+
+  it('ends no group of a process that failed to start, which has no pid', async () => {
+    const { child, settled, kills } = ending(1_000, 'linux', { pid: undefined });
+    const failure = new Error('spawn EAGAIN');
+    child.emit('error', failure);
+    child.emit('close', -2);
+
+    assert.equal(await settled(), failure);
+    assert.deepEqual(kills, []);
+  });
+
+  it("fails with the error that ending the process's group throws", async () => {
+    const denied = Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+    const { child, settled } = ending(1_000, 'linux', { killError: denied });
+    child.emit('exit', 0);
+    child.emit('close', 0);
+
+    assert.equal(await settled(), denied);
   });
 
   it('ends when the process closes its stdio, with its exit code and stderr, without waiting', async (t) => {

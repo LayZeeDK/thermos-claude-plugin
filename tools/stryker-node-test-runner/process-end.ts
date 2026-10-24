@@ -44,8 +44,26 @@ export function processEnd(
   return new Promise((done, fail) => {
     let errors = '';
     let grace: NodeJS.Timeout | undefined;
+    let ended = false;
+    // Runs once, from a listener, so an error from the group's end rejects instead of escaping the listener.
     const end = (code: number | null) => {
-      endGroup(child.pid as number, platform, kill);
+      if (ended) {
+        return;
+      }
+
+      ended = true;
+
+      try {
+        // A process that failed to start has no pid, and no group to end.
+        if (child.pid !== undefined) {
+          endGroup(child.pid, platform, kill);
+        }
+      } catch (error) {
+        fail(error);
+
+        return;
+      }
+
       done({ exitCode: code, stderr: errors });
     };
     child.stderr.setEncoding('utf8');
