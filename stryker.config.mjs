@@ -16,11 +16,6 @@ export default {
   testRunner: 'node-test',
   nodeTest: { testFiles: ['.claude/skills/**/*.test.ts', 'tools/**/*.test.ts'] },
   checkers: ['typescript'],
-  // Stryker sizes each mutant's timeout from the unloaded dry run; at the default concurrency, and with other work on
-  // the machine, the loaded runs cross it. Infinite loops in mutated code reach the hit limit first, so only a mutant
-  // that hangs without looping waits out the larger allowance.
-  timeoutFactor: 3,
-  timeoutMS: 15_000,
   reporters: ['clear-text', 'progress'],
   thresholds: { high: 100, low: 100, break: 100 },
 };
