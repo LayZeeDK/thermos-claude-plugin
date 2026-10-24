@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
@@ -614,15 +614,43 @@ describe('isOwn', () => {
 
 describe('testRunnerConcurrency', () => {
   testEach([
-    [{}, 8, 7],
-    [{}, 4, 4],
-    [{ concurrency: 3 }, 8, 3],
-    [{ concurrency: '50%' }, 3, 2],
-    [{ concurrency: '0%' }, 8, 1],
-    [{ concurrency: '100%' }, 8, 8],
-    [{ concurrency: '50' }, 8, 7],
-  ])('gives %j on %d cores %d test runners, as Stryker does', (options, cores, runners) => {
-    assert.equal(testRunnerConcurrency(options, cores), runners);
+    [undefined, 8, 7],
+    [undefined, 4, 4],
+    [3, 8, 3],
+    ['50%', 3, 2],
+    ['0%', 8, 1],
+    ['100%', 8, 8],
+    ['50', 8, 7],
+    ['150%', 8, 7],
+    ['x50%', 8, 7],
+    ['50%x', 8, 7],
+  ])('gives concurrency %j on %d cores %d test runners, as Stryker does', (concurrency, cores, runners) => {
+    assert.equal(testRunnerConcurrency(concurrency, cores), runners);
+  });
+
+  testEach([
+    [[], undefined],
+    [[], 3],
+    [[], '50%'],
+    [[], '150%'],
+    [['typescript'], undefined],
+    [['typescript'], 3],
+  ])("matches Stryker core's test runner count once checking is done, for checkers %j and concurrency %j", async (checkers, concurrency) => {
+    // The computation is private to @stryker-mutator/core; this fails when a release of it changes the count.
+    const providerUrl = new URL('./concurrent/concurrency-token-provider.js', import.meta.resolve('@stryker-mutator/core'));
+    const { ConcurrencyTokenProvider } = (await import(providerUrl.href)) as {
+      ConcurrencyTokenProvider: new (
+        options: { checkers: string[]; concurrency: number | string | undefined },
+        log: ReturnType<typeof logger>,
+      ) => { testRunnerToken$: { subscribe(next: (token: number) => void): unknown }; freeCheckers(): void; dispose(): void };
+    };
+    const provider = new ConcurrencyTokenProvider({ checkers: [...checkers], concurrency }, logger());
+    const tokens: number[] = [];
+    provider.testRunnerToken$.subscribe((token) => tokens.push(token));
+    provider.freeCheckers();
+    provider.dispose();
+
+    assert.equal(testRunnerConcurrency(concurrency, availableParallelism()), tokens.length);
   });
 });
 

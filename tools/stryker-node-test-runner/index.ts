@@ -318,10 +318,7 @@ export function filesFor(testFiles: string[], testFilter: string[] | undefined):
  * computes them: `concurrency` as a number or a percentage of the cores, by default one less than the cores above 4.
  * Checkers take half of them only until checking is done (`freeCheckers`).
  */
-export function testRunnerConcurrency(
-  { concurrency }: Partial<Pick<StrykerOptions, 'concurrency'>>,
-  cores: number,
-): number {
+export function testRunnerConcurrency(concurrency: StrykerOptions['concurrency'], cores: number): number {
   const percentage = /^(100|[1-9]?[0-9])%$/.exec(String(concurrency))?.[1];
 
   if (percentage !== undefined) {
@@ -618,7 +615,7 @@ export class NodeTestRunner implements TestRunner {
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
     this.#patterns = options.testFiles ? [...patterns, ...options.testFiles] : patterns;
     this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? []);
-    this.#dryRunConcurrency = testRunnerConcurrency(options, availableParallelism());
+    this.#dryRunConcurrency = testRunnerConcurrency(options.concurrency, availableParallelism());
     this.#maxMemoryMB = nodeTest?.maxMemoryMB;
     this.#log = log;
   }
