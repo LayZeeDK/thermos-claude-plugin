@@ -133,7 +133,8 @@ export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest
  * its id starts with, as Stryker's runners name tests after their suites only.
  *
  * Each test's time includes the time the file's run spent outside its outermost tests, whose time includes their
- * subtests': running any test of the file runs the file's whole process. Stryker's mutant timeout scales with the
+ * subtests': running any test of the file runs the file's whole process. The file's run is `fileMs`: its process,
+ * with the setup and removal of its run directory, and in the dry run the recording of its memory peak. Stryker's mutant timeout scales with the
  * summed time of the tests it runs, so it then scales with the processes it starts, which Stryker's other workers slow
  * down as well.
  */
@@ -515,13 +516,17 @@ export class NodeTestRunner implements TestRunner {
     const mutantResult = toMutantRunResult(result);
 
     // toMutantRunResult sums the test times, which count each file's time outside its tests once per test. A mutant
-    // run runs one file at a time, so its own time is the time of the file processes it ran.
+    // run runs one file at a time, so its own time is the time of the file runs it made, each its process with the
+    // setup and removal of its run directory.
     return 'duration' in mutantResult
       ? { ...mutantResult, duration: Math.round(performance.now() - started) }
       : mutantResult;
   }
 
-  /** Runs the files, `limit` at a time, each through `runOne`, and puts their outcomes together. */
+  /**
+   * Runs the files, `limit` at a time, each through `runOne`, and puts their outcomes together. A file's time is the
+   * time `runOne` takes.
+   */
   async #run(
     files: string[],
     run: RunOptions,
