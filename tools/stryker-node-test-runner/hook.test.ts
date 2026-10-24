@@ -154,12 +154,18 @@ describe('hook', () => {
   it('starts the memory watchdog, drops it when it fails, and records the peak memory, when the runner asks', async (t) => {
     const outDir = tempDir(t);
     const global = globalThis as HookDependencies['global'];
+    const unref = t.mock.method(Worker.prototype, 'unref');
 
     const added = await loadRunnerStartedHook(outDir, { [ENV.dryRun]: 'true', [ENV.memoryLimit]: '1000000' });
 
     const watching = global[watchdog];
     assert.ok(watching instanceof Worker, String(watching));
     t.after(() => watching.terminate());
+    // An unref'd watchdog leaves the process to end when its own work does.
+    assert.deepEqual(
+      unref.mock.calls.map((call) => call.this),
+      [watching],
+    );
     watching.emit('error', new Error('preload failed'));
     assert.equal(global[watchdog], undefined);
 
