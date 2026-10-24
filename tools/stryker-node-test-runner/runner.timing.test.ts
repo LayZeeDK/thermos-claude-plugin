@@ -43,9 +43,9 @@ describe('NodeTestRunner timing', () => {
 
   /**
    * Two test files that each mark that they started, then wait up to 3 s for the other to start, and a runner for them
-   * that runs `concurrency` test runners.
+   * under Stryker's `concurrency` and `checkers`.
    */
-  async function meetingFiles(t: TestContext, concurrency: number) {
+  async function meetingFiles(t: TestContext, concurrency: number, checkers: string[] = []) {
     const meets = (self: string, other: string) =>
       fixture(
         "const { existsSync, writeFileSync } = await import('node:fs');",
@@ -60,7 +60,7 @@ describe('NodeTestRunner timing', () => {
         '});',
       );
     const dir = project(t, { 'a.test.mjs': meets('a', 'b'), 'b.test.mjs': meets('b', 'a') });
-    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency };
+    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency, checkers };
     const runner = new NodeTestRunner(options as unknown as StrykerOptions, logger());
     await runner.init();
 
@@ -85,6 +85,15 @@ describe('NodeTestRunner timing', () => {
       failureMessage: 'b never started',
       nrOfTests: 2,
     });
+  });
+
+  it("runs the dry run's test files two at once beside checkers at a concurrency of 1, as Stryker does", async (t) => {
+    const { runner, a, b } = await meetingFiles(t, 1, ['typescript']);
+
+    assert.deepEqual(summary(complete(await settle(runner.dryRun(DRY_RUN))).tests), [
+      { id: a, status: TestStatus.Success, failureMessage: undefined },
+      { id: b, status: TestStatus.Success, failureMessage: undefined },
+    ]);
   });
 
   it("runs the dry run's test files one at a time when Stryker runs one test runner", async (t) => {
