@@ -73,12 +73,14 @@ describe('NodeTestRunner limits', () => {
   it('times out a mutant run whose process holds more memory than maxMemoryMB while a test blocks it', async (t) => {
     project(t, {
       'a.test.mjs': fixture(
+        // Grows by 16 MB about every 10 ms to 400 MB, and blocks for 5 s, so it ends by itself without a watchdog.
         "it('grows', () => {",
         '  const held = [];',
-        '  for (;;) {',
-        '    held.push(new Int32Array(4e6).fill(1));',
-        '    const until = Date.now() + 10;',
-        '    while (Date.now() < until);',
+        '  const end = Date.now() + 5_000;',
+        '  while (Date.now() < end) {',
+        '    if (held.length < 25) held.push(new Int32Array(4e6).fill(1));',
+        '    const pause = Date.now() + 10;',
+        '    while (Date.now() < pause);',
         '  }',
         '});',
       ),
