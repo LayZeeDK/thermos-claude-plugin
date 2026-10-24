@@ -93,25 +93,26 @@ describe('NodeTestRunner limits', () => {
     assert.match(result.reason ?? '', /^Memory limit reached \(\d+\/200 MB\)$/);
   });
 
-  it("limits each mutant run's processes to their file's dry-run peak memory, times 1.5, plus 1024 MB", async (t) => {
+  it("limits each mutant run's processes to their file's dry-run peak, times 1.5, plus 1024 MB, in every runner", async (t) => {
     const limit = `process.env.${ENV.memoryLimit}`;
     project(t, { 'a.test.mjs': fixture(`it('fails with its memory limit', () => { if (${limit}) throw new Error(${limit}); });`) });
-    const runner = await initRunner(['a.test.mjs']);
+    const dryRunner = await initRunner(['a.test.mjs']);
 
     assert.deepEqual(
-      complete(await settle(runner.dryRun(DRY_RUN))).tests.map((test) => test.status),
+      complete(await settle(dryRunner.dryRun(DRY_RUN))).tests.map((test) => test.status),
       [TestStatus.Success],
     );
     const limits = [];
 
-    for (const run of [1, 2]) {
+    // Stryker runs the dry run in one worker and the mutants in all of them, each with a runner of its own.
+    for (const runner of [await initRunner(['a.test.mjs']), dryRunner, await initRunner(['a.test.mjs'])]) {
       const result = await settle(runner.mutantRun(mutantRunOptions()));
-      assert.ok(result.status === MutantRunStatus.Killed, `expected run ${run} to be killed, got ${JSON.stringify(result)}`);
+      assert.ok(result.status === MutantRunStatus.Killed, `expected a killed mutant, got ${JSON.stringify(result)}`);
       limits.push(Number(result.failureMessage));
     }
 
     // A Node.js process that runs one empty test holds well under 500 MB.
     assert.ok(limits[0] !== undefined && limits[0] > 1024 && limits[0] < 1024 + 1.5 * 500, String(limits));
-    assert.equal(limits[1], limits[0]);
+    assert.deepEqual(limits, [limits[0], limits[0], limits[0]]);
   });
 });

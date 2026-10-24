@@ -20,6 +20,7 @@ import {
   memoryLimitFor,
   mergeCoverage,
   parseRecord,
+  peakMemoryDir,
   processEnd,
   removeDir,
   removeLeftDirs,
@@ -448,14 +449,16 @@ describe('isRunning', () => {
 });
 
 describe('removeLeftDirs', () => {
-  it('removes the run and cache directories of runners whose processes ended, and leaves everything else', (t) => {
+  it('removes the run, cache and dry-run peak directories whose processes ended, and leaves everything else', (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'left-dirs-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const names = [
       'stryker-node-test-111-a',
       'stryker-node-test-cache-111-b',
+      basename(peakMemoryDir(111)),
       'stryker-node-test-222-c',
       'stryker-node-test-cache-222-d',
+      basename(peakMemoryDir(222)),
       'stryker-node-test-e',
       'other-111-f',
       'other-stryker-node-test-111-g',
@@ -474,8 +477,8 @@ describe('removeLeftDirs', () => {
       },
     });
 
-    assert.deepEqual(readdirSync(dir).sort(), names.slice(2).sort());
-    assert.deepEqual(asked.sort(), [111, 111, 222, 222]);
+    assert.deepEqual(readdirSync(dir).sort(), names.slice(3).sort());
+    assert.deepEqual(asked.sort(), [111, 111, 111, 222, 222, 222]);
   });
 
   it("leaves the directories of other users' runners", (t) => {

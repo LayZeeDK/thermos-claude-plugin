@@ -1,7 +1,18 @@
 // Each test file runs in its own `node` process with hook.ts loaded through NODE_OPTIONS, so every process the tests
 // spawn reports mutant coverage too, attributed to the test that spawned it.
 import { spawn } from 'node:child_process';
-import { existsSync, globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  globSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -324,6 +335,19 @@ export function testRunnerConcurrency(
 }
 
 /**
+ * Where the runners of one Stryker run keep the most memory a process of each test file held in the dry run, one file
+ * per test file. Stryker runs the dry run in one worker and the mutants in all of them, each a process it forks and
+ * may replace, so the directory is named after the process they share: Stryker's own.
+ */
+export function peakMemoryDir(strykerPid: number): string {
+  return join(tmpdir(), `stryker-node-test-peaks-${strykerPid}-dry-run`);
+}
+
+function peakMemoryPath(dir: string, testFile: string): string {
+  return join(dir, createHash('sha256').update(testFile).digest('hex'));
+}
+
+/**
  * The memory in MB that each process of a test file's mutant run may hold: `maxMemoryMB` when set, otherwise the most
  * a process of the file held in the dry run, scaled and padded as Stryker scales and pads its timeouts. A test that a
  * mutant fails can need more memory than it did passing, and Node.js's assertion diff grows with the square of the
@@ -511,8 +535,8 @@ export function isOwn(
 /**
  * Removes the directories in `dir` that runners of this user's processes that no longer run left behind; a shared
  * temporary directory holds other users' directories too. Stryker kills a worker whose run takes too long, and a
- * killed worker cannot remove its run directory or its compile cache. A directory that cannot be removed yet is left
- * for a later runner.
+ * killed worker cannot remove its run directory or its compile cache. The dry-run peaks of a Stryker run go once
+ * Stryker's own process has ended. A directory that cannot be removed yet is left for a later runner.
  */
 export function removeLeftDirs(
   dir: string,
@@ -523,7 +547,7 @@ export function removeLeftDirs(
   } = {},
 ): void {
   for (const name of readdirSync(dir)) {
-    const pid = /^stryker-node-test-(?:cache-)?(\d+)-/.exec(name)?.[1];
+    const pid = /^stryker-node-test-(?:cache-|peaks-)?(\d+)-/.exec(name)?.[1];
     const path = join(dir, name);
 
     if (pid !== undefined && !running(Number(pid))) {
@@ -552,8 +576,7 @@ export class NodeTestRunner implements TestRunner {
   readonly #nodeArgs: string[];
   readonly #dryRunConcurrency: number;
   readonly #maxMemoryMB: number | undefined;
-  /** The most memory a process of each test file held in the dry run, in MB. */
-  readonly #peakMemoryMB = new Map<string, number>();
+  readonly #peakMemoryDir = peakMemoryDir(process.ppid);
   readonly #log: Logger;
 
   constructor(options: StrykerOptions, log: Logger) {
@@ -595,6 +618,7 @@ export class NodeTestRunner implements TestRunner {
 
   dryRun(options: DryRunOptions): Promise<DryRunResult> {
     const files = options.testFiles?.length ? options.testFiles.map((file) => resolve(file)) : this.#testFiles;
+    mkdirSync(this.#peakMemoryDir, { recursive: true });
 
     return this.#run(files, {
       dryRun: true,
@@ -632,12 +656,14 @@ export class NodeTestRunner implements TestRunner {
       files,
       run.dryRun ? this.#dryRunConcurrency : 1,
       async (file) => {
-        const limitMB = memoryLimitFor(this.#peakMemoryMB.get(file) ?? 0, this.#maxMemoryMB);
+        const peakPath = peakMemoryPath(this.#peakMemoryDir, file);
+        const peakMB = existsSync(peakPath) ? Number(readFileSync(peakPath, 'utf8')) : 0;
+        const memoryLimitMB = memoryLimitFor(peakMB, this.#maxMemoryMB);
         const started = performance.now();
-        const fileRun = await this.runFile(file, run.dryRun ? run : { ...run, memoryLimitMB: limitMB });
+        const fileRun = await this.runFile(file, run.dryRun ? run : { ...run, memoryLimitMB });
 
         if (run.dryRun) {
-          this.#peakMemoryMB.set(file, Math.max(0, ...fileRun.records.map((record) => record.peakMemoryMB ?? 0)));
+          writeFileSync(peakPath, String(Math.max(0, ...fileRun.records.map((record) => record.peakMemoryMB ?? 0))));
         }
 
         return fileOutcome(file, fileRun, performance.now() - started, run);
