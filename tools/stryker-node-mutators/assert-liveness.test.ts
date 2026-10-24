@@ -3,7 +3,7 @@ import { describe } from 'node:test';
 
 import { testEach } from '../test-each/test-each.ts';
 import { assertLiveness } from './assert-liveness.ts';
-import { mutantsOf } from './mutants-of.ts';
+import { mutantsOf } from './mutants-of.fixtures.ts';
 
 const THROW = 'throw new Error("Stryker: assertion reached");';
 const THROWING_CALL = '(() => { throw new Error("Stryker: assertion reached"); })()';
