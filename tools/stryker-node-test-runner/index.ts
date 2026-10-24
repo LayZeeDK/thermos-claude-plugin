@@ -654,25 +654,37 @@ export class NodeTestRunner implements TestRunner {
 
   dryRun(options: DryRunOptions): Promise<DryRunResult> {
     const files = options.testFiles?.length ? options.testFiles.map((file) => resolve(file)) : this.#testFiles;
-    mkdirSync(this.#peakMemoryDir, { recursive: true });
-
-    return this.#run(files, {
+    const run = {
       dryRun: true,
       disableBail: options.disableBail,
       coverageAnalysis: options.coverageAnalysis,
+    } satisfies RunOptions;
+    mkdirSync(this.#peakMemoryDir, { recursive: true });
+
+    // The dry run runs as many files at once as Stryker later runs test runners for the mutants, so the test times it
+    // reports, which size each mutant's timeout, include the slowdown of processes competing for the cores.
+    return this.#run(files, run, this.#dryRunConcurrency, async (file) => {
+      const fileRun = await this.runFile(file, run);
+      const peakMB = Math.max(0, ...fileRun.records.map((record) => record.peakMemoryMB ?? 0));
+      writeFileSync(peakMemoryPath(this.#peakMemoryDir, file), String(peakMB));
+
+      return fileRun;
     });
   }
 
   async mutantRun(options: MutantRunOptions): Promise<MutantRunResult> {
     const started = performance.now();
-    const result = await this.#run(filesFor(this.#testFiles, options.testFilter), {
+    const run = {
       dryRun: false,
       disableBail: options.disableBail,
       activeMutant: options.activeMutant.id,
       mutantActivation: options.mutantActivation,
       hitLimit: options.hitLimit,
       testFilter: options.testFilter,
-    });
+    } satisfies RunOptions;
+    const result = await this.#run(filesFor(this.#testFiles, options.testFilter), run, 1, (file) =>
+      this.runFile(file, { ...run, memoryLimitMB: this.#memoryLimitMB(file) }),
+    );
     const mutantResult = toMutantRunResult(result);
 
     // toMutantRunResult sums the test times, which count each file's time outside its tests once per test. A mutant
@@ -682,25 +694,30 @@ export class NodeTestRunner implements TestRunner {
       : mutantResult;
   }
 
-  async #run(files: string[], run: RunOptions): Promise<DryRunResult> {
+  /** The memory in MB that each process of a test file's mutant run may hold. */
+  #memoryLimitMB(file: string): number {
+    const peakPath = peakMemoryPath(this.#peakMemoryDir, file);
+    const peakMB = existsSync(peakPath) ? Number(readFileSync(peakPath, 'utf8')) : 0;
+
+    return memoryLimitFor(peakMB, this.#maxMemoryMB);
+  }
+
+  /** Runs the files, `limit` at a time, each through `runOne`, and puts their outcomes together. */
+  async #run(
+    files: string[],
+    run: RunOptions,
+    limit: number,
+    runOne: (file: string) => Promise<FileRun>,
+  ): Promise<DryRunResult> {
     const tests: TestResult[] = [];
     const coverages: (MutantCoverage | undefined)[] = [];
     const ends = (outcome: FileOutcome) => 'end' in outcome || (!run.disableBail && outcome.failed);
-    // The dry run runs as many files at once as Stryker later runs test runners for the mutants, so the test times it
-    // reports, which size each mutant's timeout, include the slowdown of processes competing for the cores.
     const outcomes = await runInPool(
       files,
-      run.dryRun ? this.#dryRunConcurrency : 1,
+      limit,
       async (file) => {
-        const peakPath = peakMemoryPath(this.#peakMemoryDir, file);
-        const peakMB = existsSync(peakPath) ? Number(readFileSync(peakPath, 'utf8')) : 0;
-        const memoryLimitMB = memoryLimitFor(peakMB, this.#maxMemoryMB);
         const started = performance.now();
-        const fileRun = await this.runFile(file, run.dryRun ? run : { ...run, memoryLimitMB });
-
-        if (run.dryRun) {
-          writeFileSync(peakPath, String(Math.max(0, ...fileRun.records.map((record) => record.peakMemoryMB ?? 0))));
-        }
+        const fileRun = await runOne(file);
 
         return fileOutcome(file, fileRun, performance.now() - started, run);
       },
