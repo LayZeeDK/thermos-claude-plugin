@@ -40,6 +40,7 @@ describe('plugin declaration', () => {
     { nodeTest: { nodeArgs: [1] } },
     { nodeTest: { maxMemoryMB: '1500' } },
     { nodeTest: { maxMemoryMB: 0 } },
+    { nodeTest: { maxMemoryMB: 1.5 } },
   ])('rejects the options %j', (options) => {
     assert.ok(!validator()(options));
   });

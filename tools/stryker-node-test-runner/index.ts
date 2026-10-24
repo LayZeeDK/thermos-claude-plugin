@@ -635,7 +635,7 @@ export const strykerValidationSchema = {
       properties: {
         testFiles: { type: 'array', items: { type: 'string' } },
         nodeArgs: { type: 'array', items: { type: 'string' } },
-        maxMemoryMB: { type: 'number', exclusiveMinimum: 0 },
+        maxMemoryMB: { type: 'integer', minimum: 1 },
       },
       additionalProperties: false,
     },
