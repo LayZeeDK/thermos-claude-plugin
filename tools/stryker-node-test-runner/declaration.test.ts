@@ -1,0 +1,43 @@
+// Kept apart from runner.test.ts: the runner runs test files in path order and stops at the first failing file, so
+// mutants in these module-level declarations, which run every test, are killed before the slow runner tests start.
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { PluginKind } from '@stryker-mutator/api/plugin';
+import ajvModule from 'ajv';
+
+import { testEach } from '../test-each/test-each.ts';
+import { NodeTestRunner, strykerPlugins, strykerValidationSchema } from './index.ts';
+
+/** Compiles the nodeTest options schema, as Stryker validates the options against it. */
+function validator() {
+  return new ajvModule.default({ allErrors: true, strict: false }).compile(strykerValidationSchema);
+}
+
+describe('plugin declaration', () => {
+  it('declares the node-test test runner', () => {
+    assert.deepEqual(strykerPlugins, [
+      { kind: PluginKind.TestRunner, name: 'node-test', injectableClass: NodeTestRunner },
+    ]);
+  });
+
+  testEach([
+    {},
+    { nodeTest: {} },
+    { nodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } },
+    { nodeTest: { nodeArgs: ['--enable-source-maps', '--stack-size=900'] } },
+  ])('accepts the options %j', (options) => {
+    assert.ok(validator()(options));
+  });
+
+  testEach([
+    { nodeTest: '*.test.ts' },
+    { nodeTest: { testFiles: '*.test.ts' } },
+    { nodeTest: { testFiles: [1] } },
+    { nodeTest: { testfiles: ['*.test.ts'] } },
+    { nodeTest: { nodeArgs: '--enable-source-maps' } },
+    { nodeTest: { nodeArgs: [1] } },
+  ])('rejects the options %j', (options) => {
+    assert.ok(!validator()(options));
+  });
+});

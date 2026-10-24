@@ -5,6 +5,8 @@
     ],
     "module": "node20",
     "target": "ES2023",
+    "allowJs": true,
+    "checkJs": true,
     "noEmit": true,
     "strict": true,
     "types": [
@@ -12,10 +14,14 @@
     ],
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
   },
   "include": [
     ".claude/skills/**/*.ts",
-    "tools/**/*.ts"
+    "tools/**/*.ts",
+    "stryker.config.mjs",
+    "stryker.test-each.config.mjs",
+    "eslint.config.mjs"
   ]
 }

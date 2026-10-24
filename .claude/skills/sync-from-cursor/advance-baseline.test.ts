@@ -17,6 +17,7 @@ import { describe, it, type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { testEach } from '../../../tools/test-each/test-each.ts';
+import { testFor } from '../../../tools/test-each/test-for.ts';
 import {
   MANIFEST_PATH,
   advanceBaseline,
@@ -103,15 +104,15 @@ describe('repository location', () => {
 
 describe('readUpstream', () => {
   it('reads the commit of cursor/main and the version of its Cursor manifest', () => {
-    assert.deepEqual(readUpstream(fakeGit('{"name":"thermos","version":"1.2.0"}')), UPSTREAM);
+    assert.deepEqual(readUpstream(fakeGit(JSON.stringify({ name: 'thermos', version: '1.2.0' }))), UPSTREAM);
   });
 
   testEach([`${COMMIT}\n`, `x${COMMIT}`, COMMIT.slice(0, 7), 'cursor/main'])('rejects %j as the commit', (commit) => {
-    assert.throws(() => readUpstream(fakeGit('{"version":"1.2.0"}', commit)), /not a commit SHA/);
+    assert.throws(() => readUpstream(fakeGit(JSON.stringify({ version: '1.2.0' }), commit)), /not a commit SHA/);
   });
 
-  testEach(['{"name":"thermos"}', '{"version":""}', '{"version":1}'])('rejects the upstream manifest %s', (json) => {
-    assert.throws(() => readUpstream(fakeGit(json)), /has no version/);
+  testEach([{ name: 'thermos' }, { version: '' }, { version: 1 }])('rejects the upstream manifest %j', (manifest) => {
+    assert.throws(() => readUpstream(fakeGit(JSON.stringify(manifest))), /has no version/);
   });
 });
 
@@ -139,8 +140,8 @@ describe('withUpstream', () => {
     assert.equal(withUpstream(committed, current), committed);
   });
 
-  testEach(['{"name":"thermos"}', '{"metadata":null}', '{"metadata":[]}'])('rejects the manifest %s', (text) => {
-    assert.throws(() => withUpstream(text, UPSTREAM), /no metadata object/);
+  testEach([{ name: 'thermos' }, { metadata: null }, { metadata: [] }])('rejects the manifest %j', (manifest) => {
+    assert.throws(() => withUpstream(JSON.stringify(manifest), UPSTREAM), /no metadata object/);
   });
 });
 
@@ -167,7 +168,7 @@ describe('advanceBaseline', () => {
   it('writes the new baseline to the manifest and returns the CHANGELOG line', (t) => {
     const manifestPath = tempManifest(t);
 
-    const line = advanceBaseline(fakeGit('{"version":"1.2.0"}'), manifestPath);
+    const line = advanceBaseline(fakeGit(JSON.stringify({ version: '1.2.0' })), manifestPath);
 
     assert.equal(line, basedOnLine(UPSTREAM));
     assert.deepEqual(upstreamIn(manifestPath), UPSTREAM);
@@ -176,7 +177,7 @@ describe('advanceBaseline', () => {
   it('leaves the manifest untouched when upstream is invalid', (t) => {
     const manifestPath = tempManifest(t);
 
-    assert.throws(() => advanceBaseline(fakeGit('{"version":""}'), manifestPath), /has no version/);
+    assert.throws(() => advanceBaseline(fakeGit(JSON.stringify({ version: '' })), manifestPath), /has no version/);
     assert.equal(readFileSync(manifestPath, 'utf8'), MANIFEST);
   });
 });
@@ -207,13 +208,13 @@ describe('command line', () => {
     }
 
     run('init', '-q');
-    writeFileSync(upstreamManifest, '{"name":"thermos","version":"1.2.0"}\n');
+    writeFileSync(upstreamManifest, `${JSON.stringify({ name: 'thermos', version: '1.2.0' })}\n`);
     run('add', 'thermos');
     run('commit', '-q', '-m', 'upstream');
     const commit = run('rev-parse', 'HEAD');
     run('update-ref', 'refs/remotes/cursor/main', commit);
     copyFileSync(join(import.meta.dirname, 'advance-baseline.ts'), join(root, SCRIPT));
-    writeFileSync(join(root, 'package.json'), '{ "type": "module" }\n');
+    writeFileSync(join(root, 'package.json'), `${JSON.stringify({ type: 'module' })}\n`);
     writeFileSync(join(root, MANIFEST_IN_REPO), MANIFEST);
     symlinkSync(root, link, 'junction');
     const upstream: Upstream = { version: '1.2.0', commit };
@@ -226,26 +227,25 @@ describe('command line', () => {
     return spawnSync(process.execPath, [scriptPath], { cwd: tmpdir(), encoding: 'utf8' });
   }
 
-  it('advances the baseline of the repository it sits in and prints the CHANGELOG line', (t) => {
-    const { script, manifestPath, upstream } = setup(t);
+  testFor([
+    { started: 'directly', path: ({ script }: ReturnType<typeof setup>) => script },
+    {
+      started: 'through a junction or symlink',
+      path: ({ root, link, script }: ReturnType<typeof setup>) => join(link, relative(root, script)),
+    },
+  ])(
+    'advances the baseline of the repository it sits in and prints the CHANGELOG line, started $started',
+    ({ path }, t) => {
+      const repository = setup(t);
 
-    const result = runNode(script);
+      const result = runNode(path(repository));
 
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `${basedOnLine(upstream)}\n`);
-    assert.equal(result.stderr, '');
-    assert.deepEqual(upstreamIn(manifestPath), upstream);
-  });
-
-  it('does the same when started through a junction or symlink', (t) => {
-    const { root, link, script, manifestPath, upstream } = setup(t);
-
-    const result = runNode(join(link, relative(root, script)));
-
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `${basedOnLine(upstream)}\n`);
-    assert.deepEqual(upstreamIn(manifestPath), upstream);
-  });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, `${basedOnLine(repository.upstream)}\n`);
+      assert.equal(result.stderr, '');
+      assert.deepEqual(upstreamIn(repository.manifestPath), repository.upstream);
+    },
+  );
 
   it('does nothing when another script imports it', (t) => {
     const { root, script, manifestPath } = setup(t);

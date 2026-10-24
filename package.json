@@ -8,10 +8,20 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\""
+    "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\"",
+    "mutate": "stryker run && stryker run stryker.test-each.config.mjs",
+    "bench": "node tools/stryker-node-test-runner/runner.bench.ts",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@stryker-mutator/api": "^10.0.0",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/typescript-checker": "^10.0.0",
     "@types/node": "^22.20.5",
+    "@typescript-eslint/parser": "^8.72.0",
+    "ajv": "^8.20.0",
+    "eslint": "^10.13.0",
+    "tinybench": "^6.2.2",
     "typescript": "^6.0.3"
   }
 }

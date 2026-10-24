@@ -11,9 +11,9 @@ describe('testEach', () => {
         testEach([])('none', report);
       },
       [
-        { name: 'case 0 of 1 a', outcome: 'fail', error: '[1,"a"]' },
-        { name: 'case 1 of 2 undefined', outcome: 'fail', error: '[2]' },
-        { name: 'case 2 of undefined undefined', outcome: 'fail', error: '[]' },
+        { name: 'case 0 of 1 a', outcome: 'fail', error: JSON.stringify([1, 'a']) },
+        { name: 'case 1 of 2 undefined', outcome: 'fail', error: JSON.stringify([2]) },
+        { name: 'case 2 of undefined undefined', outcome: 'fail', error: JSON.stringify([]) },
       ],
     );
   });
@@ -24,10 +24,10 @@ describe('testEach', () => {
         testEach([[1, 2], 'x', null, { a: 1 }])('%s and %s, $a', report);
       },
       [
-        { name: '1 and 2, $a', outcome: 'fail', error: '[[1,2]]' },
-        { name: 'x and undefined, $a', outcome: 'fail', error: '["x"]' },
-        { name: 'null and undefined, $a', outcome: 'fail', error: '[null]' },
-        { name: '{ a: 1 } and undefined, 1', outcome: 'fail', error: '[{"a":1}]' },
+        { name: '1 and 2, $a', outcome: 'fail', error: JSON.stringify([[1, 2]]) },
+        { name: 'x and undefined, $a', outcome: 'fail', error: JSON.stringify(['x']) },
+        { name: 'null and undefined, $a', outcome: 'fail', error: JSON.stringify([null]) },
+        { name: '{ a: 1 } and undefined, 1', outcome: 'fail', error: JSON.stringify([{ a: 1 }]) },
       ],
     );
   });
@@ -43,8 +43,8 @@ describe('testEach', () => {
         `('$first-$second', report);
       },
       [
-        { name: '1-x', outcome: 'fail', error: '[{"first":1,"second":"x"}]' },
-        { name: '2-y', outcome: 'fail', error: '[{"first":2,"second":"y"}]' },
+        { name: '1-x', outcome: 'fail', error: JSON.stringify([{ first: 1, second: 'x' }]) },
+        { name: '2-y', outcome: 'fail', error: JSON.stringify([{ first: 2, second: 'y' }]) },
       ],
     );
   });
