@@ -122,11 +122,10 @@ export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest
  * Turns the recorded tests of one test file into Stryker test results. A test's name leaves out the test file, which
  * its id starts with, as Stryker's runners name tests after their suites only.
  *
- * Each test's time includes the time the file's run spent outside its outermost tests, whose time includes their
- * subtests': running any test of the file runs the file's whole process. The file's run is `fileMs`: its process,
- * with the setup and removal of its run directory, and in the dry run the recording of its memory peak. Stryker's mutant timeout scales with the
- * summed time of the tests it runs, so it then scales with the processes it starts, which Stryker's other workers slow
- * down as well.
+ * Each test's time includes the time the file's run, `fileMs`, spent outside its outermost tests, whose time includes
+ * their subtests': running any test of the file runs the file's whole process. Stryker's mutant timeout scales with
+ * the summed time of the tests it runs, so it then scales with the processes it starts, which Stryker's other workers
+ * slow down as well.
  */
 export function toTestResults(testFile: string, recorded: RecordedTest[], fileMs: number): TestResult[] {
   const prefix = testId(testFile, '');
@@ -516,7 +515,8 @@ export class NodeTestRunner implements TestRunner {
 
   /**
    * Runs the files, `limit` at a time, each through `runOne`, and puts their outcomes together. A file's time is the
-   * time `runOne` takes.
+   * time `runOne` takes: the file's process, with the setup and removal of its run directory, and in the dry run the
+   * recording of its memory peak.
    */
   async #run(
     files: string[],
