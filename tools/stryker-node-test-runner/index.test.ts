@@ -396,6 +396,19 @@ describe('runInPool', () => {
     assert.deepEqual(await pool, [0, 1]);
   });
 
+  it('returns no results after the first item whose result stops the run, though a later one finished', async () => {
+    const { started, settle, pool, turn } = setup(5, 2, (result) => result === 0);
+
+    await turn();
+    settle[0]?.(0);
+    await turn();
+    settle[1]?.(1);
+    await turn();
+
+    assert.deepEqual(started, [0, 1]);
+    assert.deepEqual(await pool, [0]);
+  });
+
   it('starts no more items once an item fails, and rejects with its error', async () => {
     const { started, settle, fail, pool, turn } = setup(5, 2);
     const error = new Error('spawn EAGAIN');

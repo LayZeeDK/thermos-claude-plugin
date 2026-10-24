@@ -205,7 +205,8 @@ type FileOutcome =
 
 /**
  * Runs `work` on the items, at most `limit` at a time and starting them in order, and starts no more once a result
- * `stops` the run or `work` rejects. Returns the results of the items it started, which are the first ones, in order.
+ * `stops` the run or `work` rejects. Returns the results of the first items, in order, up to the first that `stops`
+ * the run.
  */
 export async function runInPool<T, R>(
   items: T[],
@@ -233,8 +234,9 @@ export async function runInPool<T, R>(
   };
 
   await Promise.all(Array.from({ length: limit }, lane));
+  const end = results.findIndex(stops);
 
-  return results;
+  return end === -1 ? results : results.slice(0, end + 1);
 }
 
 /** Turns one test file's run, which took `fileMs`, into its outcome. */
@@ -627,10 +629,6 @@ export class NodeTestRunner implements TestRunner {
 
       tests.push(...outcome.results);
       coverages.push(...outcome.coverages);
-
-      if (ends(outcome)) {
-        break;
-      }
     }
 
     // Mutant runs leave coverageAnalysis unset and take the next return; toMutantRunResult drops their coverage.
