@@ -81,6 +81,11 @@ describe('NodeTestRunner endings', () => {
   testFor([
     ['while it loads, before it declares a test', ['process.exit(0);', "it('never runs', () => {});"]],
     ['before node:test reports any test', [passes, "it('exits', () => { process.exit(0); });", neverEnds]],
+    // fastify/test/als.test.js:9
+    [
+      'from a test that skips itself',
+      [passes, "it('skips, then exits', (t) => { t.skip('no AsyncLocalStorage'); process.exit(0); });", neverEnds],
+    ],
     [
       'after node:test reports a test',
       [passes, "it('exits later', () => { setTimeout(() => process.exit(0), 10); });", neverEnds],
