@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\"",
-    "mutate": "stryker run && stryker run stryker.test-each.config.mjs",
+    "mutate": "stryker run && stryker run stryker.test-each.config.mjs && stryker run stryker.test-code.config.mjs",
     "bench": "node tools/stryker-node-test-runner/runner.bench.ts",
     "lint": "eslint ."
   },

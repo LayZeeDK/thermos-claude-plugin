@@ -1,3 +1,6 @@
+// Adds the Node.js operators to Stryker's own mutators for production code.
+import './tools/stryker-node-mutators/index.ts';
+
 /** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
 export default {
   mutate: [
