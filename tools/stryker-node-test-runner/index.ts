@@ -35,7 +35,7 @@ import {
   type TestRunnerCapabilities,
 } from '@stryker-mutator/api/test-runner';
 
-import { ENV, testId, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
+import { ENV, recordName, testId, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 import { removeDir, removeLeftDirs } from './dirs.ts';
 import { memoryLimits, peakMemoryDir, type MemoryLimits } from './memory-limits.ts';
 import { groupOptions, processEnd } from './process-end.ts';
@@ -585,6 +585,8 @@ export class NodeTestRunner implements TestRunner {
         ...groupOptions(process.platform),
       });
       const { exitCode, stderr } = await processEnd(child, CLOSE_GRACE_MS, process.platform);
+      // processEnd rejects for a process that failed to start, the only kind without a pid.
+      const mainRecord = recordName(child.pid as number);
       let unreadable: string | undefined;
       const records = readdirSync(outDir).flatMap((name) => {
         try {
@@ -592,7 +594,7 @@ export class NodeTestRunner implements TestRunner {
         } catch (error) {
           // A process that the tests started can still be writing its record when the grace period ends; the test
           // file's own process writes its record before it exits.
-          if (name === `${child.pid}.json`) {
+          if (name === mainRecord) {
             unreadable = (error as Error).message;
           }
 

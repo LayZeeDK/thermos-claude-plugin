@@ -211,6 +211,11 @@ export function workersAllowed(permission: { has(scope: string): boolean } | und
 /** Where the hook keeps the memory watchdog it started. */
 export const watchdog = Symbol.for('thermos.stryker-node-test-runner.watchdog');
 
+/** The name of the record that the process with this pid writes to the output directory. */
+export function recordName(pid: number): string {
+  return `${pid}.json`;
+}
+
 /**
  * Installs the hook when the runner started this process tree. Returns whether it installed.
  */
@@ -234,7 +239,7 @@ export function install(deps: HookDependencies): boolean {
 
   if (memoryLimit > 0 && deps.canWatchMemory) {
     deps.global[watchdog] = deps.watchMemory({
-      workerData: { limitMB: memoryLimit, recordPath: join(outDir, `${deps.pid}.json`) },
+      workerData: { limitMB: memoryLimit, recordPath: join(outDir, recordName(deps.pid)) },
       // Without the process's options, such as --require ts-node/register, which would load in the thread again.
       execArgv: [],
     });
@@ -297,7 +302,7 @@ export function install(deps: HookDependencies): boolean {
     natural = true;
   });
   deps.onExit(() => {
-    deps.writeRecord(join(outDir, `${deps.pid}.json`), {
+    deps.writeRecord(join(outDir, recordName(deps.pid)), {
       ...(main && { main }),
       tests,
       hitCount: ns.hitCount,
