@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "type": "object",
+  "title": "StrykerNodeTestRunnerOptions",
+  "properties": {
+    "nodeTest": {
+      "description": "Configuration for the node-test test runner, which runs each test file with node and node:test.",
+      "title": "NodeTestRunnerOptions",
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "testFiles": {
+          "description": "Glob patterns for the test files, relative to the working directory. Defaults to every .test.ts file.",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["**/*.test.ts"]
+        },
+        "nodeArgs": {
+          "description": "Arguments for node ahead of the test file, such as --enable-source-maps. Options that add a node:test reporter or its destination are left out, as the runner uses its own reporter. Defaults to none.",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "maxMemoryMB": {
+          "description": "The memory in MB that each process of a mutant run may hold before the runner ends it and reports the mutant as timed out. Defaults to the most memory a process of the test file held in the dry run, times 1.5, plus 1024. A dry run in which a process holds more ends as an error.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

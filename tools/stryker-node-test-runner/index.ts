@@ -31,20 +31,16 @@ import { removeDir, removeLeftDirs } from './dirs.ts';
 import { ENV, recordName, testId, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 import { memoryLimits, peakMemoryDir, type MemoryLimits } from './memory-limits.ts';
 import { groupOptions, processEnd } from './process-end.ts';
+import schema from './schema/node-test-runner-options.json' with { type: 'json' };
 
-/** Options under `nodeTest` in the Stryker configuration. */
+/** Options under `nodeTest` in the Stryker configuration, which `schema/node-test-runner-options.json` describes. */
 export interface NodeTestOptions {
-  /** Glob patterns for the test files, relative to the working directory. Defaults to every `.test.ts` file. */
   testFiles?: string[];
-  /** Arguments for `node` ahead of the test file, such as `--enable-source-maps`. */
   nodeArgs?: string[];
-  /**
-   * The memory in MB that each process of a mutant run may hold before the runner ends it and reports the mutant as
-   * timed out. Defaults to the most memory a process of the test file held in the dry run, times 1.5, plus 1024. A dry
-   * run in which a process holds more ends as an error.
-   */
   maxMemoryMB?: number;
 }
+
+const DEFAULTS = schema.properties.nodeTest.properties;
 
 export type RunOptions =
   | {
@@ -399,10 +395,10 @@ export class NodeTestRunner implements TestRunner {
 
   constructor(options: StrykerOptions, log: Logger) {
     const nodeTest = (options as { nodeTest?: NodeTestOptions }).nodeTest;
-    const patterns = nodeTest?.testFiles ?? ['**/*.test.ts'];
+    const patterns = nodeTest?.testFiles ?? DEFAULTS.testFiles.default;
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
     this.#patterns = [...patterns, ...options.testFiles];
-    this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? []);
+    this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? DEFAULTS.nodeArgs.default);
     this.#dryRunConcurrency = testRunnerConcurrency(
       options.concurrency,
       options.checkers.length > 0,
@@ -576,17 +572,4 @@ export class NodeTestRunner implements TestRunner {
 
 export const strykerPlugins = [declareClassPlugin(PluginKind.TestRunner, 'node-test', NodeTestRunner)];
 
-export const strykerValidationSchema = {
-  type: 'object',
-  properties: {
-    nodeTest: {
-      type: 'object',
-      properties: {
-        testFiles: { type: 'array', items: { type: 'string' } },
-        nodeArgs: { type: 'array', items: { type: 'string' } },
-        maxMemoryMB: { type: 'integer', minimum: 1 },
-      },
-      additionalProperties: false,
-    },
-  },
-};
+export const strykerValidationSchema = schema;
