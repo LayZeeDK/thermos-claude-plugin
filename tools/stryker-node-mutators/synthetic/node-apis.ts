@@ -1,3 +1,4 @@
+// Code that exists to be mutated: the Node.js API shapes the production operators match that no other file here has.
 import assert from 'node:assert/strict';
 import { once, type EventEmitter } from 'node:events';
 import process from 'node:process';

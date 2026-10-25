@@ -58,7 +58,7 @@ class DryRunPeaks implements MemoryLimits {
     writeFileSync(this.#path(file), String(peakMB));
   }
 
-  /** A file the dry run did not run, as when Stryker's --testFiles names fewer files than nodeTest.testFiles. */
+  /** A file without a dry-run peak, as when Stryker's --testFiles names fewer files, gets the floor with a warning. */
   forMutantRun(file: string): number {
     const peakMB = storedPeak(this.#path(file));
     const limitMB = Math.round((peakMB ?? 0) * 1.5 + 1024);
