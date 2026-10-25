@@ -388,7 +388,7 @@ describe('hook', () => {
 
   testFor([
     ['', {}],
-    // The watchdog's thread then runs as an ES module, which has no require.
+    // The watchdog's thread gets none of the process's environment, so it stays CommonJS.
     [' run as an ES module', { NODE_OPTIONS: '--input-type=module' }],
   ] as const)(
     "ends a process%s that holds more memory than the memory limit, leaving the watchdog's record with both numbers",
@@ -413,8 +413,8 @@ describe('hook', () => {
 
   it("keeps the record of a process run as an ES module with a memory limit that exits by itself, untouched by the watchdog's thread", async (t) => {
     const outDir = tempDir(t);
-    // Run as an ES module, the watchdog's thread loads the hook that NODE_OPTIONS names, as in a Stryker run, and its
-    // record would lack the hit count that only the main thread sets.
+    // NODE_OPTIONS names the hook, as a Stryker run's does. The watchdog's thread, which gets none of the process's
+    // environment, must not load it: a record it wrote would lack the hit count that only the main thread sets.
     const script = 'globalThis.__stryker__.hitCount = 42; setTimeout(() => {}, 500);';
 
     const { code, pid } = await runWithHook(['-e', script], {
@@ -470,34 +470,41 @@ describe('hook', () => {
     assert.equal(code, 0);
   });
 
-  it('loads a --require preload once, not again in the memory watchdog', async (t) => {
+  testFor([
+    ['the arguments', true],
+    ['NODE_OPTIONS', false],
+  ] as const)('loads a --require preload that %s name once, not again in the memory watchdog', async ([, inArgs], t) => {
     const dir = tempDir(t);
     const outDir = tempDir(t);
-    writeFileSync(join(dir, 'count.cjs'), "require('node:fs').appendFileSync(__dirname + '/loads.txt', 'load\\n');\n");
+    const preload = join(dir, 'count.cjs');
+    writeFileSync(preload, "require('node:fs').appendFileSync(__dirname + '/loads.txt', 'load\\n');\n");
+    const script = ['-e', 'setTimeout(() => {}, 500);'];
 
-    const { code } = await runWithHook(['--require', join(dir, 'count.cjs'), '-e', 'setTimeout(() => {}, 500);'], {
+    const { code } = await runWithHook(inArgs ? ['--require', preload, ...script] : script, {
       [ENV.out]: outDir,
       [ENV.memoryLimit]: '1500',
+      ...(!inArgs && { NODE_OPTIONS: `--require ${JSON.stringify(preload)}` }),
     });
 
     assert.equal(code, 0);
     assert.equal(readFileSync(join(dir, 'loads.txt'), 'utf8'), 'load\n');
   });
 
-  it('runs a process whose NODE_OPTIONS preload cannot run in a worker with a memory limit', async (t) => {
+  it('ends a process whose NODE_OPTIONS preload cannot run in a worker once it holds more than the memory limit', async (t) => {
     const dir = tempDir(t);
     const outDir = tempDir(t);
-    // process.chdir throws in a worker thread, which loads the preloads that NODE_OPTIONS names too.
+    // process.chdir throws in a worker thread; the watchdog's thread, which gets none of the process's environment,
+    // does not load it.
     writeFileSync(join(dir, 'chdir.cjs'), 'process.chdir(__dirname);\n');
 
-    const { code, pid } = await runWithHook(['-e', 'setTimeout(() => {}, 500);'], {
+    const { code, pid } = await runWithHook(['-e', GROWS], {
       [ENV.out]: outDir,
-      [ENV.memoryLimit]: '1500',
+      [ENV.memoryLimit]: '200',
       NODE_OPTIONS: `--require ${JSON.stringify(join(dir, 'chdir.cjs'))}`,
     });
 
-    assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
+    assert.notEqual(code, 0);
+    assert.equal(readRecords(outDir)[`${pid}.memory.json`]?.memoryLimitReached?.limitMB, 200);
   });
 
   it('runs a process under the permission model without workers with a memory limit as it would without one', async (t) => {

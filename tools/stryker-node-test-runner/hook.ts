@@ -26,8 +26,7 @@ install({
   canWatchMemory: isMainThread && workersAllowed(process.permission),
   watchMemory: (options) => {
     const worker = new Worker(WATCHDOG, { eval: true, ...options });
-    // A preload that NODE_OPTIONS names and that cannot run in a worker, such as one that calls process.chdir, stops
-    // the watchdog alone, and the process runs as it would outside Stryker, its output untouched.
+    // A watchdog that fails stops alone, and the process runs as it would outside Stryker, its output untouched.
     worker.on('error', () => {});
     worker.unref();
 

@@ -175,7 +175,7 @@ export interface HookDependencies {
    * Starts the memory watchdog of watchdog.ts in a worker thread with these options, and returns it. It must work while
    * a test blocks the process: Node.js's assertion diff can fill gigabytes in one synchronous call.
    */
-  watchMemory: (options: { workerData: WatchdogData; execArgv: string[] }) => unknown;
+  watchMemory: (options: { workerData: WatchdogData; execArgv: string[]; env: Record<string, string> }) => unknown;
   /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
   callSites: (
     frameCount: number,
@@ -231,8 +231,11 @@ export function install(deps: HookDependencies): boolean {
     deps.global[watchdog] = deps.watchMemory({
       // A file of the watchdog's own, which the exit listener cannot be writing at the same time.
       workerData: { limitMB: memoryLimit, recordPath: join(outDir, `${deps.pid}.memory.json`) },
-      // Without the process's options, such as --require ts-node/register, which would load in the thread again.
+      // Without the process's options, such as --require ts-node/register, which would load in the thread again, and
+      // without its environment, whose NODE_OPTIONS Node.js would read for the thread: its preloads, the hook among
+      // them, would run there too, and --input-type=module would make the thread an ES module.
       execArgv: [],
+      env: {},
     });
   }
 

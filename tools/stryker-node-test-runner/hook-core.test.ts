@@ -494,7 +494,11 @@ describe('install', () => {
     const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.memoryLimit]: '1500' });
     install(deps);
 
-    const options = { workerData: { limitMB: 1500, recordPath: join(OUT, '4321.memory.json') }, execArgv: [] };
+    const options = {
+      workerData: { limitMB: 1500, recordPath: join(OUT, '4321.memory.json') },
+      execArgv: [],
+      env: {},
+    };
     assert.deepEqual(calls, [`watchMemory ${JSON.stringify(options)}`, 'onExit']);
     assert.equal(deps.global[watchdog], 'the watchdog');
   });
