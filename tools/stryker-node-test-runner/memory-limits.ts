@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -70,10 +70,7 @@ class DryRunPeaks implements MemoryLimits {
    * peak; it gets the floor, with a warning, as does a file whose peak cannot be read.
    */
   forMutantRun(file: string): number {
-    const path = this.#path(file);
-    const stored = existsSync(path) ? readFileSync(path, 'utf8') : '';
-    // A peak that does not read as a whole number counts as none.
-    const peakMB = /^\d+$/.test(stored) ? Number(stored) : undefined;
+    const peakMB = storedPeak(this.#path(file));
     const limitMB = Math.round((peakMB ?? 0) * 1.5 + 1024);
 
     if (peakMB === undefined && !this.#unmeasured.has(file)) {
@@ -89,5 +86,16 @@ class DryRunPeaks implements MemoryLimits {
 
   #path(file: string): string {
     return join(this.#dir, createHash('sha256').update(file).digest('hex'));
+  }
+}
+
+/** The peak stored at `path`, or none when there is no file or it does not read as a whole number. */
+function storedPeak(path: string): number | undefined {
+  try {
+    const stored = readFileSync(path, 'utf8');
+
+    return /^\d+$/.test(stored) ? Number(stored) : undefined;
+  } catch {
+    // The dry run did not run the file.
   }
 }
