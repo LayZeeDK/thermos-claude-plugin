@@ -63,10 +63,9 @@ function propertyName(member: types.Node): string | undefined {
 }
 
 export function calleeRoot(callee: types.Node): types.Identifier | undefined {
-  let node = callee;
+  if (callee.type === 'MemberExpression') {
+    return calleeRoot(callee.object);
+  }
 
-  // The loop advances in its header, so that no mutant empties its step and loops forever.
-  for (; node.type === 'MemberExpression'; node = node.object) {}
-
-  return node.type === 'Identifier' ? node : undefined;
+  return callee.type === 'Identifier' ? callee : undefined;
 }
