@@ -70,6 +70,23 @@ describe('NodeTestRunner', () => {
     await runner.dispose();
   });
 
+  it("warns and runs nothing without test files when Stryker's allowEmpty is set", async (t) => {
+    project(t, { 'a.test.mjs': FAILING });
+    const warnings: string[] = [];
+    const options = { allowEmpty: true, nodeTest: { testFiles: ['none/*.test.mjs'] } };
+    const runner = new NodeTestRunner(strykerOptions(options), logger([], false, warnings));
+    t.after(() => runner.dispose());
+
+    await runner.init();
+
+    assert.deepEqual(warnings, ['No test files match ["none/*.test.mjs"]; running none, as allowEmpty is set.']);
+    assert.deepEqual(await settle(runner.dryRun(DRY_RUN)), {
+      status: DryRunStatus.Complete,
+      tests: [],
+      mutantCoverage: { static: {}, perTest: {} },
+    });
+  });
+
   it('keeps the compile cache of the processes a run starts in its own directory, until it is disposed', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(

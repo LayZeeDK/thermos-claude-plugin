@@ -394,6 +394,7 @@ export class NodeTestRunner implements TestRunner {
   readonly #nodeArgs: string[];
   readonly #dryRunConcurrency: number;
   readonly #memoryLimits: MemoryLimits;
+  readonly #allowEmpty: boolean;
   readonly #log: Logger;
 
   constructor(options: StrykerOptions, log: Logger) {
@@ -408,6 +409,7 @@ export class NodeTestRunner implements TestRunner {
       availableParallelism(),
     );
     this.#memoryLimits = memoryLimits(nodeTest?.maxMemoryMB, peakMemoryDir(process.ppid), log);
+    this.#allowEmpty = options.allowEmpty;
     this.#log = log;
   }
 
@@ -421,7 +423,13 @@ export class NodeTestRunner implements TestRunner {
     this.#testFiles = [...new Set(files)].sort();
 
     if (this.#testFiles.length === 0) {
-      throw new Error(`No test files match ${JSON.stringify(this.#patterns)}`);
+      const message = `No test files match ${JSON.stringify(this.#patterns)}`;
+
+      if (!this.#allowEmpty) {
+        throw new Error(message);
+      }
+
+      this.#log.warn(`${message}; running none, as allowEmpty is set.`);
     }
 
     removeLeftDirs(tmpdir());

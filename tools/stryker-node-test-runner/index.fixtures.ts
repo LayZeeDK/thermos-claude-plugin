@@ -111,6 +111,7 @@ export interface RunnerOptions {
   testFiles?: string[];
   concurrency?: number;
   checkers?: string[];
+  allowEmpty?: boolean;
 }
 
 export function strykerOptions(options: RunnerOptions = {}): StrykerOptions {
