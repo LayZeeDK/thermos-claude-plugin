@@ -13,8 +13,8 @@ export interface WatchdogData {
 
 /**
  * Looks at the process's resident memory once. Over the limit, it writes the process's record, which tells the runner
- * why the process ended, and ends the process: from a worker, process.exit and process.abort do not end a process
- * whose main thread is blocked, and a signal does.
+ * why the process ended, and ends the process, also when the record cannot be written: from a worker, process.exit and
+ * process.abort do not end a process whose main thread is blocked, and a signal does.
  */
 export function checkMemory(
   { limitMB, recordPath }: WatchdogData,
@@ -26,8 +26,11 @@ export function checkMemory(
 
   if (rssMB > limitMB) {
     const record: ProcessRecord = { tests: [], memoryLimitReached: { rssMB, limitMB } };
-    write(recordPath, JSON.stringify(record));
-    kill(process.pid, 'SIGKILL');
+    try {
+      write(recordPath, JSON.stringify(record));
+    } finally {
+      kill(process.pid, 'SIGKILL');
+    }
   }
 }
 

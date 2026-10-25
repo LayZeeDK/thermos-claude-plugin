@@ -29,6 +29,24 @@ describe('checkMemory', () => {
     });
   });
 
+  it('ends the process also when its record cannot be written', () => {
+    const kills: unknown[][] = [];
+
+    assert.throws(
+      () =>
+        checkMemory(
+          DATA,
+          200.6 * MB,
+          () => {
+            throw new Error('ENOENT');
+          },
+          (pid, signal) => kills.push([pid, signal]),
+        ),
+      /ENOENT/,
+    );
+    assert.deepEqual(kills, [[process.pid, 'SIGKILL']]);
+  });
+
   testFor([
     ['at the limit', 200 * MB],
     ['just below the limit after rounding', 200.4 * MB],
