@@ -59,6 +59,7 @@ describe('AssertLiveness', () => {
     ['a method of the test context', `${TEST}it('works', (t) => {\n  t.diagnostic('x');\n});`],
     ['an assert member of a member of a parameter', 'function check(x: any) {\n  x.t.assert.ok(true);\n}'],
     ['an assertion whose value is used', `${STRICT}const result = assert.ok(true);`],
+    ['an assertion that is named but not called', `${STRICT}assert.ok;`],
     ['an assertion reached through an array', `${STRICT}[assert][0].ok(true);`],
     ["another call that is an arrow function's body", '[1].forEach((n) => console.log(n));'],
   ])('leaves %s alone', async (_title, source) => {
