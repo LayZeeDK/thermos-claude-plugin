@@ -470,6 +470,7 @@ describe('install', () => {
     assert.equal(installed, Symbol.for('thermos.stryker-node-test-runner.hook'));
     assert.equal(reporting, Symbol.for('thermos.stryker-node-test-runner.reporting'));
     assert.equal(wrappedNodeTest, Symbol.for('thermos.stryker-node-test-runner.node-test'));
+    assert.equal(watchdog, Symbol.for('thermos.stryker-node-test-runner.watchdog'));
   });
 
   it('keeps an existing Stryker namespace', () => {
