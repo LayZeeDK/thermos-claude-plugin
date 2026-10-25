@@ -12,7 +12,7 @@ const MESSAGE = 'Stryker: assertion reached';
  */
 export const assertLiveness: Operator = {
   name: 'AssertLiveness',
-  sample: "import assert from 'node:assert/strict';\n\nassert.ok(true);\n",
+  sample: 'export function check(t: any) {\n  t.assert.ok(true);\n}\n',
   *mutate(path, t) {
     if (path.isExpressionStatement() && isAssertion(path, awaited(path.node.expression))) {
       yield t.throwStatement(error(t));
