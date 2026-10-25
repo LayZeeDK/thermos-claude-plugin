@@ -56,6 +56,26 @@ describe('NodeTimerDelay', () => {
     ['AbortSignal.timeout', 'AbortSignal.timeout(5);'],
     ['a computed timer of node:timers', "import timers from 'node:timers';\ntimers['setTimeout'](f, 5);"],
     ['a timer constructed with new', 'new setTimeout(f, 5);'],
+    // fastify/test/helper.js:9
+    [
+      'a timer promisified into a function of its own',
+      "import { promisify } from 'node:util';\nconst sleep = promisify(setTimeout);\nawait sleep(200);",
+    ],
+    // fastify/lib/server.js:319
+    ['a setTimeout method of a parameter', 'function f(server: any) {\n  server.setTimeout(5);\n}'],
+    // fastify/test/connection-timeout.test.js:37
+    ['a setTimeout method of a member', 'fastify.server.setTimeout(5);'],
+    // pino-pretty/benchmark.js:24
+    ['the global setImmediate', 'setImmediate(f);'],
+    // fastify/test/content-type-parser-async-context.test.js:4
+    [
+      'a renamed setImmediate of node:timers/promises',
+      "import { setImmediate as immediate } from 'node:timers/promises';\nawait immediate(5);",
+    ],
+    // fastify/fastify.js:450
+    ['process.nextTick', 'process.nextTick(done, 5);'],
+    // fast-json-stringify/index.js:576
+    ['a timer in generated source', "new Function('f', 'setTimeout(f, 5)');"],
   ])('leaves %s alone', async (_title, source) => {
     assert.deepEqual(await mutantsOf(nodeTimerDelay, source), []);
   });

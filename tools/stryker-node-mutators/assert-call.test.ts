@@ -62,6 +62,23 @@ describe('AssertCall', () => {
     ['an assertion that is named but not called', `${STRICT}assert.ok;`],
     ['an assertion reached through an array', `${STRICT}[assert][0].ok(true);`],
     ["another call that is an arrow function's body", '[1].forEach((n) => console.log(n));'],
+    // pino-pretty/test/cli.test.js:20
+    ["the test context's fail passed as a value", `${TEST}it('works', (t) => {\n  child.on('error', t.assert.fail);\n});`],
+    // fastify/test/inject.test.js:288
+    ["the test context's fail bound", `${TEST}it('works', (t) => {\n  t.assert.fail.bind(t, 'never');\n});`],
+    // fastify/test/hooks.test.js:3279, fast-json-stringify/test/typesArray.test.js:255
+    ["tap's fail and equal on the test context", `${TEST}it('works', (t) => {\n  t.fail('should throw');\n  t.equal(1, 1);\n});`],
+    // pino-pretty/test/error-objects.test.js:38
+    ["the test context's plan", `${TEST}it('works', (t) => {\n  t.plan(2);\n});`],
+    // pino-pretty/test/cli-rc.test.js:213
+    [
+      'a function of another library given the test context',
+      `${TEST}import { match } from '@jsumners/assert-match';\nit('works', (t) => {\n  match(data, 'Error', t);\n});`,
+    ],
+    [
+      'a constant that shadows the test context',
+      `${TEST}it('works', (t) => {\n  [1].forEach(() => {\n    const t = { assert: { ok(value: unknown) {} } };\n    t.assert.ok(true);\n  });\n});`,
+    ],
   ])('leaves %s alone', async (_title, source) => {
     assert.deepEqual(await mutantsOf(assertCall, source), []);
   });

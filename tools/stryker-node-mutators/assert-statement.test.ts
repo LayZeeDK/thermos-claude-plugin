@@ -29,6 +29,15 @@ describe('AssertStatement', () => {
     ['an assertion whose value is used', `${STRICT}const result = assert.ok(ready);`],
     ['an assertion reached through an array', `${STRICT}[assert][0].ok(ready);`],
     ['a statement that is no call', `${STRICT}assert;`],
+    // pino-pretty/node_modules/@jsumners/assert-match/index.js:44
+    [
+      'node:assert as the default of a parameter',
+      "import nodeAssert from 'node:assert';\nfunction match(actual: unknown, { assert = nodeAssert } = {}) {\n  assert.ok(actual);\n}",
+    ],
+    // fast-json-stringify/index.js:109
+    ['a throw statement', `${STRICT}if (!ready) throw new assert.AssertionError({ message: 'not ready' });`],
+    // fast-json-stringify/index.js:576
+    ['an assertion in generated source', `${STRICT}new Function('assert', 'assert.ok(ready)');`],
   ])('leaves %s alone', async (_title, source) => {
     assert.deepEqual(await mutantsOf(assertStatement, source), []);
   });

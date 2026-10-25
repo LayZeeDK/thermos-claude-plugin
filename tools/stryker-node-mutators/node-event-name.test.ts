@@ -49,6 +49,17 @@ describe('NodeEventName', () => {
     ['another named import of node:events', "import { errorMonitor } from 'node:events';\nerrorMonitor.once(child, 'exit');"],
     ['another member of node:events', "import events from 'node:events';\nevents.listenerCount(child, 'exit');"],
     ['once of a member', "import events from 'node:events';\nevents.EventEmitter.once(child, 'exit');"],
+    // fastify/test/http2/closing.test.js:193
+    ['an event outside the tables of a member, in once', "import { once } from 'node:events';\nawait once(fastify.server, 'session');"],
+    // fastify/test/helper.js:564
+    ["the process's warning", "process.on('warning', f);"],
+    // pino-pretty/bin.js:88
+    ["the process's signal", "process.once('SIGINT', f);"],
+    // pino-pretty/test/helper.js:12
+    [
+      'a once of its own, which listens for the event in its parameter',
+      "function once(emitter: any, event: string, fn: unknown) {\n  emitter.on(event, fn);\n}\nonce(child, 'exit', f);",
+    ],
   ])('leaves %s alone', async (_title, source) => {
     assert.deepEqual(await mutantsOf(nodeEventName, source), []);
   });
