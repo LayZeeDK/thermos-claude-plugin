@@ -89,8 +89,7 @@ describe('install', () => {
     await assert.rejects(run('add', [operator('Alpha'), operator('Beta'), operator('Gamma')]), {
       message:
         'stryker-node-mutators: the instrumenter in /stryker/instrumenter made no mutants of Alpha, Gamma from their ' +
-        'samples, so it does not read the mutator list this module added to. A bundled instrumenter, or a second ' +
-        'copy of it, does that.',
+        'samples, so it does not read the mutator list this module added to. A bundled instrumenter does that.',
     });
   });
 
@@ -98,13 +97,19 @@ describe('install', () => {
     ["a name of Stryker's", 'add', [operator('StringLiteral')], 'StringLiteral'],
     ["a name of Stryker's, also when it replaces them", 'replace', [operator('StringLiteral')], 'StringLiteral'],
     ['a name twice', 'add', [operator('Alpha'), operator('Beta'), operator('Alpha')], 'Alpha'],
+    [
+      "two names of Stryker's",
+      'add',
+      [operator('CallExpression'), operator('StringLiteral')],
+      'CallExpression, StringLiteral',
+    ],
   ] as const)('refuses %s before it changes the list', async (_title, mode, operators, name) => {
-    const { run, names, instrumented } = setup();
+    const { run, names, instrumented } = setup({ builtIns: ['StringLiteral', 'CallExpression'] });
 
     await assert.rejects(run(mode, [...operators]), {
       message: `stryker-node-mutators: another mutator already has the name ${name}.`,
     });
-    assert.deepEqual([names(), instrumented], [['StringLiteral'], []]);
+    assert.deepEqual([names(), instrumented], [['StringLiteral', 'CallExpression'], []]);
   });
 
   testEach(['NodeTimer1', 'Node-Timer', 'Node_Timer', 'Node Timer', ''])(
@@ -121,15 +126,29 @@ describe('install', () => {
     },
   );
 
-  it('warns about an instrumenter version it was not written for', async () => {
-    const { run, warnings } = setup({ version: '10.2.0' });
+  it('names every name that is not letters only', async () => {
+    const { run } = setup();
 
-    await run('add', [operator('Alpha')]);
-
-    assert.deepEqual(warnings, [
-      'stryker-node-mutators was written for @stryker-mutator/instrumenter 10.1, not 10.2.0; its install check passed.',
-    ]);
+    await assert.rejects(run('add', [operator('Node1'), operator('Alpha'), operator('Node-2')]), {
+      message:
+        "stryker-node-mutators: a mutator name has letters only, as Stryker's directives match no other " +
+        'character: "Node1", "Node-2"',
+    });
   });
+
+  testEach(['10.2.0', '110.1.0'])(
+    'warns about the instrumenter version %s, which it was not written for',
+    async (version) => {
+      const { run, warnings } = setup({ version });
+
+      await run('add', [operator('Alpha')]);
+
+      assert.deepEqual(warnings, [
+        `stryker-node-mutators was written for @stryker-mutator/instrumenter 10.1, not ${version}; its install check ` +
+          'passed.',
+      ]);
+    },
+  );
 });
 
 describe('corePackageJson', () => {
@@ -189,5 +208,17 @@ describe('resolveFromCore', () => {
 
     assert.deepEqual([await mutants(), await mutants([own])], [[['StringLiteral', '""']], [['Own', '"y"']]]);
     assert.ok(instrumenter.allMutators.some(({ name }) => name === 'StringLiteral'));
+  });
+
+  it('instruments a file whose directive names a mutator it does not apply, which Stryker warns about', async () => {
+    const instrumenter = await resolveFromCore();
+    const content = "// Stryker disable next-line NodeTimerDelay: a directive for another catalogue\nf('x');";
+
+    const mutants = await instrumenter.instrument([{ name: 'sample.ts', content }]);
+
+    assert.deepEqual(
+      mutants.map(({ mutatorName }) => mutatorName),
+      ['StringLiteral'],
+    );
   });
 });

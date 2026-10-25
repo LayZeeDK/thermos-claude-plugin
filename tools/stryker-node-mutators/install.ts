@@ -14,12 +14,9 @@ const TESTED_VERSION = /^10\.1\./;
 const CORE_BIN = /[\\/]@stryker-mutator[\\/]core[\\/]bin[\\/]stryker\.js$/;
 /** Stryker's `// Stryker disable` directives match mutator names with letters only. */
 const NAME = /^[A-Za-z]+$/;
-/** The instrumenter's logger, which says nothing. */
-const SILENT = {
-  debug() {},
-  info() {},
-  isDebugEnabled: () => false,
-};
+const nothing = () => {};
+/** The instrumenter's logger, which says nothing, and whose `isDebugEnabled` gives a falsy `undefined`. */
+const SILENT = { debug: nothing, info: nothing, warn: nothing, isDebugEnabled: nothing };
 
 export interface SourceFile {
   readonly name: string;
@@ -46,9 +43,9 @@ export type Mode = 'add' | 'replace';
 
 /**
  * Puts `operators` into the mutator list of the instrumenter that Stryker uses, then instruments each operator's
- * sample and throws unless every operator made a mutant: an instrumenter that does not read the list, as when it is
- * bundled or when a second copy of it runs, would otherwise drop the operators without a word. A name that is not
- * letters only, or that another mutator has, throws before the list changes. Installing again adds nothing.
+ * sample and throws unless every operator made a mutant: an instrumenter that does not read the list, as a bundled
+ * one does not, would otherwise drop the operators without a word. A name that is not letters only, or that another
+ * mutator has, throws before the list changes. Installing again adds nothing.
  */
 export async function install(
   mode: Mode,
@@ -108,8 +105,7 @@ async function selfCheck(instrumenter: Instrumenter, operators: readonly Operato
   if (missing.length > 0) {
     throw new Error(
       `stryker-node-mutators: the instrumenter in ${instrumenter.dir} made no mutants of ${missing.join(', ')} from ` +
-        'their samples, so it does not read the mutator list this module added to. A bundled instrumenter, or a ' +
-        'second copy of it, does that.',
+        'their samples, so it does not read the mutator list this module added to. A bundled instrumenter does that.',
     );
   }
 }
@@ -136,7 +132,6 @@ function coreBin(argv1: string, realpath: (path: string) => string): string | un
     return CORE_BIN.test(bin) ? bin : undefined;
   } catch {
     // `node --eval` and the REPL run no script file.
-    return undefined;
   }
 }
 
@@ -164,6 +159,7 @@ export async function resolveFromCore(corePackage: string = corePackageJson()): 
         ((ast: unknown, collector: unknown, context: unknown) => transformBabel(ast, collector, context, mutators));
       const { mutants } = await new Instrumenter(SILENT, undefined, undefined, transform).instrument(
         files.map((file) => ({ ...file, mutate: true })),
+        // Stryker disable next-line ArrayDeclaration: equivalent, as no mutator is named "Stryker was here"
         { plugins: null, excludedMutations: [], ignorers: [] },
       );
 
