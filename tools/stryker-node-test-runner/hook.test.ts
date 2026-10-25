@@ -411,6 +411,22 @@ describe('hook', () => {
     },
   );
 
+  it("keeps the record of a process run as an ES module with a memory limit that exits by itself, untouched by the watchdog's thread", async (t) => {
+    const outDir = tempDir(t);
+    // Run as an ES module, the watchdog's thread loads the hook that NODE_OPTIONS names, as in a Stryker run, and its
+    // record would lack the hit count that only the main thread sets.
+    const script = 'globalThis.__stryker__.hitCount = 42; setTimeout(() => {}, 500);';
+
+    const { code, pid } = await runWithHook(['-e', script], {
+      [ENV.out]: outDir,
+      [ENV.memoryLimit]: '1500',
+      NODE_OPTIONS: `--input-type=module --import ${JSON.stringify(HOOK_URL)}`,
+    });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [], hitCount: 42 } });
+  });
+
   it('records the most memory the process held in MB, in the dry run', async (t) => {
     const outDir = tempDir(t);
 
