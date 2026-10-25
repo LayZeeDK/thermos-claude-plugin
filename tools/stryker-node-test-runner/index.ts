@@ -42,6 +42,16 @@ export interface NodeTestOptions {
 
 const DEFAULTS = schema.properties.nodeTest.properties;
 
+/** The oldest Node.js the runner supports, as `engines` in package.json says, as major and minor version. */
+export const MIN_NODE_VERSION = [22, 18] as const;
+
+function supportsNode(version: string): boolean {
+  const [major, minor] = version.split('.').map(Number) as [number, number];
+  const [minMajor, minMinor] = MIN_NODE_VERSION;
+
+  return major > minMajor || (major === minMajor && minor >= minMinor);
+}
+
 export type RunOptions =
   | {
       dryRun: true;
@@ -414,6 +424,14 @@ export class NodeTestRunner implements TestRunner {
   }
 
   async init(): Promise<void> {
+    const { node } = process.versions;
+
+    if (!supportsNode(node)) {
+      throw new Error(
+        `The node-test test runner needs Node.js ${MIN_NODE_VERSION.join('.')} or later, and this is Node.js ${node}.`,
+      );
+    }
+
     // globSync returns a file once per spelling, relative for a relative pattern and absolute for an absolute one.
     const files = globSync(this.#patterns, { exclude: (name) => name === 'node_modules' }).map((file) => resolve(file));
     this.#testFiles = [...new Set(files)].sort();

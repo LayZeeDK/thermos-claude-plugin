@@ -70,6 +70,26 @@ describe('NodeTestRunner', () => {
     await runner.dispose();
   });
 
+  testFor([
+    ['refuses', '21.20.0', 'The node-test test runner needs Node.js 22.18 or later, and this is Node.js 21.20.0.'],
+    ['refuses', '22.17.1', 'The node-test test runner needs Node.js 22.18 or later, and this is Node.js 22.17.1.'],
+    ['runs on', '22.18.0', undefined],
+    ['runs on', '23.0.0', undefined],
+  ] as const)('%s Node.js %s', async ([, version, message], t) => {
+    const { value } = Object.getOwnPropertyDescriptor(process.versions, 'node')!;
+    Object.defineProperty(process.versions, 'node', { value: version });
+    t.after(() => Object.defineProperty(process.versions, 'node', { value }));
+    project(t, { 'a.test.mjs': PASSING });
+    const runner = new NodeTestRunner(strykerOptions({ nodeTest: { testFiles: ['a.test.mjs'] } }), logger());
+    t.after(() => runner.dispose());
+
+    if (message === undefined) {
+      await runner.init();
+    } else {
+      await assert.rejects(runner.init(), { message });
+    }
+  });
+
   it("warns and runs nothing without test files when Stryker's allowEmpty is set", async (t) => {
     project(t, { 'a.test.mjs': FAILING });
     const warnings: string[] = [];

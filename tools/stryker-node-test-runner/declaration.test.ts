@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import { PluginKind } from '@stryker-mutator/api/plugin';
 import ajvModule from 'ajv';
 
 import { testEach } from '../test-each/test-each.ts';
-import { NodeTestRunner, strykerPlugins, strykerValidationSchema } from './index.ts';
+import { MIN_NODE_VERSION, NodeTestRunner, strykerPlugins, strykerValidationSchema } from './index.ts';
 
 /** Stryker validates its options with these settings, and merges the properties of each plugin's schema into its own. */
 function validator() {
@@ -44,6 +45,14 @@ describe('plugin declaration', () => {
     { nodeTest: { maxMemoryMB: 1.5 } },
   ])('rejects the options %j', (options) => {
     assert.ok(!validator()(options));
+  });
+
+  it('supports the Node.js versions that package.json supports', () => {
+    const { engines } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+      engines: { node: string };
+    };
+
+    assert.equal(engines.node, `>=${MIN_NODE_VERSION.join('.')}`);
   });
 
   testEach([
