@@ -569,7 +569,10 @@ describe('wrapNodeTest', () => {
           (done as () => void)();
           throw 0;
         });
-        assert.throws(() => rawBodyOf(registrations, 'child')(testContext(), () => {}));
+        assert.throws(
+          () => rawBodyOf(registrations, 'child')(testContext(), () => {}),
+          (error) => error === 0,
+        );
         see();
       });
 
@@ -675,7 +678,7 @@ describe('wrapNodeTest', () => {
     assert.equal(ns.currentTestId, undefined);
     assert.ok(!(ENV.current in env));
 
-    await assert.rejects(bodyOf(registrations, 'fails')(testContext()));
+    await assert.rejects(bodyOf(registrations, 'fails')(testContext()), { message: 'no' });
 
     assert.equal(ns.currentTestId, undefined);
     assert.ok(!(ENV.current in env));
