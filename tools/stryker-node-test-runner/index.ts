@@ -1,13 +1,7 @@
 // Each test file runs in its own `node` process with hook.ts loaded through NODE_OPTIONS, so every process the tests
 // spawn reports mutant coverage too, attributed to the test that spawned it.
 import { spawn } from 'node:child_process';
-import {
-  globSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-} from 'node:fs';
+import { globSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -35,8 +29,8 @@ import {
   type TestRunnerCapabilities,
 } from '@stryker-mutator/api/test-runner';
 
-import { ENV, recordName, testId, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 import { removeDir, removeLeftDirs } from './dirs.ts';
+import { ENV, recordName, testId, within, type ProcessRecord, type RecordedTest } from './hook-core.ts';
 import { memoryLimits, peakMemoryDir, type MemoryLimits } from './memory-limits.ts';
 import { groupOptions, processEnd } from './process-end.ts';
 
@@ -471,7 +465,7 @@ export class NodeTestRunner implements TestRunner {
     }
   }
 
-  dryRun(options: DryRunOptions): Promise<DryRunResult> {
+  async dryRun(options: DryRunOptions): Promise<DryRunResult> {
     const files = options.testFiles?.length ? options.testFiles.map((file) => resolve(file)) : this.#testFiles;
     const run = {
       dryRun: true,

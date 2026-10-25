@@ -442,7 +442,7 @@ describe('hook', () => {
   it("watches memory from the main thread only, not from a test's own worker threads", async (t) => {
     const dir = tempDir(t);
     const outDir = tempDir(t);
-    const symbol = "Symbol.for('thermos.stryker-node-test-runner.watchdog')";
+    const symbol = `Symbol.for(${JSON.stringify(watchdog.description)})`;
     writeFileSync(
       join(dir, 'worker.mjs'),
       `import { parentPort } from 'node:worker_threads';\nparentPort.postMessage(globalThis[${symbol}] !== undefined);\n`,

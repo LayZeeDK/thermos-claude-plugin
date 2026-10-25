@@ -53,6 +53,12 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it('rejects, instead of throwing, when the dry run cannot start', async () => {
+    const runner = new NodeTestRunner(strykerOptions(), logger());
+
+    await assert.rejects(runner.dryRun({ ...DRY_RUN, testFiles: [42 as unknown as string] }), TypeError);
+  });
+
   it('can be disposed without being initialized', async () => {
     await new NodeTestRunner(strykerOptions(), logger()).dispose();
   });
