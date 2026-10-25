@@ -196,3 +196,43 @@ seven files show no `NodeEventName` mutant. Its lines from the output:
     + 72:14 NodeEventName "close"
     + 78:14 NodeEventName "exit"
 ```
+
+### AssertValidator
+
+Run on 2026-10-25 over three test files, with `AssertLiveness` and `AssertValidator` (under a second):
+
+```sh
+node tools/stryker-node-mutators/corpus-diff.ts tools/stryker-node-test-runner/process-end.test.ts \
+  tools/test-each/register.test.ts tools/test-each/title.test.ts
+```
+
+`AssertValidator` adds 7 mutants, one at each `assert.throws` and `assert.rejects` in the three files, and removes
+none. The removed `CallExpression` mutants in the output are `AssertLiveness`'s, as in its own run. `AssertLiveness`
+adds 15, 12 and 5 mutants in the three files, the same 15 and 12 as before in the first two. `register.test.ts:76` is
+the `t.assert.reports(...)` call that `assert.rejects` checks, so its mutant replaces a check of code that
+`t.assert.reports` serialises; whether it kills for the right reason is for a `stryker run` to show. Its lines from
+the output, with the `AssertLiveness` lines left out:
+
+```text
+### tools/stryker-node-test-runner/process-end.test.ts
+
+143 mutants without the operators, 155 with them.
+
+    + 56:19 AssertValidator () => { throw new Error("Stryker"); }
+
+### tools/test-each/register.test.ts
+
+192 mutants without the operators, 206 with them.
+
+    + 65:19 AssertValidator () => { throw new Error("Stryker"); }
+    + 66:19 AssertValidator () => { throw new Error("Stryker"); }
+    + 67:19 AssertValidator () => { throw new Error("Stryker"); }
+    + 76:7 AssertValidator Promise.reject(new Error("Stryker"))
+    + 105:19 AssertValidator () => { throw new Error("Stryker"); }
+
+### tools/test-each/title.test.ts
+
+422 mutants without the operators, 424 with them.
+
+    + 75:19 AssertValidator () => { throw new Error("Stryker"); }
+```
