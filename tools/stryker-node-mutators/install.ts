@@ -159,8 +159,12 @@ export async function resolveFromCore(corePackage: string = corePackageJson()): 
         ((ast: unknown, collector: unknown, context: unknown) => transformBabel(ast, collector, context, mutators));
       const { mutants } = await new Instrumenter(SILENT, undefined, undefined, transform).instrument(
         files.map((file) => ({ ...file, mutate: true })),
-        // Stryker disable next-line ArrayDeclaration: equivalent, as no mutator is named "Stryker was here"
-        { plugins: null, excludedMutations: [], ignorers: [] },
+        {
+          plugins: null,
+          // Stryker disable next-line ArrayDeclaration: equivalent, as no mutator is named "Stryker was here"
+          excludedMutations: [],
+          ignorers: [],
+        },
       );
 
       return mutants;
