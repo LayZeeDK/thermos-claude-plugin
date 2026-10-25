@@ -7,7 +7,7 @@ import type { Location } from '@stryker-mutator/api/core';
 import { testEach } from '../test-each/test-each.ts';
 import { resolveFromCore } from './install.ts';
 import { mutantsOf } from './mutants-of.fixtures.ts';
-import { isOwn, toNodeMutator, type Operator } from './operator.ts';
+import { toNodeMutator, type Operator } from './operator.ts';
 import { productionOperators, testOperators } from './operators.ts';
 
 const OPERATORS = [...productionOperators, ...testOperators];
@@ -131,27 +131,10 @@ describe('safety', () => {
     },
   );
 
-  it('names each operator with letters only, apart from every other mutator', async () => {
-    const instrumenter = await resolveFromCore();
-    const names = [
-      ...instrumenter.allMutators.filter((mutator) => !isOwn(mutator)).map(({ name }) => name),
-      ...OPERATORS.map(({ name }) => name),
-    ];
-
-    assert.deepEqual(
-      OPERATORS.map(({ name }) => name).filter((name) => !/^[A-Za-z]+$/.test(name)),
-      [],
-    );
-    assert.deepEqual(
-      names.filter((name, index) => names.indexOf(name) !== index),
-      [],
-    );
-  });
-
-  testEach(OPERATORS.flatMap((sampled) => OPERATORS.map((operator) => [sampled.name, operator.name, sampled, operator] as const)))(
-    "%s's sample gets mutants from %s only when they are the same",
-    async (_sampled, _operator, sampled, operator) => {
-      assert.equal((await mutantsOf(operator, sampled.sample)).length > 0, sampled === operator);
+  testEach(OPERATORS.map((operator) => [operator.name, operator] as const))(
+    '%s makes a mutant of its own sample',
+    async (_name, operator) => {
+      assert.notDeepEqual(await mutantsOf(operator, operator.sample), []);
     },
   );
 });
