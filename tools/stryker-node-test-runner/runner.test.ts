@@ -289,7 +289,7 @@ describe('NodeTestRunner', () => {
         "import { join } from 'node:path';",
         "it('passes', () => {});",
         // Runs after the hook's own exit listener has written the record.
-        'process.on(\'exit\', () => writeFileSync(join(process.env.STRYKER_NODE_TEST_OUT, `${process.pid}.json`), ' +
+        'process.on(\'exit\', () => writeFileSync(join(process.env.STRYKER_NODE_TEST_OUT, `${process.pid}.0.json`), ' +
           `${JSON.stringify(content)}));`,
       ),
     });

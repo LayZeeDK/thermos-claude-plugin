@@ -133,8 +133,8 @@ describe('hook', () => {
     added.exit[0]?.();
 
     const records = readRecords(outDir);
-    assert.deepEqual(Object.keys(records), [`${process.pid}.json`]);
-    assert.deepEqual(records[`${process.pid}.json`]?.tests, []);
+    assert.deepEqual(Object.keys(records), [`${process.pid}.0.json`]);
+    assert.deepEqual(records[`${process.pid}.0.json`]?.tests, []);
   });
 
   it('starts the memory watchdog, survives its failure, and records the peak memory, when the runner asks', async (t) => {
@@ -155,8 +155,36 @@ describe('hook', () => {
 
     const rssMB = Math.floor(process.memoryUsage.rss() / 1048576);
     added.exit[0]?.();
-    const peakMB = readRecords(outDir)[`${process.pid}.json`]?.peakMemoryMB;
+    const peakMB = readRecords(outDir)[`${process.pid}.0.json`]?.peakMemoryMB;
     assert.ok(peakMB !== undefined && Number.isInteger(peakMB) && peakMB >= rssMB && peakMB < 100_000, String(peakMB));
+  });
+
+  it("keeps a worker thread's record apart from the test file's, as a worker started from a file loads the hook too", async (t) => {
+    const dir = tempDir(t);
+    const outDir = tempDir(t);
+    const testFile = join(dir, 'fixture.test.mjs');
+    writeFileSync(join(dir, 'worker.mjs'), 'globalThis.__stryker__.hitCount = 999;\n');
+    writeFileSync(
+      testFile,
+      fixture(
+        "import { Worker } from 'node:worker_threads';",
+        "it('starts a worker', async () => {",
+        "  const worker = new Worker(new URL('./worker.mjs', import.meta.url));",
+        "  await new Promise((resolve) => worker.on('exit', resolve));",
+        '});',
+      ),
+    );
+
+    const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
+
+    assert.equal(code, 0);
+    const records = readRecords(outDir);
+    const workers = Object.keys(records).filter((name) => name !== `${pid}.0.json`);
+    assert.equal(records[`${pid}.0.json`]?.main, true);
+    assert.deepEqual(
+      workers.map((name) => [/^\d+\.[1-9]\d*\.json$/.test(name), records[name]?.main, records[name]?.hitCount]),
+      [[true, undefined, 999]],
+    );
   });
 
   it('records the tests and coverage of the test file it runs in, in a file named after the process', async (t) => {
@@ -176,8 +204,8 @@ describe('hook', () => {
 
     assert.equal(code, 0);
     const records = readRecords(outDir);
-    assert.deepEqual(Object.keys(records), [`${pid}.json`]);
-    const record = records[`${pid}.json`];
+    assert.deepEqual(Object.keys(records), [`${pid}.0.json`]);
+    const record = records[`${pid}.0.json`];
     assert.ok(record);
     const id = `${testFile} > covers`;
     assert.deepEqual(
@@ -219,7 +247,7 @@ describe('hook', () => {
     });
 
     assert.equal(code, 0);
-    const record = readRecords(outDir)[`${pid}.json`];
+    const record = readRecords(outDir)[`${pid}.0.json`];
     const ids = ['default export', 'suite > nested', 'required', 'required it'].map((name) => `${testFile} > ${name}`);
     assert.deepEqual(
       record?.tests.map(({ id, startPosition }) => ({ id, startPosition })),
@@ -245,7 +273,7 @@ describe('hook', () => {
     const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
 
     assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir)[`${pid}.json`], { main: true, tests: [], ...unfinished });
+    assert.deepEqual(readRecords(outDir)[`${pid}.0.json`], { main: true, tests: [], ...unfinished });
   });
 
   it('records where a CommonJS test file declares its tests', async (t) => {
@@ -257,7 +285,7 @@ describe('hook', () => {
     const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
 
     assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
+    assert.deepEqual(readRecords(outDir)[`${pid}.0.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
   });
 
   /** A test file whose source map sends line 2, the `it` call, to line 41, column 3 of `source`. */
@@ -302,7 +330,7 @@ describe('hook', () => {
     const { code, pid } = await runWithHook(args, { [ENV.out]: outDir, [ENV.file]: testFile });
 
     assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, position);
+    assert.deepEqual(readRecords(outDir)[`${pid}.0.json`]?.tests[0]?.startPosition, position);
   });
 
   it('records where the test file declares a test through helpers many calls deep', async (t) => {
@@ -319,7 +347,7 @@ describe('hook', () => {
     const { code, pid } = await runWithHook([testFile], { [ENV.out]: outDir, [ENV.file]: testFile });
 
     assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir)[`${pid}.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
+    assert.deepEqual(readRecords(outDir)[`${pid}.0.json`]?.tests[0]?.startPosition, { line: 2, column: 2 });
   });
 
   it('records the results node:test reports, also of hooks, runtime skips and todo tests', async (t) => {
@@ -344,7 +372,7 @@ describe('hook', () => {
 
     assert.equal(code, 1);
     assert.deepEqual(
-      readRecords(outDir)[`${pid}.json`]?.tests.map(({ id, status, failureMessage }) => ({
+      readRecords(outDir)[`${pid}.0.json`]?.tests.map(({ id, status, failureMessage }) => ({
         id,
         status,
         failureMessage,
@@ -370,7 +398,7 @@ describe('hook', () => {
     });
 
     assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
+    assert.deepEqual(readRecords(outDir), { [`${pid}.0.json`]: { tests: [] } });
   });
 
   testFor([
@@ -406,7 +434,7 @@ describe('hook', () => {
       [ENV.dryRun]: 'true',
     });
 
-    const peakMB = readRecords(outDir)[`${pid}.json`]?.peakMemoryMB;
+    const peakMB = readRecords(outDir)[`${pid}.0.json`]?.peakMemoryMB;
     assert.ok(Number.isInteger(peakMB) && (peakMB as number) >= 100 && (peakMB as number) < 1000, String(peakMB));
   });
 
@@ -485,7 +513,7 @@ describe('hook', () => {
     const { code, pid } = await runWithHook(args, { [ENV.out]: outDir, [ENV.memoryLimit]: '1500' });
 
     assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
+    assert.deepEqual(readRecords(outDir), { [`${pid}.0.json`]: { tests: [] } });
   });
 
   it('runs a process under the permission model without write access as it would without the hook, with no record', async (t) => {

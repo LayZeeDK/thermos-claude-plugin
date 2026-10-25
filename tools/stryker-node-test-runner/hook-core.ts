@@ -130,6 +130,8 @@ export interface HookDependencies {
   env: Record<string, string | undefined>;
   mainFile: string | undefined;
   pid: number;
+  /** Worker threads load the hook too; 0 is the main thread. */
+  threadId: number;
   global: {
     __stryker__?: InstrumenterContext;
     [installed]?: true;
@@ -181,8 +183,8 @@ export function writesAllowed(
   return permission?.has('fs.write', dir) !== false;
 }
 
-export function recordName(pid: number): string {
-  return `${pid}.json`;
+export function recordName(pid: number, threadId: number): string {
+  return `${pid}.${threadId}.json`;
 }
 
 export function install(deps: HookDependencies): boolean {
@@ -223,7 +225,7 @@ export function install(deps: HookDependencies): boolean {
   const tests: RecordedTest[] = [];
   const diagnostics: string[] = [];
   const testFile = deps.env[ENV.file];
-  const main = testFile !== undefined && deps.mainFile === testFile;
+  const main = testFile !== undefined && deps.threadId === 0 && deps.mainFile === testFile;
   let summarized = false;
   let natural = false;
 
@@ -276,7 +278,7 @@ export function install(deps: HookDependencies): boolean {
       return;
     }
 
-    deps.writeRecord(join(outDir, recordName(deps.pid)), {
+    deps.writeRecord(join(outDir, recordName(deps.pid, deps.threadId)), {
       ...(main && { main }),
       tests,
       hitCount: ns.hitCount,

@@ -372,6 +372,7 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     env,
     mainFile: TEST_FILE,
     pid: 4321,
+    threadId: 0,
     global: {},
     nodeTest: () => {
       calls.push('nodeTest');
@@ -619,7 +620,7 @@ describe('install', () => {
 
     assert.deepEqual(records, [
       {
-        path: join(OUT, '4321.json'),
+        path: join(OUT, '4321.0.json'),
         record: {
           main: true,
           tests: [
@@ -629,6 +630,18 @@ describe('install', () => {
         },
       },
     ]);
+  });
+
+  it("writes a worker thread's record to a file of its own, never as the test file's", () => {
+    const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE }, { threadId: 3 });
+    install(deps);
+
+    exit();
+
+    assert.deepEqual(
+      records.map(({ path, record }) => [path, record.main]),
+      [[join(OUT, '4321.3.json'), undefined]],
+    );
   });
 
   it('writes no record in a process that may not write one', () => {
