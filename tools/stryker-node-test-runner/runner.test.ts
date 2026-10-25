@@ -618,6 +618,42 @@ describe('NodeTestRunner', () => {
     });
   });
 
+  it("counts the work of beforeEach and afterEach hooks as coverage of the test they run for, and a beforeEach hook's as static for a shared name", async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        "import { afterEach, beforeEach } from 'node:test';",
+        "beforeEach(() => { cover('beforeEach'); });",
+        "afterEach(async () => { await null; cover('afterEach'); });",
+        "it('first', () => {});",
+        "describe('suite', () => {",
+        "  beforeEach((t, done) => { setImmediate(() => { cover('callback beforeEach'); done(); }); });",
+        "  it('second', async (t) => {",
+        "    t.beforeEach(() => { cover('t.beforeEach'); });",
+        "    await t.test('child', () => {});",
+        '  });',
+        '});',
+        "it('same', () => {});",
+        "it('same', () => {});",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+    const hooks = { beforeEach: 1, afterEach: 1 };
+
+    const { mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(fixtureCoverage(mutantCoverage), {
+      static: { beforeEach: 2 },
+      perTest: {
+        [`${a} > first`]: hooks,
+        [`${a} > suite > second`]: { ...hooks, 'callback beforeEach': 1 },
+        [`${a} > suite > second > child`]: { ...hooks, 'callback beforeEach': 1, 't.beforeEach': 1 },
+        [`${a} > same`]: { afterEach: 1 },
+        [`${a} > same (2)`]: { afterEach: 1 },
+      },
+    });
+  });
+
   it('runs the tests of a suite or test asking for concurrency one at a time, for coverage of their own', async (t) => {
     const interleaved = (name: string) =>
       `async () => { cover('${name} 1'); await new Promise((resolve) => setImmediate(resolve)); cover('${name} 2'); }`;

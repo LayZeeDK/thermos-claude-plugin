@@ -25,7 +25,7 @@ shareCompileCache();
 const passed = (id: string) => ({ id, status: TestStatus.Success, failureMessage: undefined });
 
 describe('NodeTestRunner with the test context', () => {
-  it("reports a test as its plan has it, and counts what runs after a test's body returns as static coverage", async (t) => {
+  it("reports a test as its plan has it, and counts what runs after a test's body returns, while node:test waits for the plan, as the test's coverage", async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
         // fastify-cookie/test/cookie.test.js:262
@@ -62,12 +62,16 @@ describe('NodeTestRunner with the test context', () => {
       passed(`${a} > waits for its plan`),
     ]);
     assert.deepEqual(fixtureCoverage(mutantCoverage), {
-      static: { late: 1 },
-      perTest: { [`${a} > plans its subtests > one`]: { one: 1 }, [`${a} > plans its subtests > two`]: { two: 1 } },
+      static: {},
+      perTest: {
+        [`${a} > plans its subtests > one`]: { one: 1 },
+        [`${a} > plans its subtests > two`]: { two: 1 },
+        [`${a} > waits for its plan`]: { late: 1 },
+      },
     });
   });
 
-  it('counts the work of the after hooks a test registers as static coverage, and of its before hooks as its own', async (t) => {
+  it("counts the work of the hooks a test registers as its coverage, and of the test file's after hook as static", async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(
         "import test, { after, before } from 'node:test';",
@@ -102,8 +106,11 @@ describe('NodeTestRunner with the test context', () => {
       passed(`${a} > reads what the before hook set`),
     ]);
     assert.deepEqual(fixtureCoverage(mutantCoverage), {
-      static: { 't.after': 1, after: 1, 'test.after': 1 },
-      perTest: { [`${a} > hooks`]: { 't.before': 1, body: 1 }, [`${a} > hooks > child`]: { child: 1 } },
+      static: { 'test.after': 1 },
+      perTest: {
+        [`${a} > hooks`]: { 't.before': 1, body: 1, 't.after': 1, after: 1 },
+        [`${a} > hooks > child`]: { child: 1 },
+      },
     });
     assert.deepEqual(
       withoutDuration(await settle(runner.mutantRun(mutantRunOptions({ testFilter: [`${a} > hooks > child`] })))),

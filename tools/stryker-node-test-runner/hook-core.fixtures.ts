@@ -62,8 +62,11 @@ export function fakeNodeTest(expectFailure = true) {
   return { module, registrations, suiteResults };
 }
 
-export function testContext(registrations: Registration[] = []) {
+/** Runs its `after` hooks on `end()`, as node:test does once a test's body ends, after its afterEach hooks. */
+export function testContext(registrations: Registration[] = [], fullName?: string) {
+  const afterHooks: Fn[] = [];
   const context = {
+    fullName,
     skipped: false,
     skip: () => {
       context.skipped = true;
@@ -72,6 +75,18 @@ export function testContext(registrations: Registration[] = []) {
       registrations.push({ kind: 't.test', name, rest, self: this });
 
       return `t.test ${name}`;
+    },
+    after: function (this: unknown, hook: Fn) {
+      assert.equal(this, context);
+      afterHooks.push(hook);
+    },
+    beforeEach: function (this: unknown, ...rest: unknown[]) {
+      registrations.push({ kind: 't.beforeEach', name: 't.beforeEach', rest, self: this });
+    },
+    end: async () => {
+      for (const hook of afterHooks.splice(0)) {
+        await hook(context);
+      }
     },
   };
 
@@ -89,7 +104,11 @@ export function bodyOf(registrations: Registration[], name: string): (this: unkn
   const body = rawBodyOf(registrations, name);
 
   return async function (this: unknown, ...args: unknown[]) {
-    return body.apply(this, args);
+    try {
+      return await body.apply(this, args);
+    } finally {
+      await (args[0] as Partial<ReturnType<typeof testContext>> | undefined)?.end?.();
+    }
   };
 }
 

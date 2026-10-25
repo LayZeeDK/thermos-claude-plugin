@@ -313,6 +313,7 @@ describe('wrapNodeTest', () => {
     const callbackContext = testContext(registrations);
     rawBodyOf(registrations, 'calls back')(callbackContext, () => {});
     await bodyOf(registrations, 'callback child')(testContext());
+    await callbackContext.end();
 
     assert.deepEqual(seen, [
       `${TEST_FILE} > suite > parent`,
@@ -505,7 +506,7 @@ describe('wrapNodeTest', () => {
   });
 
   describe('callback-style tests', () => {
-    it('declares `done`, so node:test passes it, and keeps the test current until `done` is called', () => {
+    it('declares `done`, so node:test passes it, and keeps the test current until `done` is called and its after hooks ran', async () => {
       const { module, registrations, ns, env } = wrapped();
       const context = testContext();
       const seen: unknown[] = [];
@@ -529,6 +530,10 @@ describe('wrapNodeTest', () => {
       ]);
       assert.deepEqual(calls, []);
 
+      await context.end();
+
+      assert.equal(ns.currentTestId, `${TEST_FILE} > calls back`);
+
       finish?.();
 
       assert.deepEqual(calls, [[undefined]]);
@@ -548,16 +553,21 @@ describe('wrapNodeTest', () => {
       assert.deepEqual(calls, [[failure]]);
     });
 
-    it('rethrows a synchronous throw and leaves the test', () => {
+    it('rethrows a synchronous throw and leaves the test once its after hooks ran', async () => {
       const { module, registrations, ns } = wrapped();
+      const context = testContext();
       module.it('throws', (_t: unknown, _done: unknown) => {
         throw 0;
       });
 
       assert.throws(
-        () => rawBodyOf(registrations, 'throws')(testContext(), () => {}),
+        () => rawBodyOf(registrations, 'throws')(context, () => {}),
         (error) => error === 0,
       );
+
+      assert.equal(ns.currentTestId, `${TEST_FILE} > throws`);
+
+      await context.end();
 
       assert.equal(ns.currentTestId, undefined);
     });
@@ -653,6 +663,158 @@ describe('wrapNodeTest', () => {
     }
 
     assert.deepEqual(seen, ['7', '7', 'hook this', ['context'], '7', '7', 'hook this', ['context']]);
+  });
+
+  describe('hooks', () => {
+    function hooksOf(registrations: { kind: string; rest: unknown[] }[], kind: string): Fn[] {
+      return registrations.filter((registration) => registration.kind === kind).map(({ rest }) => rest[0] as Fn);
+    }
+
+    it('makes the test that a beforeEach hook runs for current until its promise settles or it calls `done`', async () => {
+      const { module, registrations, ns, seen, see } = wrapped();
+      const failure = new Error('hook failed');
+      let finish: (error?: unknown) => void = () => {};
+      const received: unknown[][] = [];
+      module.beforeEach(async (...args: unknown[]) => {
+        received.push(args);
+        see();
+        await null;
+        see();
+
+        return 'promised';
+      });
+      module.beforeEach((_t: unknown, done: unknown) => {
+        see();
+        finish = done as (error?: unknown) => void;
+
+        return 'called back';
+      });
+      module.beforeEach(() => {
+        see();
+        throw failure;
+      });
+      module.it('first', see);
+      module.describe('suite', () => {
+        module.it('second', see);
+      });
+      const [promised, callback, throwing] = hooksOf(registrations, 'beforeEach') as [Fn, Fn, Fn];
+      const calls: unknown[][] = [];
+
+      const context = testContext([], 'suite > second');
+      const settled = promised(context);
+
+      assert.deepEqual(received, [[context]]);
+      assert.equal(ns.currentTestId, `${TEST_FILE} > suite > second`);
+      assert.equal(await settled, 'promised');
+      assert.equal(ns.currentTestId, undefined);
+      assert.equal(
+        callback(testContext([], 'first'), (...args: unknown[]) => calls.push(args)),
+        'called back',
+      );
+      assert.equal(ns.currentTestId, `${TEST_FILE} > first`);
+
+      finish(failure);
+
+      assert.deepEqual(calls, [[failure]]);
+      assert.equal(ns.currentTestId, undefined);
+      assert.throws(() => throwing(testContext([], 'first')), failure);
+      assert.equal(ns.currentTestId, undefined);
+      assert.deepEqual(seen, [
+        `${TEST_FILE} > suite > second`,
+        `${TEST_FILE} > suite > second`,
+        `${TEST_FILE} > first`,
+        `${TEST_FILE} > first`,
+      ]);
+    });
+
+    it('leaves the hooks of a suite, of a name several tests share, and of no test as they are', () => {
+      const { module, registrations, ns, env, seen } = wrapped();
+      const hook = (..._args: unknown[]) => {
+        seen.push(ns.currentTestId);
+
+        return 'hook result';
+      };
+      module.beforeEach(hook);
+      module.after(hook);
+      module.describe('suite', () => {
+        module.it('inner', () => {});
+      });
+      module.it('same', () => {});
+      module.it('same', () => {});
+
+      for (const registered of [...hooksOf(registrations, 'beforeEach'), ...hooksOf(registrations, 'after')]) {
+        for (const context of [testContext([], 'suite'), testContext([], 'same'), testContext([], 'inner'), undefined]) {
+          assert.equal(registered(context), 'hook result');
+        }
+      }
+
+      assert.deepEqual(seen, Array.from({ length: 8 }, () => undefined));
+      assert.ok(!(ENV.current in env));
+    });
+
+    it('keeps a test current after its body until its after hooks run, and through them while its body runs', async () => {
+      const { module, registrations, ns, seen, see } = wrapped();
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      module.it('waits', async (t: { after: (hook: Fn) => void }) => {
+        t.after(see);
+        await gate;
+      });
+      module.it('returns', () => {});
+      const waits = testContext([], 'waits');
+      const returns = testContext([], 'returns');
+
+      const running = rawBodyOf(registrations, 'waits')(waits);
+      await waits.end();
+
+      assert.equal(ns.currentTestId, `${TEST_FILE} > waits`);
+
+      release();
+      await running;
+
+      assert.equal(ns.currentTestId, undefined);
+
+      await rawBodyOf(registrations, 'returns')(returns);
+
+      assert.equal(ns.currentTestId, `${TEST_FILE} > returns`);
+
+      await returns.end();
+
+      assert.equal(ns.currentTestId, undefined);
+      assert.deepEqual(seen, [`${TEST_FILE} > waits`]);
+    });
+
+    it("makes a test current while the hooks it registers run: after hooks, and subtests' beforeEach hooks", async () => {
+      const { module, registrations, ns, seen, see } = wrapped();
+      let context: unknown;
+      module.it('parent', (t: Subtests & { after: (hook: Fn) => void; beforeEach: (...args: unknown[]) => void }) => {
+        context = t;
+        t.after(async () => {
+          see();
+          await null;
+          see();
+        });
+        module.after(see);
+        t.beforeEach(see, { timeout: 5 });
+        t.test('child', () => {});
+      });
+
+      await bodyOf(registrations, 'parent')(testContext(registrations, 'parent'));
+      const [beforeEach] = registrations.filter(({ kind }) => kind === 't.beforeEach');
+      await (beforeEach?.rest[0] as Fn)(testContext([], 'parent > child'));
+      await hooksOf(registrations, 'after')[0]?.(testContext([], 'parent'));
+
+      assert.deepEqual([beforeEach?.self, beforeEach?.rest[1]], [context, { timeout: 5 }]);
+      assert.equal(ns.currentTestId, undefined);
+      assert.deepEqual(seen, [
+        `${TEST_FILE} > parent`,
+        `${TEST_FILE} > parent`,
+        `${TEST_FILE} > parent > child`,
+        `${TEST_FILE} > parent`,
+      ]);
+    });
   });
 
   it('leaves a statically activated mutant alone', async () => {
@@ -784,10 +946,10 @@ describe('wrapNodeTest', () => {
         .filter(({ kind }) => kind.startsWith('before') || kind.startsWith('after'))
         .map(({ kind, rest }) => [kind, rest[0] === hook, rest[1]]),
       [
-        ['after', true, undefined],
+        ['after', false, undefined],
         ['before', false, { timeout: 5 }],
         ['beforeEach', false, { timeout: 5 }],
-        ['after', true, { timeout: 5 }],
+        ['after', false, { timeout: 5 }],
         ['afterEach', true, { timeout: 5 }],
       ],
     );
