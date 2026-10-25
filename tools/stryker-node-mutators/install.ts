@@ -77,9 +77,12 @@ function checkNames(operators: readonly Operator[], present: readonly NodeMutato
     );
   }
 
+  // Stryker's directives match mutator names ignoring case.
+  const keys = names.map((name) => name.toLowerCase());
   const taken = names.filter(
-    (name, index) =>
-      names.indexOf(name) !== index || present.some((mutator) => mutator.name === name && !isOwn(mutator)),
+    (_name, index) =>
+      keys.indexOf(keys[index]) !== index ||
+      present.some((mutator) => mutator.name.toLowerCase() === keys[index] && !isOwn(mutator)),
   );
 
   if (taken.length > 0) {

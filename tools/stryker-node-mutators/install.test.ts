@@ -92,6 +92,8 @@ describe('install', () => {
     ["a name of Stryker's", 'add', [operator('StringLiteral')], 'StringLiteral'],
     ["a name of Stryker's, also when it replaces them", 'replace', [operator('StringLiteral')], 'StringLiteral'],
     ['a name twice', 'add', [operator('Alpha'), operator('Beta'), operator('Alpha')], 'Alpha'],
+    ["a name of Stryker's in another case", 'add', [operator('Stringliteral')], 'Stringliteral'],
+    ['a name twice in another case', 'add', [operator('Alpha'), operator('ALPHA')], 'ALPHA'],
     [
       "two names of Stryker's",
       'add',
