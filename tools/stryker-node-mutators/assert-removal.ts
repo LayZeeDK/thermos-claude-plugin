@@ -5,7 +5,8 @@ import type { Operator } from './operator.ts';
  * Removes a `node:assert` statement from production code, where it guards an invariant. Stryker's CallExpression
  * mutator removes a call statement only when no other mutant shares it, so it skips every assertion whose arguments
  * it mutates; once this operator's mutant shares the statement, it skips the rest, and each assertion keeps exactly
- * one removal.
+ * one removal. A mutant that survives is an invariant that no test breaks: a missing test, or a guard against what no
+ * caller can do, which a `// Stryker disable` comment then says.
  */
 export const assertRemoval: Operator = {
   name: 'AssertRemoval',
