@@ -45,7 +45,7 @@ describe('workersAllowed', () => {
 });
 
 describe('checkMemory', () => {
-  it("writes the process's record and ends the process once it holds more than the limit", () => {
+  it("writes the watchdog's record and ends the process once it holds more than the limit", () => {
     assert.deepEqual(check(200.6 * MB), {
       writes: [[DATA.recordPath, { tests: [], memoryLimitReached: { rssMB: 201, limitMB: 200 } }]],
       kills: [[process.pid, 'SIGKILL']],

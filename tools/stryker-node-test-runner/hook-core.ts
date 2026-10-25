@@ -168,7 +168,8 @@ export interface HookDependencies {
   peakMemoryMB: () => number;
   /**
    * Whether this thread starts the memory watchdog: the main thread only, so a test's own worker threads, which load
-   * the hook too, start no second one, and only where the permission model lets it start a worker.
+   * the hook too, start no second one, and only where the permission model lets it start a worker. The watchdog's own
+   * thread never loads the hook, as it starts without the process's options and environment.
    */
   canWatchMemory: boolean;
   /**

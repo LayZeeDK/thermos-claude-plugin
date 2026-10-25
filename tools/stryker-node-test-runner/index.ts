@@ -239,7 +239,9 @@ function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOpt
   const { records, exitCode, unreadable } = fileRun;
   const memoryLimitReached = records.find((record) => record.memoryLimitReached)?.memoryLimitReached;
 
-  // Its watchdog wrote the ended process's record, without its tests, so this comes before the checks of the tests.
+  // The watchdog wrote a record of its own, without tests, so this comes before the checks of the tests. It also comes
+  // before the unreadable check, as the watchdog can end the process while its exit listener writes the process's
+  // record, which is then torn.
   if (memoryLimitReached) {
     const { rssMB, limitMB } = memoryLimitReached;
 

@@ -53,7 +53,7 @@ describe('NodeTestRunner', () => {
     });
   });
 
-  it('rejects, instead of throwing, when the dry run cannot start', async () => {
+  it('rejects, instead of throwing, when the dry run fails before it runs a file', async () => {
     const runner = new NodeTestRunner(strykerOptions(), logger());
 
     await assert.rejects(runner.dryRun({ ...DRY_RUN, testFiles: [42 as unknown as string] }), TypeError);
