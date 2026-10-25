@@ -3,6 +3,7 @@ import legacy from 'node:assert';
 import * as namespace from 'assert';
 import { deepStrictEqual as same, rejects, strict, strictEqual, throws } from 'node:assert';
 import { describe, it } from 'node:test';
+import { callbackify } from 'node:util';
 
 import { share, total } from './node-apis.ts';
 
@@ -29,5 +30,14 @@ describe('assertions reached in other ways', () => {
   it('names the errors that throws and an awaited rejects expect', async () => {
     throws(() => share(1, -1), legacy.AssertionError);
     await rejects(async () => total(0.5, 1), legacy.AssertionError);
+  });
+
+  // fastify/test/scripts/validate-ecosystem-links.test.js:26
+  it('checks for no error in a callback', (_t, done) => {
+    callbackify(async () => share(1, 2))((error, value) => {
+      legacy.ifError(error);
+      strictEqual(value, 0.5);
+      done();
+    });
   });
 });

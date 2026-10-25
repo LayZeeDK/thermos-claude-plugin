@@ -7,7 +7,7 @@ import timers from 'node:timers';
 import timersPromises from 'node:timers/promises';
 
 import { testEach } from '../../test-each/test-each.ts';
-import { closed, later, onEnd, onFinish, onIdle, pause, share, total, wait } from './node-apis.ts';
+import { closed, idle, later, onEnd, onFinish, onIdle, onSent, pause, poll, share, total, wait } from './node-apis.ts';
 
 const MS = 10;
 
@@ -18,7 +18,7 @@ function settle(): Promise<void> {
 }
 
 async function callsOf(owner: object, method: string, run: () => unknown): Promise<unknown[][]> {
-  const fake = mock.method(owner as Timers, method, async () => {});
+  const fake = mock.method(owner as Timers, method, () => ({ unref() {} }));
   syncBuiltinESMExports();
 
   try {
@@ -38,7 +38,9 @@ describe('the timers', () => {
     ['pause', timersPromises, 'setTimeout', () => pause(MS), [MS]],
     ['wait', timersPromises.scheduler, 'wait', () => wait(MS), [MS]],
     ['later', timers, 'setTimeout', () => later(callback, MS), [callback, MS]],
-  ])('%s gives the timer the milliseconds it is given', async (_name, owner, method, run, args) => {
+    ['idle', globalThis, 'setTimeout', () => idle(callback, MS), [callback, MS]],
+    ['poll', globalThis, 'setInterval', () => poll(callback), [callback, 100]],
+  ])('%s gives the timer its milliseconds', async (_name, owner, method, run, args) => {
     assert.deepEqual(await callsOf(owner, method, run), [args]);
   });
 });
@@ -66,6 +68,19 @@ describe('the stream listeners', () => {
     const events: string[] = [];
     const stream = new Writable({ write: (_chunk, _encoding, callback) => callback() });
     onFinish(stream, () => events.push('done'));
+    stream.on('finish', () => events.push('finish'));
+    stream.on('close', () => events.push('close'));
+
+    stream.end('x');
+    await once(stream, 'close');
+
+    assert.deepEqual(events, ['done', 'finish', 'close']);
+  });
+
+  it('onSent calls back when the raw stream of a reply finishes, before it closes', async () => {
+    const events: string[] = [];
+    const stream = new Writable({ write: (_chunk, _encoding, callback) => callback() });
+    onSent({ raw: stream }, () => events.push('done'));
     stream.on('finish', () => events.push('finish'));
     stream.on('close', () => events.push('close'));
 

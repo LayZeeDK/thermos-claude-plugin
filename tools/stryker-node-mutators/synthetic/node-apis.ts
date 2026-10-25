@@ -18,12 +18,29 @@ export function later(callback: () => void, ms: number): void {
   timers.setTimeout(callback, ms);
 }
 
+// fastify/test/stream.5.test.js:144
+export function idle(callback: () => void, ms: number): void {
+  setTimeout(callback, ms).unref();
+}
+
+// pino-pretty/test/basic.test.js:1288
+const POLL_MS = 100;
+
+export function poll(tick: () => void): NodeJS.Timeout {
+  return setInterval(tick, POLL_MS);
+}
+
 export async function closed(emitter: EventEmitter): Promise<void> {
   await once(emitter, 'close');
 }
 
 export function onFinish(stream: Writable, done: () => void): void {
   stream.on('finish', done);
+}
+
+// fastify/lib/reply.js:1015
+export function onSent(reply: { raw: Writable }, done: () => void): void {
+  reply.raw.on('finish', done);
 }
 
 export function onEnd(stream: Readable, done: () => void): void {
