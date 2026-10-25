@@ -500,6 +500,17 @@ describe('hook', () => {
     assert.equal(code, 0);
     assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [] } });
   });
+
+  it('runs a process under the permission model without write access as it would without the hook, with no record', async (t) => {
+    const outDir = tempDir(t);
+    // A script that sets process.exitCode would hide a throw from the exit listener: the process still exits 0.
+    const args = ['--permission', '--allow-fs-read=*', '-e', 'void 0'];
+
+    const { code } = await runWithHook(args, { [ENV.out]: outDir });
+
+    assert.equal(code, 0);
+    assert.deepEqual(readRecords(outDir), {});
+  });
 });
 
 describe('reporter', () => {

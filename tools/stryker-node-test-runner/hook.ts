@@ -24,7 +24,12 @@ install({
   registerHooks: registerHooks as HookDependencies['registerHooks'],
   onExit: (listener) => process.on('exit', listener),
   onBeforeExit: (listener) => process.on('beforeExit', listener),
-  writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
+  writeRecord: (path, record) => {
+    // Under the permission model without write access, the process runs as it would outside Stryker, with no record.
+    if (process.permission?.has('fs.write', path) !== false) {
+      writeFileSync(path, JSON.stringify(record));
+    }
+  },
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
   canWatchMemory: isMainThread && workersAllowed(process.permission),
   watchMemory: (options) => {

@@ -125,8 +125,9 @@ describe('NodeTestRunner endings', () => {
       status: DryRunStatus.Error,
       errorMessage:
         `Missing test results for "${join(dir, 'b.test.mjs')}": its process ended without writing them. ` +
-        'Either the Stryker hook did not run in it, or it left without running exit listeners ' +
-        '(process.reallyExit, process.abort).',
+        'Either the Stryker hook did not run in it, it left without running exit listeners ' +
+        '(process.reallyExit, process.abort), or it ran under the permission model without write access to the ' +
+        'system temporary directory.',
     });
   });
 
