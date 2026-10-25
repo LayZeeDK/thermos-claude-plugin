@@ -1,6 +1,6 @@
 import type { NodePath, types } from '@babel/core';
 
-import { calleeRoot, importOf, NODE_ASSERT } from './bindings.ts';
+import { assertMethod } from './bindings.ts';
 import type { BabelTypes, Operator } from './operator.ts';
 
 const MESSAGE = 'Stryker: assertion reached';
@@ -47,34 +47,7 @@ function isAssertion(path: NodePath, node: types.Expression): boolean {
     return false;
   }
 
-  const { callee } = node;
-  const root = calleeRoot(callee);
+  const method = assertMethod(path, node.callee);
 
-  if (root === undefined) {
-    return false;
-  }
-
-  const from = importOf(path, root.name);
-  const method = callee === root ? from?.imported : propertyName(callee);
-
-  if (method === 'fail') {
-    return false;
-  }
-
-  return from === undefined ? isTestContextAssert(path, callee, root) : NODE_ASSERT.has(from.source);
-}
-
-/** Whether `callee` is `t.assert.<method>` with `t` a parameter. */
-function isTestContextAssert(path: NodePath, callee: types.Node, root: types.Identifier): boolean {
-  return (
-    callee.type === 'MemberExpression' &&
-    callee.object.type === 'MemberExpression' &&
-    callee.object.object === root &&
-    propertyName(callee.object) === 'assert' &&
-    path.scope.getBinding(root.name)?.kind === 'param'
-  );
-}
-
-function propertyName(member: types.Node): string | undefined {
-  return member.type === 'MemberExpression' && member.property.type === 'Identifier' ? member.property.name : undefined;
+  return method !== undefined && method !== 'fail';
 }
