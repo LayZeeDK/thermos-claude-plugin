@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { getCallSites } from 'node:util';
 import { isMainThread, Worker } from 'node:worker_threads';
 
-import { install, type HookDependencies, type NodeTestModule } from './hook-core.ts';
+import { ENV, install, writesAllowed, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 import { workersAllowed } from './watchdog.ts';
 
 // The memory watchdog's thread runs this script, where Stryker sees no coverage, so it only starts watchdog.ts's watch,
@@ -23,12 +23,8 @@ install({
   registerHooks: registerHooks as HookDependencies['registerHooks'],
   onExit: (listener) => process.on('exit', listener),
   onBeforeExit: (listener) => process.on('beforeExit', listener),
-  writeRecord: (path, record) => {
-    // Under the permission model without write access, the process runs as it would outside Stryker, with no record.
-    if (process.permission?.has('fs.write', path) !== false) {
-      writeFileSync(path, JSON.stringify(record));
-    }
-  },
+  writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
+  canWriteRecords: writesAllowed(process.permission, process.env[ENV.out]),
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
   canWatchMemory: isMainThread && workersAllowed(process.permission),
   watchMemory: (options) => {

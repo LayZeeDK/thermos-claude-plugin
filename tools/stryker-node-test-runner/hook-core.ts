@@ -143,6 +143,8 @@ export interface HookDependencies {
   /** Registers a `beforeExit` listener, which a process that ends by itself calls and `process.exit()` skips. */
   onBeforeExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
+  /** Under the permission model without write access, the process runs as it would outside Stryker, with no record. */
+  canWriteRecords: boolean;
   peakMemoryMB: () => number;
   /** The main thread only, as a test's worker threads load the hook too, and only where the permission model allows. */
   canWatchMemory: boolean;
@@ -171,6 +173,13 @@ export const reporting = Symbol.for('thermos.stryker-node-test-runner.reporting'
 export const wrappedNodeTest = Symbol.for('thermos.stryker-node-test-runner.node-test');
 
 export const watchdog = Symbol.for('thermos.stryker-node-test-runner.watchdog');
+
+export function writesAllowed(
+  permission: { has(scope: string, reference?: string): boolean } | undefined,
+  dir: string | undefined,
+): boolean {
+  return permission?.has('fs.write', dir) !== false;
+}
 
 export function recordName(pid: number): string {
   return `${pid}.json`;
@@ -263,6 +272,10 @@ export function install(deps: HookDependencies): boolean {
     natural = true;
   });
   deps.onExit(() => {
+    if (!deps.canWriteRecords) {
+      return;
+    }
+
     deps.writeRecord(join(outDir, recordName(deps.pid)), {
       ...(main && { main }),
       tests,

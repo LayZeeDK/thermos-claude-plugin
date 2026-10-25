@@ -19,6 +19,7 @@ import {
   uniqueIds,
   watchdog,
   wrappedNodeTest,
+  writesAllowed,
   type HookDependencies,
   type ModuleHooks,
   type NodeTestModule,
@@ -391,6 +392,7 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     writeRecord: (path, record) => {
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
     },
+    canWriteRecords: true,
     peakMemoryMB: () => 123,
     canWatchMemory: true,
     watchMemory: (options) => {
@@ -435,6 +437,29 @@ function report(deps: HookDependencies, name: string, outcome: 'pass' | 'fail'):
     recordEvent(event);
   }
 }
+
+describe('writesAllowed', () => {
+  testFor([
+    ['outside the permission model', undefined, true],
+    ['under the permission model with write access', true, true],
+    ['under the permission model without write access', false, false],
+  ] as const)('lets a process write its record %s, or not', ([, allowed, expected]) => {
+    const asked: [string, string | undefined][] = [];
+    const permission =
+      allowed === undefined
+        ? undefined
+        : {
+            has: (scope: string, reference?: string) => {
+              asked.push([scope, reference]);
+
+              return allowed;
+            },
+          };
+
+    assert.equal(writesAllowed(permission, OUT), expected);
+    assert.deepEqual(asked, allowed === undefined ? [] : [['fs.write', OUT]]);
+  });
+});
 
 describe('install', () => {
   it('does nothing when the runner did not start the process tree', () => {
@@ -604,6 +629,16 @@ describe('install', () => {
         },
       },
     ]);
+  });
+
+  it('writes no record in a process that may not write one', () => {
+    const { deps, records, exit } = harness({ [ENV.out]: OUT, [ENV.file]: TEST_FILE }, { canWriteRecords: false });
+    install(deps);
+    report(deps, 'passes', 'pass');
+
+    exit();
+
+    assert.deepEqual(records, []);
   });
 
   it('writes the diagnostics of errors raised after a test ended', () => {
