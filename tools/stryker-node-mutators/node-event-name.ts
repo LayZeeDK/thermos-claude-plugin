@@ -6,12 +6,10 @@ import type { Operator } from './operator.ts';
 const LISTEN: ReadonlySet<string> = new Set(['on', 'once', 'addListener', 'prependListener', 'prependOnceListener']);
 const NODE_EVENTS: ReadonlySet<string> = new Set(['node:events', 'events']);
 const NODE_PROCESS: ReadonlySet<string> = new Set(['node:process', 'process']);
-/** The process's own events that fire at a different time from each other. */
 const PROCESS_SWAPS: ReadonlyMap<string, readonly string[]> = new Map([
   ['exit', ['beforeExit']],
   ['beforeExit', ['exit']],
 ]);
-/** A child process's and a stream's events that fire at a different time from each other. */
 const STREAM_SWAPS: ReadonlyMap<string, readonly string[]> = new Map([
   ['close', ['exit']],
   ['exit', ['close']],
@@ -20,9 +18,8 @@ const STREAM_SWAPS: ReadonlyMap<string, readonly string[]> = new Map([
 ]);
 
 /**
- * Swaps the name of a lifecycle event that a listener waits for with one that fires at another time, such as a child
- * process's `exit`, which can fire while its output is still open, and its `close`. It covers the listener methods of
- * an event emitter and the `once` and `on` functions of `node:events`; names outside the swap tables stay.
+ * Swaps a lifecycle event that a listener waits for with one that fires at another time, such as a child process's
+ * `exit`, which can fire while its output is still open, and its `close`.
  */
 export const nodeEventName: Operator = {
   name: 'NodeEventName',
@@ -46,7 +43,6 @@ export const nodeEventName: Operator = {
   },
 };
 
-/** The emitter whose event `path` names, or `undefined` when `path` names no event a listener waits for. */
 function receiverOf(path: NodePath): types.Node | undefined {
   const call = path.parent;
 
@@ -64,7 +60,6 @@ function receiverOf(path: NodePath): types.Node | undefined {
   return listens && path.key === 0 ? callee.object : undefined;
 }
 
-/** Whether `callee` is `once` or `on` of `node:events`, which take the emitter first and the event name second. */
 function isEventsFunction(path: NodePath, callee: types.Node): boolean {
   if (callee.type === 'Identifier') {
     const from = importOf(path, callee.name);
@@ -78,7 +73,6 @@ function isEventsFunction(path: NodePath, callee: types.Node): boolean {
 
   const from = importOf(path, callee.object.name);
 
-  // The module itself, from a default or a namespace import, or its EventEmitter class.
   return (
     from !== undefined &&
     NODE_EVENTS.has(from.source) &&
@@ -91,7 +85,6 @@ function isOnceOrOn(name: string | undefined): boolean {
   return name === 'once' || name === 'on';
 }
 
-/** Whether `receiver` is Node.js's process: the global, or an import of `node:process`. */
 function isProcess(path: NodePath, receiver: types.Node): boolean {
   if (receiver.type !== 'Identifier') {
     return false;

@@ -25,7 +25,6 @@ export const ACTIVE_MUTANT = INSTRUMENTER_CONSTANTS.ACTIVE_MUTANT_ENV_VARIABLE;
 export const HOOK_URL = pathToFileURL(join(import.meta.dirname, 'hook.ts')).href;
 export const REPORTER_ARG = `--test-reporter=${pathToFileURL(join(import.meta.dirname, 'reporter.ts')).href}`;
 
-/** The NODE_OPTIONS a runner gives its processes from this process's; index.test.ts checks how runEnv builds them. */
 export function runNodeOptions(): string {
   return runEnv(process.env, '', '', '', { dryRun: false, disableBail: false }, undefined).NODE_OPTIONS;
 }
@@ -54,23 +53,17 @@ const FIXTURE_HEADER = [
 
 export const FIXTURE_HEADER_LINES = FIXTURE_HEADER.length;
 
-/** A node:test file whose code can simulate Stryker's instrumented code with `cover(mutantId)`. */
 export function fixture(...lines: string[]): string {
   return [...FIXTURE_HEADER, ...lines, ''].join('\n');
 }
 
 export const PASSING = fixture("it('passes', () => {});");
 
-/**
- * Code that grows by 16 MB about every 10 ms to 400 MB and blocks for 5 s, so a process running it ends by itself when
- * no memory watchdog ends it first.
- */
 export const GROWS =
   'const held = []; const end = Date.now() + 5_000; while (Date.now() < end) { ' +
   'if (held.length < 25) held.push(new Int32Array(4e6).fill(1)); const pause = Date.now() + 10; while (Date.now() < pause); }';
 export const FAILING = fixture("it('fails', () => { throw new Error('expected failure'); });");
 
-/** Creates the files in a temporary directory and makes it the working directory for the rest of the test. */
 export function project(t: TestContext, files: Record<string, string>): string {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'node-test-runner-')));
   const previous = process.cwd();
@@ -113,7 +106,6 @@ export function logger(debug: string[] = [], debugEnabled = true, warnings: stri
   };
 }
 
-/** The options the runner reads, which its tests set. */
 export interface RunnerOptions {
   nodeTest?: NodeTestOptions;
   testFiles?: string[];
@@ -121,7 +113,6 @@ export interface RunnerOptions {
   checkers?: string[];
 }
 
-/** Stryker's options as a test runner gets them: `options` over Stryker's defaults for what the runner reads. */
 export function strykerOptions(options: RunnerOptions = {}): StrykerOptions {
   return { checkers: [], testFiles: [], ...options } as unknown as StrykerOptions;
 }
@@ -155,7 +146,6 @@ export function complete(result: DryRunResult): CompleteDryRunResult {
   return result;
 }
 
-/** A mutant run's result without its `duration`, which varies from run to run, after checking that it has one. */
 export function withoutDuration(
   result: MutantRunResult,
 ): MutantRunResult extends infer R ? (R extends unknown ? Omit<R, 'duration'> : never) : never {
@@ -192,17 +182,12 @@ export function fixtureCoverage(coverage: MutantCoverage | undefined): MutantCov
 
 let stalled = false;
 
-/** The compile cache directories runners of this process created; runners in other processes name theirs by pid. */
 export function ownCacheDirs(): string[] {
   return readdirSync(tmpdir())
     .filter((name) => name.startsWith(`stryker-node-test-cache-${process.pid}-`))
     .sort();
 }
 
-/**
- * Waits for a run for at most `ms` milliseconds. A run that never ends fails its test and every later run at once, so
- * a hanging runner fails this file quickly instead of hanging it.
- */
 export async function settle<T>(run: Promise<T>, ms = 5_000): Promise<T> {
   assert.ok(!stalled, 'an earlier run never ended');
   let timer: NodeJS.Timeout | undefined;
@@ -222,11 +207,6 @@ export async function settle<T>(run: Promise<T>, ms = 5_000): Promise<T> {
   }
 }
 
-/**
- * Makes the runners under test, and every process they start, share a compile cache, so none of them creates its own,
- * and ends the test file once its tests end if a run stalled. Returns the cache directory. Call it at the top level of
- * a test file that runs runners.
- */
 export function shareCompileCache(): string {
   const cacheDir = mkdtempSync(join(tmpdir(), 'node-test-runner-cache-'));
   process.env.NODE_COMPILE_CACHE = cacheDir;

@@ -17,7 +17,6 @@ describe('groupOptions', () => {
 });
 
 describe('endGroup', () => {
-  /** endGroup with a kill that records its calls and throws `error` when given one. */
   function setup(platform: NodeJS.Platform, error?: NodeJS.ErrnoException) {
     const calls: unknown[][] = [];
     const end = () =>
@@ -58,17 +57,12 @@ describe('endGroup', () => {
 });
 
 describe('processEnd', () => {
-  /**
-   * A stand-in for a child process with `pid`, how its end promise stands after pending callbacks ran, and the kills
-   * that ended its group on `platform`, which throw `killError` when given one.
-   */
   function ending(
     graceMs: number,
     platform: NodeJS.Platform = 'win32',
     options: { pid?: number | undefined; killError?: Error } = {},
   ) {
     const { killError } = options;
-    // An explicit undefined stands for a process that never started.
     const pid = 'pid' in options ? options.pid : 123;
     const child = Object.assign(new EventEmitter(), { pid, stderr: new PassThrough() });
     const kills: unknown[][] = [];

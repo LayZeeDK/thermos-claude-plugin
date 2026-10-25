@@ -8,7 +8,6 @@ import { OWN, isOwn, toNodeMutator, type BabelTypes, type Operator } from './ope
 
 const NODE = { type: 'EmptyStatement' } as types.Node;
 
-/** An operator that yields `NODE` for any path. */
 const operator: Operator = {
   name: 'Alpha',
   sample: '',

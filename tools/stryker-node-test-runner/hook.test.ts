@@ -28,23 +28,16 @@ await import('./hook.ts');
 
 shareCompileCache();
 
-/**
- * Loads a fresh copy of hook.ts into this process as if the runner had started it, with its own output directory, no
- * test file and the hook variables in `env`, then restores this process's hook state. Returns the `exit` and
- * `beforeExit` listeners the copy added, detached.
- */
 async function loadRunnerStartedHook(
   outDir: string,
   env: Record<string, string> = {},
 ): Promise<Record<'exit' | 'beforeExit', (() => void)[]>> {
   const global = globalThis as HookDependencies['global'];
   const previousMark = global[installed];
-  // The current test id stays, so the copy leaves this process's attribution of coverage alone.
   const previousEnv = Object.values(ENV)
     .filter((key) => key !== ENV.current)
     .map((key) => [key, process.env[key]] as const);
   const events = ['exit', 'beforeExit'] as const;
-  // Typed as a plain emitter, which takes either event name.
   const emitter: EventEmitter = process;
   const listeners = new Set(events.flatMap((event) => emitter.listeners(event)));
 
@@ -94,10 +87,7 @@ function tempDir(t: TestContext): string {
   return dir;
 }
 
-/**
- * Runs `node --import hook.ts --test-reporter=reporter.ts ...args` as the runner would, with only the hook's own
- * variables set. It keeps Stryker's active mutant, so a mutant in hook.ts reaches the process that loads it.
- */
+/** It keeps Stryker's active mutant, so a mutant in hook.ts reaches the process that loads it. */
 function runWithHook(args: string[], env: Record<string, string>): Promise<{ code: number | null; pid: number }> {
   const base = { ...process.env };
 
@@ -124,7 +114,6 @@ function readRecords(outDir: string): Record<string, ProcessRecord> {
 describe('hook', () => {
   it('writes the record of a process the runner started when the process exits', async (t) => {
     const outDir = tempDir(t);
-    // The copy removes the bail variable as the hook does; loading it must leave this process's environment alone.
     const bail = process.env[ENV.bail];
     process.env[ENV.bail] = 'true';
     t.after(() => {
@@ -143,7 +132,6 @@ describe('hook', () => {
 
     added.exit[0]?.();
 
-    // Only the tests: the hit count and coverage come from this process's namespace, which a Stryker run also uses.
     const records = readRecords(outDir);
     assert.deepEqual(Object.keys(records), [`${process.pid}.json`]);
     assert.deepEqual(records[`${process.pid}.json`]?.tests, []);
@@ -159,7 +147,6 @@ describe('hook', () => {
     const watching = global[watchdog];
     assert.ok(watching instanceof Worker, String(watching));
     t.after(() => watching.terminate());
-    // An unref'd watchdog leaves the process to end when its own work does.
     assert.deepEqual(
       unref.mock.calls.map((call) => call.this),
       [watching],

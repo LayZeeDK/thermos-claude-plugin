@@ -1,5 +1,3 @@
-// How the runner reports a test file by the way its process ends: by itself, through process.exit(), without its
-// record, or killed.
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

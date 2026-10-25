@@ -4,13 +4,11 @@ import { relative, sep } from 'node:path';
 import { resolveFromCore, type Instrumenter, type InstrumentedMutant } from './install.ts';
 import { toNodeMutator, type Operator } from './operator.ts';
 
-/** The mutants of a file that only `after` has, and those that only `before` has, one line each. */
 export interface MutantDiff {
   readonly added: readonly string[];
   readonly removed: readonly string[];
 }
 
-/** How the mutants of one file changed from `before` to `after`, counting a mutant as often as it occurs. */
 export function mutantDiff(before: readonly InstrumentedMutant[], after: readonly InstrumentedMutant[]): MutantDiff {
   const beforeLines = before.map(line);
   const afterLines = after.map(line);
@@ -19,9 +17,8 @@ export function mutantDiff(before: readonly InstrumentedMutant[], after: readonl
 }
 
 /**
- * A Markdown section per TypeScript file in `names` that lists the mutants that the file's operators add to and
- * remove from what Stryker's own mutators make there. A removed mutant is one that a mutator's filter drops once an
- * operator's mutant shares its scope, as the CallExpression mutator does.
+ * A removed mutant is one that a mutator's filter drops once an operator's mutant shares its scope, as the
+ * CallExpression mutator does.
  */
 export async function corpusDiff(
   names: readonly string[],

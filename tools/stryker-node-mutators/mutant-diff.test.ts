@@ -9,7 +9,6 @@ import type { Instrumenter, InstrumentedMutant, SourceFile } from './install.ts'
 import { corpusDiff, mutantDiff } from './mutant-diff.ts';
 import type { BabelTypes, NodeMutatorLike, Operator } from './operator.ts';
 
-/** A mutant of `mutatorName` that replaces line `line`, column `column` (both from 0) with `replacement`. */
 function mutant(mutatorName: string, line: number, column: number, replacement = ';'): InstrumentedMutant {
   return { mutatorName, replacement, location: { start: { line, column }, end: { line, column: column + 1 } } };
 }
@@ -35,11 +34,6 @@ describe('mutantDiff', () => {
 });
 
 describe('corpusDiff', () => {
-  /**
-   * corpusDiff over `names`, run by a stand-in instrumenter whose list holds Stryker's StringLiteral and in which each
-   * mutator makes one mutant per file. The operator Own is for the files whose name has "owned" in it, and no operator
-   * is for the others.
-   */
   async function setup(names: string[]) {
     const read: string[] = [];
     const instrumented: [SourceFile[], string[]][] = [];

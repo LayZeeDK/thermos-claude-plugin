@@ -6,11 +6,6 @@ import type { InstrumenterContext, MutantCoverage, Position } from '@stryker-mut
 
 import type { MemoryLimitReached, WatchdogData } from './watchdog.ts';
 
-/**
- * The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name.
- * A name with a `>` that could form the separator, inside the name or with the separator next to it, has each `>` and
- * `\` escaped with `\`, so the separator only ever joins names. Other names, such as `<anonymous>`, stay as they are.
- */
 export function testId(parent: string, name: string): string {
   return `${parent} > ${/(^| )>( |$)/.test(name) ? name.replace(/[\\>]/g, '\\$&') : name}`;
 }
@@ -22,7 +17,6 @@ export function uniqueIds(): (parent: string, name: string) => string {
   return (parent, name) => {
     const base = testId(parent, name);
 
-    // One of the first `used.size + 1` candidates is free, so the search ends at the bound at the latest.
     for (let count = 1; count <= used.size + 1; count++) {
       const id = count === 1 ? base : `${base} (${count})`;
 
@@ -42,16 +36,11 @@ export function within(id: string, scope: string): boolean {
 }
 
 export interface RecordedTest {
-  /**
-   * The test file's absolute path, the names of the enclosing suites and, for a subtest, tests, and the test's name,
-   * joined by ` > `.
-   */
   id: string;
   /** Skipped tests include todo tests, which run but whose outcome node:test ignores. */
   status: 'passed' | 'failed' | 'skipped';
   failureMessage?: string;
   timeSpentMs: number;
-  /** Where the test file declares the suite or test, directly or through a helper it calls. */
   startPosition?: Position;
 }
 
@@ -63,23 +52,16 @@ export interface CallSite {
 }
 
 export interface ProcessRecord {
-  /** Set for the process that runs the test file. */
   main?: true;
-  /** Tests this process ran; empty for processes the tests spawned. */
   tests: RecordedTest[];
   hitCount?: number;
-  /** Only written during the dry run. */
   mutantCoverage?: MutantCoverage;
-  /** The most memory the process held, in MB. Only written during the dry run. */
   peakMemoryMB?: number;
-  /** Set by the memory watchdog of a process it ended for holding more memory than its limit, in MB. */
   memoryLimitReached?: MemoryLimitReached;
-  /** What node:test reported about errors raised after their test ended, which fail the file outside any test. */
   diagnostics?: string[];
   /**
-   * Set for the test file's process when it exited without ending by itself, which skips `beforeExit`, before
-   * node:test reported its summary: through `process.exit()` or an uncaught exception, while the file loaded or a test
-   * ran.
+   * Set when the test file's process exited before node:test's summary through process.exit() or an uncaught
+   * exception, which skip `beforeExit`.
    */
   unfinished?: true;
 }
@@ -127,7 +109,6 @@ export type NodeTestModule = Register & {
   afterEach: HookRegistrar;
 };
 
-/** The name of the test that stands for a failing `after` hook outside any suite, which fails the test file. */
 const AFTER_HOOK = '"after" hook';
 
 export const ENV = {
@@ -139,7 +120,6 @@ export const ENV = {
   current: 'STRYKER_NODE_TEST_CURRENT',
   filter: 'STRYKER_NODE_TEST_FILTER',
   bail: 'STRYKER_NODE_TEST_BAIL',
-  /** The mutant the hook activates once the tests start, when Stryker asks for runtime activation. */
   activeMutant: 'STRYKER_NODE_TEST_ACTIVE_MUTANT',
 } as const;
 
@@ -148,7 +128,6 @@ export const ACTIVE_MUTANT_ENV = '__STRYKER_ACTIVE_MUTANT__';
 
 export interface HookDependencies {
   env: Record<string, string | undefined>;
-  /** `process.argv[1]`, resolved to an absolute path. */
   mainFile: string | undefined;
   pid: number;
   global: {
@@ -164,17 +143,12 @@ export interface HookDependencies {
   /** Registers a `beforeExit` listener, which a process that ends by itself calls and `process.exit()` skips. */
   onBeforeExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
-  /** The most memory the process has held so far, in MB. */
   peakMemoryMB: () => number;
-  /**
-   * Whether this thread starts the memory watchdog: the main thread only, so a test's own worker threads, which load
-   * the hook too, start no second one, and only where the permission model lets it start a worker. The watchdog's own
-   * thread never loads the hook, as it starts without the process's options and environment.
-   */
+  /** The main thread only, as a test's worker threads load the hook too, and only where the permission model allows. */
   canWatchMemory: boolean;
   /**
-   * Starts the memory watchdog of watchdog.ts in a worker thread with these options, and returns it. It must work while
-   * a test blocks the process: Node.js's assertion diff can fill gigabytes in one synchronous call.
+   * A worker thread, as the watchdog must work while a test blocks the process: Node.js's assertion diff can fill
+   * gigabytes in one synchronous call.
    */
   watchMemory: (options: { workerData: WatchdogData; execArgv: string[]; env: Record<string, string> }) => unknown;
   /** The function calls on the stack, innermost first, as `util.getCallSites` gives them. */
@@ -190,26 +164,18 @@ export interface HookDependencies {
  */
 const CALL_SITE_FRAMES = 64;
 
-/** Marks a process whose hook is installed, so a second copy of the hook (a runner under test) stays inactive. */
 export const installed = Symbol.for('thermos.stryker-node-test-runner.hook');
 
-/** Where the hook of a test file's process leaves the function that the runner's reporter passes events to. */
 export const reporting = Symbol.for('thermos.stryker-node-test-runner.reporting');
 
-/** Where the hook of a test file's process keeps the wrapped node:test module that imports of node:test give. */
 export const wrappedNodeTest = Symbol.for('thermos.stryker-node-test-runner.node-test');
 
-/** Where the hook keeps the memory watchdog it started. */
 export const watchdog = Symbol.for('thermos.stryker-node-test-runner.watchdog');
 
-/** The name of the record that the process with this pid writes to the output directory. */
 export function recordName(pid: number): string {
   return `${pid}.json`;
 }
 
-/**
- * Installs the hook when the runner started this process tree. Returns whether it installed.
- */
 export function install(deps: HookDependencies): boolean {
   const outDir = deps.env[ENV.out];
 
@@ -231,7 +197,6 @@ export function install(deps: HookDependencies): boolean {
   if (memoryLimit > 0 && deps.canWatchMemory) {
     const { NODE_COMPILE_CACHE } = deps.env;
     deps.global[watchdog] = deps.watchMemory({
-      // A file of the watchdog's own, which the exit listener cannot be writing at the same time.
       workerData: { limitMB: memoryLimit, recordPath: join(outDir, `${deps.pid}.memory.json`) },
       // Without the process's options, such as --require ts-node/register, which would load in the thread again, and
       // without its environment, whose NODE_OPTIONS Node.js would read for the thread: its --require preloads would
@@ -245,7 +210,6 @@ export function install(deps: HookDependencies): boolean {
   ns.currentTestId = deps.env[ENV.current] || undefined;
   const bail = deps.env[ENV.bail] === 'true';
   const dryRun = deps.env[ENV.dryRun] === 'true';
-  // Processes the tests start never bail: skipping tests there would change results that the parent test checks.
   delete deps.env[ENV.bail];
   const tests: RecordedTest[] = [];
   const diagnostics: string[] = [];
@@ -320,12 +284,7 @@ export function install(deps: HookDependencies): boolean {
  */
 const LATE_ACTIVITY = 'generated asynchronous activity after the test ended';
 
-/**
- * Returns a function that records the tests of one test file from node:test's reporter events, with ids built the
- * way the wrapper builds them, and the positions the wrapper found for them. A suite is recorded only when it fails by
- * itself, such as in a `before` hook, or is skipped. node:test reports an error raised after its test ended only as a
- * diagnostic, which is kept in `diagnostics`.
- */
+/** node:test reports an error raised after its test ended only as a diagnostic, which is kept in `diagnostics`. */
 export function recordEvents(
   testFile: string,
   tests: RecordedTest[],
@@ -389,14 +348,8 @@ export interface WrapOptions {
   ns: InstrumenterContext;
   testFile: string;
   tests: RecordedTest[];
-  /** Test ids to run; all other tests are skipped. Runs every test when absent. */
   filter: Set<string> | undefined;
-  /** Whether tests that start after a test of this process failed are skipped. */
   bail: boolean;
-  /**
-   * The mutant to activate when the first test starts, or a `beforeEach` hook or a suite's `before` hook ahead of it;
-   * it stays active for the rest of the process.
-   */
   activeMutant: string | undefined;
   env: Record<string, string | undefined>;
   positions: Map<string, Position>;
@@ -405,11 +358,6 @@ export interface WrapOptions {
 }
 
 /**
- * Returns a copy of the node:test module whose suite and test functions are wrapped so each test's id is known while
- * it runs, and so tests outside the filter, or after a failure when bailing, are skipped. Subtests that a test
- * registers with `t.test` are wrapped the same way. The test results come from node:test's reporter events, so a
- * suite's or test's id follows node:test's nesting.
- *
  * Supports synchronous suite bodies, and test bodies that return a value or a promise or that take node:test's `done`
  * callback. Bailing acts on the results node:test has reported, and node:test reports the first tests of a file only
  * once its reporters start, so a few quick tests can still run after the first failure.
@@ -418,16 +366,13 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   const { ns, testFile, tests, filter, bail, activeMutant, env, positions, callSites, nodeTest } = options;
   const idOf = uniqueIds();
   /**
-   * The id of the suite or test whose body runs. node:test makes the suite or test whose body runs, followed through
-   * asynchronous calls, the parent of the suites and tests registered with its module's functions.
+   * node:test makes the suite or test whose body runs, followed through asynchronous calls, the parent of the suites
+   * and tests registered with its module's functions.
    */
   const running = new AsyncLocalStorage<string>();
   const parentId = () => running.getStore() ?? testFile;
   const bailed = () => bail && tests.some((test) => test.status === 'failed');
-  /**
-   * The tests that have started and not ended, in the order they started. The last is current, also when a subtest
-   * that its parent does not await outlives the parent's body.
-   */
+  // The last is current, also when a subtest that its parent does not await outlives the parent's body.
   const active = new Set<string>();
   const setCurrent = () => {
     const id = [...active].at(-1);
@@ -445,17 +390,12 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
    */
   const selected = (id: string) => !filter || filter.has(testFile) || [...filter].some((test) => within(test, id));
   const activate = () => {
-    // The environment variable makes the processes started from now on load with the mutant active.
     if (activeMutant !== undefined) {
       ns.activeMutant = activeMutant;
       env[ACTIVE_MUTANT_ENV] = activeMutant;
     }
   };
-  /**
-   * Wraps a hook registrar so it registers no hook in a suite without a selected test. Like node:test's own filters,
-   * the wrapper runs such a suite's body, to register its tests as skipped, and none of its hooks. Any other hook is
-   * registered as `prepare` gives it, from the hook and the suite or test whose body registers it.
-   */
+  /** Like node:test's own filters, a suite without a selected test runs its body and registers none of its hooks. */
   const wrapHook = (
     register: HookRegistrar,
     prepare: (hook: Body | undefined, suite: string | undefined) => Body | undefined = (hook) => hook,
@@ -486,10 +426,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     return wrapped;
   };
 
-  /**
-   * Notes where the test file declares the suite or test with this id. node:test takes the position from its caller,
-   * which is a wrapper, so the wrapper finds it itself.
-   */
+  /** node:test takes the position from its caller, which is a wrapper, so the wrapper finds it itself. */
   const declare = (id: string) => {
     const site = callSites().find(({ file }) => file === testFile);
 

@@ -13,15 +13,10 @@ const MS = 10;
 
 type Timers = Record<string, (...args: unknown[]) => unknown>;
 
-/** Runs the event loop until the callbacks and promises due now have run. */
 function settle(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-/**
- * The arguments that `run` gives `owner[method]`, which a fake that does nothing replaces meanwhile, also behind the
- * named imports of a built-in module.
- */
 async function callsOf(owner: object, method: string, run: () => unknown): Promise<unknown[][]> {
   const fake = mock.method(owner as Timers, method, async () => {});
   syncBuiltinESMExports();

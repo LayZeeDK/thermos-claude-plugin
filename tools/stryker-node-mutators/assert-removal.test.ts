@@ -45,7 +45,6 @@ describe('AssertRemoval', () => {
     async (_title, source, alone) => {
       const instrumenter = await resolveFromCore();
       const builtIns = instrumenter.allMutators.filter((mutator) => !isOwn(mutator));
-      /** The mutators that remove the statement of `source`. */
       const removals = async (mutators: typeof builtIns) =>
         (await instrumenter.instrument([{ name: 'sample.ts', content: source }], mutators))
           .filter(({ replacement }) => replacement === ';')

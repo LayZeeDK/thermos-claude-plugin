@@ -11,16 +11,13 @@ import { toNodeMutator, type Operator } from './operator.ts';
 import { productionOperators, testOperators } from './operators.ts';
 
 const OPERATORS = [...productionOperators, ...testOperators];
-/** What a replacement may call beyond what the code it replaces calls. */
 const ALLOWED: ReadonlySet<string> = new Set(['Error', 'Promise.reject']);
 const KEYWORDS: ReadonlySet<string> = new Set(['catch', 'for', 'function', 'if', 'return', 'switch', 'typeof', 'while']);
-/** Code that a mutant must never reach further into: a signal to live processes, a removal, a command. */
 const TARGETS = [
   'process.kill(pid, 0);',
   "import { rmSync } from 'node:fs';\nrmSync(dir, { recursive: true });",
   "import { spawn } from 'node:child_process';\nspawn(cmd, args, { shell: false });",
 ];
-/** Code with every kind of site the operators mutate, next to the targets. */
 const CORPUS = [
   ...OPERATORS.map(({ sample }) => sample),
   ...TARGETS,
@@ -38,14 +35,12 @@ const CORPUS = [
   "import { it } from 'node:test';\nit('works', (t) => {\n  t.assert.deepEqual(run(), []);\n});",
 ];
 
-/** The names that `code` calls or constructs, such as `assert.equal` and `Error`. */
 function callees(code: string): Set<string> {
   const names = [...code.matchAll(/([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g)].map(([, name]) => name);
 
   return new Set(names.filter((name) => !KEYWORDS.has(name)));
 }
 
-/** The text of `source` at `location`, whose lines count from 0. */
 function textAt(source: string, { start, end }: Location): string {
   const lines = source.split('\n').slice(start.line, end.line + 1);
   lines[lines.length - 1] = lines[lines.length - 1].slice(0, end.column);
@@ -54,7 +49,6 @@ function textAt(source: string, { start, end }: Location): string {
   return lines.join('\n');
 }
 
-/** For each mutant that `operator` makes in `source`, the names its replacement calls that the original does not. */
 async function newCallees(operator: Operator, source: string): Promise<string[][]> {
   const instrumenter = await resolveFromCore();
   const mutants = await instrumenter.instrument(

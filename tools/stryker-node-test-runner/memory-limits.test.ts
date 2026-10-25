@@ -8,7 +8,6 @@ import { testFor } from '../test-each/test-for.ts';
 import { logger } from './index.fixtures.ts';
 import { memoryLimits } from './memory-limits.ts';
 
-/** MemoryLimits over a peaks directory of the test's own, each made with a logger that keeps its warnings. */
 function setup(t: TestContext, maxMemoryMB?: number) {
   const parent = mkdtempSync(join(tmpdir(), 'memory-limits-'));
   t.after(() => rmSync(parent, { recursive: true, force: true }));

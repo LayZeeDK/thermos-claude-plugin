@@ -1,6 +1,5 @@
-// The node:test reporter (`--test-reporter`) of every test file the runner starts. It hands each event to the hook
-// of the test file's process, which records the results (see hook-core.ts), and writes nothing. A transform stream
-// sees the events as node:test reports them; an async generator would see them later, after more tests have run.
+// A transform stream sees the events as node:test reports them; an async generator would see them later, after more
+// tests have run.
 import { Transform } from 'node:stream';
 
 import { reporting, type HookDependencies, type TestEvent } from './hook-core.ts';

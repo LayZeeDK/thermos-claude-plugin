@@ -9,13 +9,11 @@ import type { Mutant } from '@stryker-mutator/api/core';
 
 import { isOwn, toNodeMutator, type BabelTypes, type NodeMutatorLike, type Operator } from './operator.ts';
 
-/** The instrumenter versions whose internals this module was written against. */
 const TESTED_VERSION = /^10\.1\./;
 const CORE_BIN = /[\\/]@stryker-mutator[\\/]core[\\/]bin[\\/]stryker\.js$/;
 /** Stryker's `// Stryker disable` directives match mutator names with letters only. */
 const NAME = /^[A-Za-z]+$/;
 const nothing = () => {};
-/** The instrumenter's logger, which says nothing, and whose `isDebugEnabled` gives a falsy `undefined`. */
 const SILENT = { debug: nothing, info: nothing, warn: nothing, isDebugEnabled: nothing };
 
 export interface SourceFile {
@@ -25,27 +23,21 @@ export interface SourceFile {
 
 export type InstrumentedMutant = Pick<Mutant, 'mutatorName' | 'replacement' | 'location'>;
 
-/** Stryker's instrumenter, as far as this package uses it. */
 export interface Instrumenter {
-  /** The directory of the @stryker-mutator/instrumenter package. */
   readonly dir: string;
   readonly version: string;
   /** The list that the instrumenter reads its mutators from each time it transforms a file. */
   readonly allMutators: NodeMutatorLike[];
   /** The Babel types of the instrumenter's own @babel/core, to build the nodes it places. */
   readonly types: BabelTypes;
-  /** Instruments TypeScript `files` with `mutators`, or with the list in `allMutators` when none are given. */
   instrument(files: readonly SourceFile[], mutators?: readonly NodeMutatorLike[]): Promise<readonly InstrumentedMutant[]>;
 }
 
-/** `add` puts the operators next to Stryker's own mutators; `replace` leaves only the operators. */
 export type Mode = 'add' | 'replace';
 
 /**
- * Puts `operators` into the mutator list of the instrumenter that Stryker uses, then instruments each operator's
- * sample and throws unless every operator made a mutant: an instrumenter that does not read the list, as a bundled
- * one does not, would otherwise drop the operators without a word. A name that is not letters only, or that another
- * mutator has, throws before the list changes. Installing again adds nothing.
+ * Puts `operators` into the mutator list of Stryker's instrumenter, and throws unless each makes a mutant of its
+ * sample: a bundled instrumenter does not read the list and would drop the operators without a word.
  */
 export async function install(
   mode: Mode,
@@ -135,7 +127,6 @@ function coreBin(argv1: string, realpath: (path: string) => string): string | un
   }
 }
 
-/** Stryker's instrumenter, the copy that the given @stryker-mutator/core imports. */
 export async function resolveFromCore(corePackage: string = corePackageJson()): Promise<Instrumenter> {
   const fromCore = createRequire(corePackage);
   const packageJson = fromCore.resolve('@stryker-mutator/instrumenter/package.json');

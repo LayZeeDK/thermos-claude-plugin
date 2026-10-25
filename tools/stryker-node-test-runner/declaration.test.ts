@@ -1,5 +1,3 @@
-// Kept apart from runner.test.ts: the runner runs test files in path order and stops at the first failing file, so
-// mutants in these module-level declarations, which run every test, are killed before the slow runner tests start.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -9,7 +7,6 @@ import ajvModule from 'ajv';
 import { testEach } from '../test-each/test-each.ts';
 import { NodeTestRunner, strykerPlugins, strykerValidationSchema } from './index.ts';
 
-/** Compiles the nodeTest options schema, as Stryker validates the options against it. */
 function validator() {
   return new ajvModule.default({ allErrors: true, strict: false }).compile(strykerValidationSchema);
 }

@@ -4,9 +4,8 @@ import type { Operator } from './operator.ts';
 const MESSAGE = 'Stryker';
 
 /**
- * Replaces what `assert.throws` or `assert.rejects` checks with a function that throws, or a promise that rejects,
- * an unrelated error, so that a mutant that survives is a validator that accepts any error: none, a bare `Error`, or
- * one that only returns true. A missing validator is no reason to skip; that is the survivor to find.
+ * Makes the code that `assert.throws` or `assert.rejects` checks throw an unrelated error, so a survivor is a
+ * validator that accepts any error.
  */
 export const assertValidator: Operator = {
   name: 'AssertValidator',

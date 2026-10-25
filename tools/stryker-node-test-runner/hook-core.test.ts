@@ -286,10 +286,6 @@ describe('recordEvents', () => {
   });
 });
 
-/**
- * Resolves and loads `node:test` through the module hooks, as an import and as a require, and evaluates both modules
- * with `wrapped` as the wrapped node:test module.
- */
 async function importRedirected(hooks: ModuleHooks, wrapped: unknown) {
   const global = globalThis as HookDependencies['global'];
   const previous = global[wrappedNodeTest];
@@ -361,11 +357,9 @@ interface Harness {
   calls: string[];
   hooks: ModuleHooks[];
   wrapped: () => NodeTestModule;
-  /** Ends the process: by itself, which calls `beforeExit` first, or through `process.exit()`, which skips it. */
   exit: (options?: { natural: boolean }) => void;
 }
 
-/** Hook dependencies with fakes, for a process whose main file is the test file unless `mainFile` says otherwise. */
 function harness(env: Record<string, string | undefined>, overrides: Partial<HookDependencies> = {}): Harness {
   const fake = fakeNodeTest();
   const records: Harness['records'] = [];
@@ -670,8 +664,6 @@ describe('install', () => {
     assert.deepEqual(startPositions, [{ line: 2, column: 4 }, { line: 2, column: 4 }, undefined]);
   });
 
-  // Source-mapped call sites give positions in the source under a transpiling loader; 64 of them reach the test file
-  // through helpers many calls deep.
   testFor([
     ['the source-mapped call sites, when one is in the test file', TEST_FILE, [true], { line: 6, column: 6 }],
     ['the call sites as they are, when no source-mapped one is', join('/repo', 'src', 'a.ts'), [true, false], { line: 2, column: 4 }],

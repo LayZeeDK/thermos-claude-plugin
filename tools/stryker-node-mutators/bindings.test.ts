@@ -6,7 +6,6 @@ import { assertMethod } from './bindings.ts';
 import { mutantsOf } from './mutants-of.fixtures.ts';
 import type { Operator } from './operator.ts';
 
-/** An operator that replaces each call with the method that assertMethod finds in it, when it finds one. */
 const probe: Operator = {
   name: 'Probe',
   sample: '',

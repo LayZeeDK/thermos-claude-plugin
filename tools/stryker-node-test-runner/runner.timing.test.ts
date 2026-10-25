@@ -30,7 +30,6 @@ describe('NodeTestRunner timing', () => {
     const started = performance.now();
 
     const { tests } = complete(await settle(runner.dryRun(DRY_RUN)));
-    // Test times are rounded to whole milliseconds.
     const wall = Math.ceil(performance.now() - started);
 
     assert.equal(tests.length, 2);
@@ -41,10 +40,6 @@ describe('NodeTestRunner timing', () => {
     }
   });
 
-  /**
-   * Two test files that each mark that they started, then wait up to 3 s for the other to start, and a runner for them
-   * under Stryker's `concurrency` and `checkers`.
-   */
   async function meetingFiles(t: TestContext, concurrency: number, checkers: string[] = []) {
     const meets = (self: string, other: string) =>
       fixture(

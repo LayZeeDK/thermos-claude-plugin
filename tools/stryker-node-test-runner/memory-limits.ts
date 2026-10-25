@@ -18,22 +18,17 @@ export function peakMemoryDir(strykerPid: number): string {
 }
 
 /**
- * How much memory in MB each process of a test file may hold before the memory watchdog ends it. A test that a mutant
- * fails can need more memory than it did passing, and Node.js's assertion diff grows with the square of the lines it
- * compares (nodejs/node#62792).
+ * The memory each process of a test file may hold. A test that a mutant fails can need more than it did passing, as
+ * Node.js's assertion diff grows with the square of the lines it compares (nodejs/node#62792).
  */
 export interface MemoryLimits {
-  /** Readies the dry run, and returns the limit it runs under, if any. */
   startDryRun(): number | undefined;
-  /** Records what the processes of `file` held in the dry run, for the mutant runs of every worker. */
   record(file: string, records: ProcessRecord[]): void;
-  /** The limit of `file`'s processes in a mutant run. */
   forMutantRun(file: string): number;
 }
 
 /**
- * With `nodeTest.maxMemoryMB` every run, the dry run included, runs under it. Without it the dry run runs without a
- * limit and records each file's peak, and a mutant run gives a file its peak times 1.5 plus 1024 MB, as Stryker scales
+ * Without nodeTest.maxMemoryMB, a mutant run gives a file its dry-run peak times 1.5 plus 1024 MB, as Stryker scales
  * and pads its timeouts.
  */
 export function memoryLimits(maxMemoryMB: number | undefined, dir: string, log: Logger): MemoryLimits {
@@ -44,11 +39,9 @@ export function memoryLimits(maxMemoryMB: number | undefined, dir: string, log: 
   return { startDryRun: () => maxMemoryMB, record: () => {}, forMutantRun: () => maxMemoryMB };
 }
 
-/** Limits derived from the most memory a process of each file held in the dry run. */
 class DryRunPeaks implements MemoryLimits {
   readonly #dir: string;
   readonly #log: Logger;
-  /** Test files a mutant run found no dry-run peak for, each warned about once. */
   readonly #unmeasured = new Set<string>();
 
   constructor(dir: string, log: Logger) {
@@ -65,10 +58,7 @@ class DryRunPeaks implements MemoryLimits {
     writeFileSync(this.#path(file), String(peakMB));
   }
 
-  /**
-   * A file the dry run did not run, as when Stryker's --testFiles names fewer files than nodeTest.testFiles, has no
-   * peak; it gets the floor, with a warning, as does a file whose peak cannot be read.
-   */
+  /** A file the dry run did not run, as when Stryker's --testFiles names fewer files than nodeTest.testFiles. */
   forMutantRun(file: string): number {
     const peakMB = storedPeak(this.#path(file));
     const limitMB = Math.round((peakMB ?? 0) * 1.5 + 1024);
@@ -90,13 +80,10 @@ class DryRunPeaks implements MemoryLimits {
   }
 }
 
-/** The peak stored at `path`, or none when there is no file or it does not read as a whole number. */
 function storedPeak(path: string): number | undefined {
   try {
     const stored = readFileSync(path, 'utf8');
 
     return /^\d+$/.test(stored) ? Number(stored) : undefined;
-  } catch {
-    // The dry run did not run the file, or its peak cannot be read.
-  }
+  } catch {}
 }

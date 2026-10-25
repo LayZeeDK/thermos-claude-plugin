@@ -4,7 +4,6 @@ import { join } from 'node:path';
 
 import type { Logger } from '@stryker-mutator/api/logging';
 
-/** How long the runner waits for a directory it made to be removed: a run's directory, or the compile cache. */
 const REMOVE_WAIT_MS = 2_000;
 
 /**
@@ -20,11 +19,10 @@ export function ownDir(dir: string, owned: (path: string) => boolean = isOwn): v
 }
 
 /**
- * Removes a directory the runner created, waiting at most `waitMs`. A process that a test file started can outlive the
- * file's process, and Windows refuses to remove a directory that a running process works in. With retries, `rm` gives
- * up after about a second when the process works in the directory itself, but waits until the process ends when it
- * works in a directory inside it, as in the run's temporary directory. What is left is for `removeLeftDirs` of a later
- * runner, with a warning.
+ * A process that a test file started can outlive the file's process, and Windows refuses to remove a directory that a
+ * running process works in. With retries, `rm` gives up after about a second when the process works in the directory
+ * itself, but waits until the process ends when it works in a directory inside it, as in the run's temporary
+ * directory.
  */
 export function removeDir(
   dir: string,

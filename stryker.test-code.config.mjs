@@ -1,7 +1,7 @@
 import base from './stryker.config.mjs';
 
-// The test-code install replaces the whole mutator list, so it has to run once stryker.config.mjs has added the
-// production operators. A sibling static import would start before that install ends, so this one waits in the body.
+// The replace install has to run after stryker.config.mjs's add install ends, and an ES module's sibling static
+// import starts before an earlier sibling's top-level await settles.
 await import('./tools/stryker-node-mutators/test-code.ts');
 
 /** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */

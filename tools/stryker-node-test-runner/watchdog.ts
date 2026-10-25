@@ -10,24 +10,17 @@ export interface MemoryLimitReached {
   limitMB: number;
 }
 
-/** Whether a process may start worker threads: always, unless it runs under the permission model without them. */
 export function workersAllowed(permission: { has(scope: string): boolean } | undefined): boolean {
   return permission?.has('worker') !== false;
 }
 
 export interface WatchdogData {
   limitMB: number;
-  /**
-   * Where the watchdog writes its record of the process it ends, which the process cannot write once ended. It is a
-   * file of its own, not the process's record, so the watchdog and the process's exit listener never write one file.
-   */
   recordPath: string;
 }
 
 /**
- * Looks at the process's resident memory once. Over the limit, it writes the watchdog's record, which tells the runner
- * why the process ended, and ends the process, also when the record cannot be written: from a worker, process.exit and
- * process.abort do not end a process whose main thread is blocked, and a signal does.
+ * From a worker, process.exit and process.abort do not end a process whose main thread is blocked, and a signal does.
  */
 export function checkMemory(
   { limitMB, recordPath }: WatchdogData,
@@ -48,7 +41,6 @@ export function checkMemory(
   }
 }
 
-/** Looks at the process's memory every 50 ms. */
 export function watch(data: WatchdogData, rss: () => number = process.memoryUsage.rss): void {
   setInterval(() => checkMemory(data, rss()), 50);
 }

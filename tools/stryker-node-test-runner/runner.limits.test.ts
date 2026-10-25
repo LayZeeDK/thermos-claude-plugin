@@ -25,7 +25,6 @@ import { NodeTestRunner } from './index.ts';
 shareCompileCache();
 
 describe('NodeTestRunner limits', () => {
-  /** Code that counts `hits` hits as instrumented code does, throwing like it once they pass the hit limit. */
   const loop = (hits: number) =>
     [
       'const ns = globalThis.__stryker__;',
@@ -139,7 +138,6 @@ describe('NodeTestRunner limits', () => {
   );
 
   it('ends a dry run under nodeTest.maxMemoryMB as an error that names the first file, in order, that held more', async (t) => {
-    // Each waits a second, longer than the watchdog takes to see a process over 10 MB.
     const waits = fixture("it('waits', async () => { await new Promise((resolve) => setTimeout(resolve, 1_000)); });");
     const dir = project(t, { 'a.test.mjs': waits, 'b.test.mjs': waits });
     const options = { nodeTest: { testFiles: ['*.test.mjs'], maxMemoryMB: 10 }, concurrency: 2 };

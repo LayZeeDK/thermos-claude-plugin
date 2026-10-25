@@ -6,10 +6,8 @@ import type { BabelTypes, Operator } from './operator.ts';
 const MESSAGE = 'Stryker: assertion reached';
 
 /**
- * Makes an assertion of a test fail where it stands, so that a mutant that survives is a check that never runs or
- * whose failure nothing sees. An assertion statement gets a `throw` after it, so the code after it keeps the types the
- * assertion narrows; an assertion that is an arrow function's body becomes a call of a function that throws. `fail`
- * is left alone: it fails already, where a test meant it never to run.
+ * Makes an assertion fail right after it runs, so a survivor is a check that never runs or whose failure nothing sees.
+ * An assertion statement keeps its call ahead of the `throw`, so the code after it keeps the types it narrows.
  */
 export const assertLiveness: Operator = {
   name: 'AssertLiveness',
@@ -39,10 +37,6 @@ function isArrowBody(path: NodePath): boolean {
   return body.parent.type === 'ArrowFunctionExpression';
 }
 
-/**
- * Whether `node` calls `node:assert`, through any import of it, or the `assert` of node:test's test context, which a
- * test gets as a parameter.
- */
 function isAssertion(path: NodePath, node: types.Expression): boolean {
   if (node.type !== 'CallExpression') {
     return false;

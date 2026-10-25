@@ -1,6 +1,3 @@
-// Tests that exist to be mutated. Each check reaches node:assert in one of the ways that the test-code operators match
-// and that no other test file of this repository uses, so npm run mutate makes those mutants and these checks, which
-// all run and each name the error they expect, have to kill them.
 import legacy from 'node:assert';
 import * as namespace from 'assert';
 import { deepStrictEqual as same, rejects, strict, strictEqual, throws } from 'node:assert';

@@ -4,8 +4,6 @@
 //   npm run bench
 //   npm run bench -- --runs 9 --mutate-runs 0
 //   npm run bench -- --runner path/to/baseline/index.ts --runner tools/stryker-node-test-runner/index.ts
-//
-// Runners alternate order each round (A B, B A), so drift hits both alike.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,7 +22,6 @@ type RunnerModule = typeof import('./index.ts');
 
 interface Scenario {
   name: string;
-  /** Runs once and returns the number of tests the runner reported, which the scenario asserts first. */
   run: (runner: NodeTestRunner) => Promise<number>;
 }
 
@@ -33,7 +30,6 @@ interface Stat {
   medianMs: number;
   minMs: number;
   maxMs: number;
-  /** (max - min) / median, the run-to-run noise a difference must exceed. */
   spread: number;
 }
 
@@ -168,7 +164,6 @@ async function loadRunner(path: string, dir: string): Promise<NodeTestRunner> {
   return runner;
 }
 
-/** The Stryker suites that `npm run mutate` runs one after the other, each as its own command. */
 const MUTATE_SUITES = (
   JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', 'package.json'), 'utf8')) as {
     scripts: { mutate: string };
@@ -213,7 +208,6 @@ async function main(): Promise<void> {
           assert.ok((await scenario.run(runner)) > 0);
         },
       ]);
-      // One unmeasured round covers lazy initialization.
       await round(sides);
 
       for (let run = 0; run < runs; run++) {

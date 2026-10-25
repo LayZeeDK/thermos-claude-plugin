@@ -15,15 +15,10 @@ import { isOwn, type BabelTypes, type NodeMutatorLike, type Operator } from './o
 
 const LOCATION = { start: { line: 0, column: 0 }, end: { line: 0, column: 1 } };
 
-/** An operator named `name` with a sample of its own name. */
 function operator(name: string): Operator {
   return { name, sample: `${name}();`, *mutate() {} };
 }
 
-/**
- * A stand-in instrumenter whose list holds Stryker's mutators `builtIns`, which makes one mutant per mutator of this
- * package in its list, except for those named in `silent`, and records the files it instruments and the warnings.
- */
 function setup({ builtIns = ['StringLiteral'], silent = [] as string[], version = '10.1.1' } = {}) {
   const allMutators: NodeMutatorLike[] = builtIns.map((name) => ({ name, *mutate() {} }));
   const instrumented: SourceFile[][] = [];
@@ -155,7 +150,6 @@ describe('corePackageJson', () => {
   const CORE = join('/global', 'node_modules', '@stryker-mutator', 'core');
   const HERE = join('/repo', 'node_modules', '@stryker-mutator', 'core', 'package.json');
 
-  /** corePackageJson for a script whose real path is `real`, or which has none when `real` is undefined. */
   function coreFor(real: string | undefined) {
     return corePackageJson(
       '/usr/local/bin/stryker',

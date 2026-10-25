@@ -12,7 +12,6 @@ import { peakMemoryDir } from './memory-limits.ts';
 describe('removeDir', () => {
   const DIR = join('/tmp', 'run');
 
-  /** Starts removing DIR with `remove`, waiting 1,000 ms, and collects the warnings. */
   function removal(remove: () => Promise<void>) {
     const warnings: string[] = [];
     const removed: string[] = [];

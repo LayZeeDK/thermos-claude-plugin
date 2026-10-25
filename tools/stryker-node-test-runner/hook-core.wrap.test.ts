@@ -791,7 +791,6 @@ describe('wrapNodeTest', () => {
         ['afterEach', true, { timeout: 5 }],
       ],
     );
-    // Only the `after` hook outside any suite stands for the test file when it fails.
     assert.deepEqual(positions.get(`${TEST_FILE} > "after" hook`), { line: 1, column: 2 });
   });
 

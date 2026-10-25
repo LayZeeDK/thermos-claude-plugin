@@ -6,11 +6,7 @@ export function groupOptions(platform: NodeJS.Platform): { detached: boolean; wi
   return { detached: platform !== 'win32', windowsHide: true };
 }
 
-/**
- * Ends what is left of a test file's process group once its run is over: processes its tests started and left
- * running, also when the memory watchdog or a crash ended the test file's process. A process that detached itself has
- * a group of its own and stays.
- */
+/** A process that detached itself has a group of its own and stays. */
 export function endGroup(
   pid: number,
   platform: NodeJS.Platform,
@@ -45,7 +41,6 @@ export function processEnd(
     let errors = '';
     let grace: NodeJS.Timeout | undefined;
     let ended = false;
-    // Runs once, from a listener, so an error from the group's end rejects instead of escaping the listener.
     const end = (code: number | null) => {
       if (ended) {
         return;
@@ -82,7 +77,6 @@ export function processEnd(
   });
 }
 
-/** The part of a child process that `processEnd` uses. */
 export interface EndingProcess {
   pid?: number;
   stderr: {

@@ -1,18 +1,13 @@
 import type { NodePath, types } from '@babel/core';
 
-/** The module names under which Node.js serves `node:assert`. */
 export const NODE_ASSERT: ReadonlySet<string> = new Set(['node:assert', 'node:assert/strict', 'assert', 'assert/strict']);
 
-/** Where a binding comes from: the module, and for a named import the name that the module exports. */
 export interface ImportOf {
   readonly source: string;
   readonly imported: string | undefined;
 }
 
-/**
- * The import that binds `name` in the scope of `path`, or `undefined` when no import binds it. Only ES module `import`
- * declarations count: the operators support ES modules, not CommonJS's `require`.
- */
+/** Only ES module `import` declarations count: the operators do not read CommonJS `require`. */
 export function importOf(path: NodePath, name: string): ImportOf | undefined {
   const bound = path.scope.getBinding(name)?.path;
   const declaration = bound?.parent;
@@ -21,7 +16,6 @@ export function importOf(path: NodePath, name: string): ImportOf | undefined {
     return undefined;
   }
 
-  // An import declaration binds names only through its specifiers.
   const specifier = bound!.node;
 
   return {
@@ -34,11 +28,6 @@ function exportedName(imported: types.Identifier | types.StringLiteral): string 
   return imported.type === 'Identifier' ? imported.name : imported.value;
 }
 
-/**
- * The method that a call of `callee` makes on `node:assert`, through any import of it, or on the `assert` of
- * node:test's test context, which a test gets as a parameter: `ok` for a call of the module itself, and `undefined`
- * when the call asserts nothing or names its method by a computed key.
- */
 export function assertMethod(path: NodePath, callee: types.Node): string | undefined {
   const root = calleeRoot(callee);
 
@@ -59,7 +48,6 @@ export function assertMethod(path: NodePath, callee: types.Node): string | undef
   return callee === root ? (from.imported ?? 'ok') : propertyName(callee);
 }
 
-/** Whether `callee` is `t.assert.<method>` with `t` a parameter. */
 function isTestContextAssert(path: NodePath, callee: types.Node, root: types.Identifier): boolean {
   return (
     callee.type === 'MemberExpression' &&
@@ -74,7 +62,6 @@ function propertyName(member: types.Node): string | undefined {
   return member.type === 'MemberExpression' && member.property.type === 'Identifier' ? member.property.name : undefined;
 }
 
-/** The identifier at the root of a callee such as `assert.strict.equal`, or `undefined` for one such as `f()()`. */
 export function calleeRoot(callee: types.Node): types.Identifier | undefined {
   let node = callee;
 

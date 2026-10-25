@@ -1,5 +1,3 @@
-// Each test file runs in its own `node` process with hook.ts loaded through NODE_OPTIONS, so every process the tests
-// spawn reports mutant coverage too, attributed to the test that spawned it.
 import { spawn } from 'node:child_process';
 import { globSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
@@ -48,7 +46,6 @@ export interface NodeTestOptions {
   maxMemoryMB?: number;
 }
 
-/** A dry run, which collects coverage, or a mutant run. */
 export type RunOptions =
   | {
       dryRun: true;
@@ -64,10 +61,8 @@ export type RunOptions =
       disableBail: boolean;
       coverageAnalysis?: undefined;
       activeMutant?: string;
-      /** When the mutant becomes active; from the start of the process unless this is `runtime`. */
       mutantActivation?: MutantActivation;
       hitLimit?: number;
-      /** Test ids to run; every test runs when absent. */
       testFilter?: string[];
     };
 
@@ -82,13 +77,9 @@ export interface FileRun {
 
 const HOOK_URL = pathToFileURL(resolve(import.meta.dirname, 'hook.ts')).href;
 const REPORTER_URL = pathToFileURL(resolve(import.meta.dirname, 'reporter.ts')).href;
-/** How long a run waits, after a test file's process exits, for the processes it started to close stderr. */
 const CLOSE_GRACE_MS = 1_500;
 
-/**
- * Merges the mutant coverage of several processes by adding up the hit counts. Without `perTest`, the hits inside
- * tests count as static, as Stryker's coverage analysis `all` expects.
- */
+/** Without `perTest`, the hits inside tests count as static, as Stryker's coverage analysis `all` expects. */
 export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest: boolean): MutantCoverage {
   const total: MutantCoverage = { static: {}, perTest: {} };
   const add = (into: Record<string, number>, from: Record<string, number>) => {
@@ -113,8 +104,8 @@ export function mergeCoverage(coverages: (MutantCoverage | undefined)[], perTest
 }
 
 /**
- * Turns the recorded tests of one test file into Stryker test results. A test's name leaves out the test file, which
- * its id starts with, as Stryker's runners name tests after their suites only.
+ * A test's name leaves out the test file, which its id starts with, as Stryker's runners name tests after their suites
+ * only.
  *
  * Each test's time includes the time the file's run, `fileMs`, spent outside its outermost tests, whose time includes
  * their subtests': running any test of the file runs the file's whole process. Stryker's mutant timeout scales with
@@ -147,11 +138,7 @@ function nodeCommand(args: string[]): string {
   return ['node', ...args.map((arg) => `"${arg}"`)].join(' ');
 }
 
-/**
- * The error message for a test file whose process failed outside any test, such as when it does not load, with the
- * command that reproduces it, node:test's diagnostics of errors raised after their test ended, and its stderr, as
- * Stryker's tap runner reports it. The command has the arguments and NODE_OPTIONS that the runner ran `node` with.
- */
+/** Reports a test file that failed outside its tests as Stryker's tap runner does: command, diagnostics, stderr. */
 export function fileError(testFile: string, { records, exitCode, stderr, args, nodeOptions }: FileRun): string {
   const diagnostics = records.flatMap((record) => record.diagnostics ?? []);
   const output = stderr.trim();
@@ -176,7 +163,6 @@ function withoutReporters(args: string[]): string[] {
   return args.filter((arg, index) => !reporterOption(arg) && reporterOption(String(args[index - 1]))?.[1] !== '');
 }
 
-/** Checks that the file parses and has a list of tests: tests can write files to the same directory. */
 export function parseRecord(json: string): ProcessRecord {
   const record = JSON.parse(json) as Partial<ProcessRecord> | null;
 
@@ -187,16 +173,10 @@ export function parseRecord(json: string): ProcessRecord {
   return record as ProcessRecord;
 }
 
-/** What one test file's run says: the result that ends the whole run, or its tests and coverage. */
 type FileOutcome =
   | { end: DryRunResult }
   | { results: TestResult[]; coverages: (MutantCoverage | undefined)[]; failed: boolean };
 
-/**
- * Runs `work` on the items, at most `limit` at a time and starting them in order, and starts no more once a result
- * `stops` the run or `work` rejects. Returns the results of the first items, in order, up to and including the first
- * that `stops` the run. A rejection comes once the items already started have settled, so no work outlives the call.
- */
 export async function runInPool<T, R>(
   items: T[],
   limit: number,
@@ -205,7 +185,6 @@ export async function runInPool<T, R>(
 ): Promise<R[]> {
   const results: R[] = [];
   let next = 0;
-  // One past the first item, in order, whose result stops the run.
   let end = items.length;
   let failed = false;
   const lane = async () => {
@@ -234,18 +213,13 @@ export async function runInPool<T, R>(
   return results.slice(0, end);
 }
 
-/** Turns one test file's run, which took `fileMs`, into its outcome. */
 function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOptions): FileOutcome {
   const { records, exitCode, unreadable } = fileRun;
   const memoryLimitReached = records.find((record) => record.memoryLimitReached)?.memoryLimitReached;
 
-  // The watchdog wrote a record of its own, without tests, so this comes before the checks of the tests. It also comes
-  // before the unreadable check, as the watchdog can end the process while its exit listener writes the process's
-  // record, which is then torn.
   if (memoryLimitReached) {
     const { rssMB, limitMB } = memoryLimitReached;
 
-    // A limit below what the tests need when they pass would report every mutant of the file as timed out.
     if (run.dryRun) {
       const errorMessage =
         `A process of "${file}" held ${rssMB} MB in the dry run, more than nodeTest.maxMemoryMB (${limitMB} MB), so ` +
@@ -278,7 +252,6 @@ function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOpt
     return { end: { status: DryRunStatus.Error, errorMessage: fileError(file, fileRun) } };
   }
 
-  // Without its record the file's results are unknown, as when jest's runner misses a file's coverage.
   const main = records.find((record) => record.main);
 
   if (!main) {
@@ -334,10 +307,6 @@ export function testRunnerConcurrency(
   return checkers ? Math.max(Math.ceil(total / 2), 1) + Math.max(Math.floor(total / 2), 1) : total;
 }
 
-/**
- * Builds the environment for one test file's process tree. The processes use `tmpDir` as their temporary directory,
- * and keep Node's compile cache in `cacheDir` unless the environment names a directory.
- */
 export function runEnv(
   base: NodeJS.ProcessEnv,
   file: string,
@@ -510,11 +479,6 @@ export class NodeTestRunner implements TestRunner {
       : mutantResult;
   }
 
-  /**
-   * Runs the files, `limit` at a time, each through `runOne`, and puts their outcomes together. A file's time is the
-   * time `runOne` takes: the file's process, with the setup and removal of its run directory, and in the dry run the
-   * recording of its memory peak.
-   */
   async #run(
     files: string[],
     run: RunOptions,
@@ -557,10 +521,6 @@ export class NodeTestRunner implements TestRunner {
     };
   }
 
-  /**
-   * Runs one test file and collects the record of every process it started. The processes get a temporary directory
-   * inside the run's directory, so what they leave there is removed with it, however they exit.
-   */
   async runFile(file: string, run: RunOptions, memoryLimitMB?: number): Promise<FileRun> {
     const runDir = mkdtempSync(join(tmpdir(), `stryker-node-test-${process.pid}-`));
     const outDir = join(runDir, 'out');

@@ -1,5 +1,3 @@
-// Named to sort after the runner's quicker test files: the runner runs test files in path order and stops at the first
-// failing file, so the quick tests kill a mutant they cover before these slow ones start.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -261,7 +259,6 @@ describe('NodeTestRunner', () => {
 
     assert.ok(performance.now() - started < 5_000, `took ${performance.now() - started} ms`);
     assert.deepEqual([exitCode, stderr, records.some((record) => record.main)], [0, 'before exit', true]);
-    // The run lets go of the stderr pipe that the daemon still holds.
     assert.equal(pipes(), pipesBefore);
   });
 

@@ -9,7 +9,7 @@ export interface Operator {
    * show it, and `excludedMutations` and `// Stryker disable` comments select the operator by it.
    */
   readonly name: string;
-  /** A whole TypeScript module in which the operator finds at least one mutant; install's self-check needs it. */
+  /** A TypeScript module in which the operator makes a mutant; the install's self-check instruments it. */
   readonly sample: string;
   mutate(path: NodePath, t: BabelTypes): Iterable<types.Node>;
 }
@@ -20,17 +20,13 @@ export interface NodeMutatorLike {
   mutate(path: NodePath, context: { isExpressionContext: boolean }): Iterable<types.Node>;
 }
 
-/** Marks the mutators this package made, also when two copies of the package run in one process. */
 export const OWN = Symbol.for('stryker-node-mutators');
 
 export interface OwnMutator extends NodeMutatorLike {
   readonly [OWN]: true;
 }
 
-/**
- * The `NodeMutator` for `operator`, building nodes with `t`. It yields nothing in a script that is an expression, such
- * as a Vue template's, where a statement cannot go.
- */
+/** Yields nothing where Stryker's instrumenter allows no statement, such as a Vue template's expression. */
 export function toNodeMutator(operator: Operator, t: BabelTypes): OwnMutator {
   return {
     name: operator.name,
@@ -43,7 +39,6 @@ export function toNodeMutator(operator: Operator, t: BabelTypes): OwnMutator {
   };
 }
 
-/** Whether this package made `mutator`. */
 export function isOwn(mutator: NodeMutatorLike): boolean {
   return OWN in mutator;
 }

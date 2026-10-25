@@ -2,10 +2,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { it } from 'node:test';
 
-// Fails a deep assertion on `lines` nulls against as many strings in a fresh process, and prints how many MB its peak
-// grew over the memory it held at the start. On Linux a forked child can start with its parent's peak, so the child is
-// started by a small process of its own, whose peak is all it can carry over, and the test subtracts a small diff's
-// growth.
+// On Linux a forked child can start with its parent's peak, so the child is started by a small process of its own,
+// whose peak is all it can carry over, and the test subtracts a small diff's growth.
 const CHILD = `
 const assert = require('node:assert');
 const lines = Number(process.argv[1]);
@@ -16,7 +14,6 @@ try {
 console.log(Math.round((process.resourceUsage().maxRSS - before) / 1024));
 `;
 
-/** Runs the script in its first argument, with the rest as its arguments, and prints what it prints. */
 const STARTER = `
 const { execFileSync } = require('node:child_process');
 const [script, ...args] = process.argv.slice(1);

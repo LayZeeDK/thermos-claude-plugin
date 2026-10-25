@@ -6,7 +6,6 @@ import type { NodeTestModule } from './hook-core.ts';
 export type Fn = (this: unknown, ...args: unknown[]) => unknown;
 
 export interface Registration {
-  /** The node:test function, such as `it` or `it.skip`. */
   kind: string;
   name: string;
   rest: unknown[];
@@ -15,11 +14,6 @@ export interface Registration {
 
 export const TEST_FILE = join('/repo', 'a.test.ts');
 
-/**
- * A stand-in for node:test that records registrations. Like node:test, it runs suite bodies, except those of skipped
- * suites, while they are registered (with a recognisable `this` and argument) and reports a suite body that throws
- * instead of throwing. Its tests have `expectFailure` unless it stands in for Node.js 22.
- */
 export function fakeNodeTest(expectFailure = true) {
   const registrations: Registration[] = [];
   const suiteResults: unknown[] = [];
@@ -38,7 +32,6 @@ export function fakeNodeTest(expectFailure = true) {
 
       return `${kind} ${name}`;
     };
-  /** Registers a hook, recorded with its kind as its name and the hook as the first argument after it. */
   const hook = (kind: string) =>
     function (this: unknown, ...rest: unknown[]) {
       registrations.push({ kind, name: kind, rest, self: this });
@@ -53,7 +46,6 @@ export function fakeNodeTest(expectFailure = true) {
       ...(tests && expectFailure && { expectFailure: register(`${kind}.expectFailure`) }),
       mock: `${kind}.mock`,
     });
-  // Like node:test, the module is the `test` function, which carries the other functions, and `it` is `test`.
   const test = withShorthands('test');
   const module: NodeTestModule = Object.assign(test, {
     describe: withShorthands('describe', false),
@@ -70,10 +62,6 @@ export function fakeNodeTest(expectFailure = true) {
   return { module, registrations, suiteResults };
 }
 
-/**
- * A test context as node:test passes it to a test's body, which notes whether the test skipped itself, and whose
- * `test` adds its subtests to `registrations` as `t.test`.
- */
 export function testContext(registrations: Registration[] = []) {
   const context = {
     skipped: false,

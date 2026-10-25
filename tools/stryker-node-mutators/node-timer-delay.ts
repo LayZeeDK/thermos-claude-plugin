@@ -8,8 +8,8 @@ const NODE_TIMERS: ReadonlySet<string> = new Set(['node:timers', 'timers']);
 const NODE_TIMERS_PROMISES: ReadonlySet<string> = new Set(['node:timers/promises', 'timers/promises']);
 
 /**
- * Moves a timer's delay by one millisecond each way, the boundary that a test with mock timers ticks to. Node.js runs
- * a delay below 1 after 1 ms, so the moves that leave a delay of 0 or 1 at that are left out.
+ * Moves a timer's delay by 1 ms each way. Node.js runs a delay below 1 after 1 ms, so the moves that leave a delay of
+ * 0 or 1 at that are left out.
  */
 export const nodeTimerDelay: Operator = {
   name: 'NodeTimerDelay',
@@ -31,14 +31,12 @@ export const nodeTimerDelay: Operator = {
   },
 };
 
-/** Whether `path` is the delay argument of a timer of Node.js. */
 function isDelay(path: NodePath): boolean {
   const call = path.parent;
 
   return call.type === 'CallExpression' && delayIndex(path, call.callee) === path.key;
 }
 
-/** Where the delay goes in a call of `callee`, or `undefined` when `callee` is no timer of Node.js. */
 function delayIndex(path: NodePath, callee: types.Node): number | undefined {
   if (callee.type === 'Identifier') {
     const from = importOf(path, callee.name);
@@ -57,7 +55,6 @@ function delayIndex(path: NodePath, callee: types.Node): number | undefined {
   const from = importOf(path, callee.object.name);
   const method = callee.property.name;
 
-  // A default or a namespace import binds the module itself.
   if (from?.imported === undefined) {
     return from !== undefined && TIMERS.has(method) ? timersDelayIndex(from.source) : undefined;
   }
@@ -65,7 +62,6 @@ function delayIndex(path: NodePath, callee: types.Node): number | undefined {
   return from.imported === 'scheduler' && method === 'wait' && NODE_TIMERS_PROMISES.has(from.source) ? 0 : undefined;
 }
 
-/** Where the delay goes in a timer of the module `source`: after the callback, or first in a promise's timer. */
 function timersDelayIndex(source: string): number | undefined {
   return NODE_TIMERS.has(source) ? 1 : NODE_TIMERS_PROMISES.has(source) ? 0 : undefined;
 }

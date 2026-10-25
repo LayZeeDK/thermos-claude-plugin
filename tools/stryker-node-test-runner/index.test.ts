@@ -60,7 +60,6 @@ describe('toTestResults', () => {
   const base = (id: string) => ({ id, name: id.slice(`${FILE} > `.length), fileName: FILE });
 
   it('reports each recorded test with its status, failure message, and rounded time plus the time the file spent outside its tests', () => {
-    // The tests take 4.4 ms of the file's 10.4 ms, so each test carries the other 6 ms.
     assert.deepEqual(
       toTestResults(
         FILE,
@@ -87,8 +86,6 @@ describe('toTestResults', () => {
   });
 
   it("counts a parent test's time once, as it includes the time of the subtests it runs", () => {
-    // The parent's 5 ms include its subtests' 1 ms and 3 ms (the second has a subtest of its own); a sibling takes 1 ms
-    // more, so the 10 ms file spent 4 ms outside its tests.
     assert.deepEqual(
       toTestResults(
         FILE,
@@ -188,7 +185,6 @@ describe('filesFor', () => {
 });
 
 describe('runInPool', () => {
-  /** A pool over `count` items whose work the test settles itself, item by item. */
   function setup(count: number, limit: number, stops: (result: number) => boolean = () => false) {
     const started: number[] = [];
     const settle: ((result: number) => void)[] = [];

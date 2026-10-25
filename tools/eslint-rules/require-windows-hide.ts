@@ -25,7 +25,6 @@ function isFalse(node: Node): boolean {
   return unwrapped.type === 'Literal' && unwrapped.value === false;
 }
 
-/** Only literals and undefined can be judged; any other expression is taken to be what its author meant. */
 function mayShowWindow(node: Node): boolean {
   const unwrapped = unwrap(node);
 
@@ -46,7 +45,6 @@ const rule: Rule.RuleModule = {
   },
   create(context) {
     function checkText(node: Literal | TemplateLiteral): void {
-      // Each literal is checked alone, so detached and windowsHide must sit in the same string.
       const text = context.sourceCode.getText(node);
 
       if (detachedInText.test(text) && !windowsHideInText.test(text)) {
