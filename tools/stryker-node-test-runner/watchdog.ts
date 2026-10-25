@@ -1,9 +1,17 @@
 // The memory watchdog: a worker thread that ends its process once the process holds more memory than its limit. It
-// guards mutant runs against Node.js's assertion diff, which grows with the square of the lines it compares
-// (nodejs/node#62792); node-assert-diff.test.ts fails once a Node.js release fixes that.
+// guards mutant runs, and a dry run under nodeTest.maxMemoryMB, against Node.js's assertion diff, which grows with the
+// square of the lines it compares (nodejs/node#62792). node-assert-diff.test.ts fails once a Node.js release fixes it.
 import { writeFileSync } from 'node:fs';
 
-import type { ProcessRecord } from './hook-core.ts';
+export interface MemoryLimitReached {
+  rssMB: number;
+  limitMB: number;
+}
+
+/** Whether a process may start worker threads: always, unless it runs under the permission model without them. */
+export function workersAllowed(permission: { has(scope: string): boolean } | undefined): boolean {
+  return permission?.has('worker') !== false;
+}
 
 export interface WatchdogData {
   limitMB: number;
@@ -25,9 +33,10 @@ export function checkMemory(
   const rssMB = Math.round(rssBytes / 1048576);
 
   if (rssMB > limitMB) {
-    const record: ProcessRecord = { tests: [], memoryLimitReached: { rssMB, limitMB } };
+    const memoryLimitReached: MemoryLimitReached = { rssMB, limitMB };
+
     try {
-      write(recordPath, JSON.stringify(record));
+      write(recordPath, JSON.stringify({ tests: [], memoryLimitReached }));
     } finally {
       kill(process.pid, 'SIGKILL');
     }

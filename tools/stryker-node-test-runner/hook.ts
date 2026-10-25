@@ -5,7 +5,8 @@ import { resolve } from 'node:path';
 import { getCallSites } from 'node:util';
 import { isMainThread, Worker } from 'node:worker_threads';
 
-import { install, workersAllowed, type HookDependencies, type NodeTestModule } from './hook-core.ts';
+import { install, type HookDependencies, type NodeTestModule } from './hook-core.ts';
+import { workersAllowed } from './watchdog.ts';
 
 // The memory watchdog's thread loads watchdog-worker.ts, whose code TypeScript, the linter and Stryker all reach. The
 // eval script only imports it: a worker's `eval` takes code, not a file URL.

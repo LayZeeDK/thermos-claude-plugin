@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { testFor } from '../test-each/test-for.ts';
-import { checkMemory, watch } from './watchdog.ts';
+import { checkMemory, watch, workersAllowed } from './watchdog.ts';
 
 const DATA = { limitMB: 200, recordPath: '/out/4321.memory.json' };
 const MB = 1048576;
@@ -20,6 +20,29 @@ function check(rssBytes: number) {
 
   return { writes, kills };
 }
+
+describe('workersAllowed', () => {
+  testFor([
+    ['outside the permission model', undefined, true],
+    ['under the permission model with workers', true, true],
+    ['under the permission model without workers', false, false],
+  ] as const)('lets a process start workers %s, or not', ([, allowed, expected]) => {
+    const asked: string[] = [];
+    const permission =
+      allowed === undefined
+        ? undefined
+        : {
+            has: (scope: string) => {
+              asked.push(scope);
+
+              return allowed;
+            },
+          };
+
+    assert.equal(workersAllowed(permission), expected);
+    assert.deepEqual(asked, allowed === undefined ? [] : ['worker']);
+  });
+});
 
 describe('checkMemory', () => {
   it("writes the process's record and ends the process once it holds more than the limit", () => {

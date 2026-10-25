@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { InstrumenterContext, MutantCoverage, Position } from '@stryker-mutator/api/core';
 
-import type { WatchdogData } from './watchdog.ts';
+import type { MemoryLimitReached, WatchdogData } from './watchdog.ts';
 
 /**
  * The id of a suite or test: its parent's id, which for a suite or test outside any is the test file, and its name.
@@ -146,11 +146,6 @@ export const ENV = {
 /** Stryker's variable for the active mutant, which instrumented code reads when it loads. */
 export const ACTIVE_MUTANT_ENV = '__STRYKER_ACTIVE_MUTANT__';
 
-export interface MemoryLimitReached {
-  rssMB: number;
-  limitMB: number;
-}
-
 export interface HookDependencies {
   env: Record<string, string | undefined>;
   /** `process.argv[1]`, resolved to an absolute path. */
@@ -202,11 +197,6 @@ export const reporting = Symbol.for('thermos.stryker-node-test-runner.reporting'
 
 /** Where the hook of a test file's process keeps the wrapped node:test module that imports of node:test give. */
 export const wrappedNodeTest = Symbol.for('thermos.stryker-node-test-runner.node-test');
-
-/** Whether a process may start worker threads: always, unless it runs under the permission model without them. */
-export function workersAllowed(permission: { has(scope: string): boolean } | undefined): boolean {
-  return permission?.has('worker') !== false;
-}
 
 /** Where the hook keeps the memory watchdog it started. */
 export const watchdog = Symbol.for('thermos.stryker-node-test-runner.watchdog');
