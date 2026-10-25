@@ -144,6 +144,7 @@ export interface HookDependencies {
   nodeTest: () => NodeTestModule;
   registerHooks: (hooks: ModuleHooks) => unknown;
   onExit: (listener: () => void) => void;
+  offExit: (listener: () => void) => void;
   /** Registers a `beforeExit` listener, which a process that ends by itself calls and `process.exit()` skips. */
   onBeforeExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
@@ -272,10 +273,7 @@ export function install(deps: HookDependencies): boolean {
     deps.registerHooks(redirectNodeTest(Object.keys(wrapped)));
   }
 
-  deps.onBeforeExit(() => {
-    natural = true;
-  });
-  deps.onExit(() => {
+  const write = () => {
     if (!deps.canWriteRecords) {
       return;
     }
@@ -289,7 +287,16 @@ export function install(deps: HookDependencies): boolean {
       ...(diagnostics.length > 0 && { diagnostics }),
       ...(main && !summarized && !natural && { unfinished: true }),
     });
+  };
+
+  // Node.js runs no exit listener that is added while the process exits, so the record goes behind the exit listeners
+  // of the tests here, where a process that ends by itself still runs code. process.exit() skips `beforeExit`.
+  deps.onBeforeExit(() => {
+    natural = true;
+    deps.offExit(write);
+    deps.onExit(write);
   });
+  deps.onExit(write);
 
   return true;
 }

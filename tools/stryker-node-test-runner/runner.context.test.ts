@@ -241,6 +241,27 @@ describe('NodeTestRunner with the test context', () => {
     ]);
   });
 
+  it("counts the work of the test file's own exit listeners as static coverage", async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        // pino-pretty/node_modules/on-exit-leak-free/index.js:25
+        "process.on('exit', () => { cover('exit'); });",
+        "process.on('beforeExit', () => { cover('beforeExit'); });",
+        "it('listens', () => { process.on('exit', () => { cover('exit in a test'); }); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+    const a = join(dir, 'a.test.mjs');
+
+    const { tests, mutantCoverage } = complete(await settle(runner.dryRun(DRY_RUN)));
+
+    assert.deepEqual(summary(tests), [passed(`${a} > listens`)]);
+    assert.deepEqual(fixtureCoverage(mutantCoverage), {
+      static: { exit: 1, beforeExit: 1, 'exit in a test': 1 },
+      perTest: {},
+    });
+  });
+
   it('keeps its results whatever a test writes to stdout', async (t) => {
     const dir = project(t, {
       'a.test.mjs': fixture(

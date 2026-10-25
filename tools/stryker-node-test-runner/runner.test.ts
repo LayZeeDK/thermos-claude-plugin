@@ -305,9 +305,11 @@ describe('NodeTestRunner', () => {
         "import { writeFileSync } from 'node:fs';",
         "import { join } from 'node:path';",
         "it('passes', () => {});",
-        // Runs after the hook's own exit listener has written the record.
-        'process.on(\'exit\', () => writeFileSync(join(process.env.STRYKER_NODE_TEST_OUT, `${process.pid}.0.json`), ' +
-          `${JSON.stringify(content)}));`,
+        // The hook's beforeExit listener runs first and moves its exit listener last, so this exit listener comes after
+        // it and replaces the record the hook has written.
+        "process.on('beforeExit', () => process.on('exit', () => writeFileSync(" +
+          'join(process.env.STRYKER_NODE_TEST_OUT, `${process.pid}.0.json`), ' +
+          `${JSON.stringify(content)})));`,
       ),
     });
     const runner = await initRunner(['a.test.mjs']);

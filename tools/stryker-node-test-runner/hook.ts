@@ -23,6 +23,7 @@ install({
   nodeTest: () => process.getBuiltinModule('node:test') as NodeTestModule,
   registerHooks: registerHooks as HookDependencies['registerHooks'],
   onExit: (listener) => process.on('exit', listener),
+  offExit: (listener) => process.off('exit', listener),
   onBeforeExit: (listener) => process.on('beforeExit', listener),
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
   canWriteRecords: writesAllowed(process.permission, process.env[ENV.out]),

@@ -358,6 +358,9 @@ interface Harness {
   calls: string[];
   hooks: ModuleHooks[];
   wrapped: () => NodeTestModule;
+  /** Adds an exit listener as the test file would, after the hook's. */
+  onExit: (listener: () => void) => void;
+  /** Runs the listeners as Node.js does: `beforeExit` on a natural end, then the exit listeners there are then. */
   exit: (options?: { natural: boolean }) => void;
 }
 
@@ -386,6 +389,10 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     onExit: (listener) => {
       calls.push('onExit');
       listeners.push(listener);
+    },
+    offExit: (listener) => {
+      calls.push('offExit');
+      listeners.splice(listeners.lastIndexOf(listener), 1);
     },
     onBeforeExit: (listener) => {
       beforeExitListeners.push(listener);
@@ -417,8 +424,15 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
 
       return wrapped;
     },
+    onExit: (listener) => {
+      listeners.push(listener);
+    },
     exit: ({ natural } = { natural: true }) => {
-      for (const listener of [...(natural ? beforeExitListeners : []), ...listeners]) {
+      for (const listener of natural ? [...beforeExitListeners] : []) {
+        listener();
+      }
+
+      for (const listener of [...listeners]) {
         listener();
       }
     },
@@ -652,6 +666,28 @@ describe('install', () => {
     exit();
 
     assert.deepEqual(records, []);
+  });
+
+  testFor([
+    ['after the exit listeners of the tests, when it ends by itself', true, { exit: 1 }],
+    ['before the exit listeners of the tests, when it ends through process.exit()', false, {}],
+  ] as const)('writes the record once, %s', ([, natural, exitHits]) => {
+    const { deps, records, calls, exit, onExit } = harness({ [ENV.out]: OUT, [ENV.dryRun]: 'true' });
+    install(deps);
+    const coverage = { static: {}, perTest: {} };
+    deps.global.__stryker__!.mutantCoverage = coverage;
+    onExit(() => {
+      Object.assign(coverage.static, { exit: 1 });
+    });
+    calls.length = 0;
+
+    exit({ natural });
+
+    assert.deepEqual(
+      records.map(({ record }) => record.mutantCoverage),
+      [{ static: exitHits, perTest: {} }],
+    );
+    assert.deepEqual(calls, natural ? ['offExit', 'onExit'] : []);
   });
 
   it('writes the diagnostics of errors raised after a test ended', () => {

@@ -137,6 +137,25 @@ describe('hook', () => {
     assert.deepEqual(records[`${process.pid}.0.json`]?.tests, []);
   });
 
+  it("moves its exit listener behind the process's others when the process ends by itself", async (t) => {
+    const emitter: EventEmitter = process;
+    const { exit, beforeExit } = await loadRunnerStartedHook(tempDir(t));
+    const write = exit[0] as () => void;
+    const later = () => {};
+    emitter.on('exit', write);
+    emitter.on('exit', later);
+    t.after(() => {
+      emitter.off('exit', write);
+      emitter.off('exit', later);
+    });
+
+    beforeExit[0]?.();
+
+    const listeners = emitter.listeners('exit');
+    assert.deepEqual(listeners.slice(-2), [later, write]);
+    assert.equal(listeners.filter((listener) => listener === write).length, 1);
+  });
+
   it('starts the memory watchdog, survives its failure, and records the peak memory, when the runner asks', async (t) => {
     const outDir = tempDir(t);
     const global = globalThis as HookDependencies['global'];
