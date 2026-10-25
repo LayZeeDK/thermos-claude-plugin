@@ -6,11 +6,12 @@ import type { BabelTypes, Operator } from './operator.ts';
 const MESSAGE = 'Stryker: assertion reached';
 
 /**
- * Makes an assertion fail right after it runs, so a survivor is a check that never runs or whose failure nothing sees.
+ * FailureAddition: makes an assertion fail right after it runs, so a survivor is a check that never runs or whose
+ * failure nothing sees.
  * An assertion statement keeps its call ahead of the `throw`, so the code after it keeps the types it narrows.
  */
-export const assertLiveness: Operator = {
-  name: 'AssertLiveness',
+export const assertCall: Operator = {
+  name: 'AssertCall',
   sample: 'export function check(t: any) {\n  t.assert.ok(true);\n}\n',
   *mutate(path, t) {
     if (path.isExpressionStatement() && isAssertion(path, awaited(path.node.expression))) {

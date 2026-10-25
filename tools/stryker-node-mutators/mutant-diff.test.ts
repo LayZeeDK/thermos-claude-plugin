@@ -22,12 +22,12 @@ describe('mutantDiff', () => {
     ];
     const after = [
       mutant('StringLiteral', 2, 0, '""'),
-      mutant('AssertLiveness', 0, 4, 'throw new Error(\n  "x"\n);'),
-      mutant('AssertLiveness', 0, 4, 'throw new Error(\n  "x"\n);'),
+      mutant('AssertCall', 0, 4, 'throw new Error(\n  "x"\n);'),
+      mutant('AssertCall', 0, 4, 'throw new Error(\n  "x"\n);'),
     ];
 
     assert.deepEqual(mutantDiff(before, after), {
-      added: ['1:5 AssertLiveness throw new Error( "x" );', '1:5 AssertLiveness throw new Error( "x" );'],
+      added: ['1:5 AssertCall throw new Error( "x" );', '1:5 AssertCall throw new Error( "x" );'],
       removed: ['1:5 CallExpression ;', '3:1 StringLiteral ""'],
     });
   });

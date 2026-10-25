@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { describe } from 'node:test';
 
 import { testEach } from '../test-each/test-each.ts';
-import { assertRemoval } from './assert-removal.ts';
+import { assertStatement } from './assert-statement.ts';
 import { resolveFromCore } from './install.ts';
 import { mutantsOf } from './mutants-of.fixtures.ts';
 import { isOwn, toNodeMutator } from './operator.ts';
 
 const STRICT = "import assert from 'node:assert/strict';\n";
 
-describe('AssertRemoval', () => {
+describe('AssertStatement', () => {
   testEach([
     ['a default import', `${STRICT}assert.equal(state, 'ready');`],
     ['a default import called itself', "import assert from 'node:assert';\nassert(ready);"],
@@ -18,7 +18,7 @@ describe('AssertRemoval', () => {
     ['fail, which marks code that never runs', `${STRICT}assert.fail('unreachable');`],
     ['an awaited assertion', `${STRICT}await assert.rejects(promise);`],
   ])('removes the statement of %s', async (_title, source) => {
-    assert.deepEqual(await mutantsOf(assertRemoval, source), [';']);
+    assert.deepEqual(await mutantsOf(assertStatement, source), [';']);
   });
 
   testEach([
@@ -30,7 +30,7 @@ describe('AssertRemoval', () => {
     ['an assertion reached through an array', `${STRICT}[assert][0].ok(ready);`],
     ['a statement that is no call', `${STRICT}assert;`],
   ])('leaves %s alone', async (_title, source) => {
-    assert.deepEqual(await mutantsOf(assertRemoval, source), []);
+    assert.deepEqual(await mutantsOf(assertStatement, source), []);
   });
 
   testEach([
@@ -51,8 +51,8 @@ describe('AssertRemoval', () => {
           .map(({ mutatorName }) => mutatorName);
 
       assert.deepEqual(
-        [await removals(builtIns), await removals([...builtIns, toNodeMutator(assertRemoval, instrumenter.types)])],
-        [alone, ['AssertRemoval']],
+        [await removals(builtIns), await removals([...builtIns, toNodeMutator(assertStatement, instrumenter.types)])],
+        [alone, ['AssertStatement']],
       );
     },
   );

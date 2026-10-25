@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe } from 'node:test';
 
 import { testEach } from '../test-each/test-each.ts';
-import { assertLiveness } from './assert-liveness.ts';
+import { assertCall } from './assert-call.ts';
 import { mutantsOf } from './mutants-of.fixtures.ts';
 
 const THROW = 'throw new Error("Stryker: assertion reached");';
@@ -10,7 +10,7 @@ const THROWING_CALL = '(() => { throw new Error("Stryker: assertion reached"); }
 const STRICT = "import assert from 'node:assert/strict';\n";
 const TEST = "import { it } from 'node:test';\n";
 
-describe('AssertLiveness', () => {
+describe('AssertCall', () => {
   testEach([
     ['a default import', `${STRICT}assert.equal(1, 1);`],
     ['a default import called itself', "import assert from 'node:assert';\nassert(true);"],
@@ -27,7 +27,7 @@ describe('AssertLiveness', () => {
       .findLast((line) => !line.startsWith('}'))
       ?.trim();
 
-    assert.deepEqual(await mutantsOf(assertLiveness, source), [`{ ${statement} ${THROW} }`]);
+    assert.deepEqual(await mutantsOf(assertCall, source), [`{ ${statement} ${THROW} }`]);
   });
 
   testEach([
@@ -35,7 +35,7 @@ describe('AssertLiveness', () => {
     ["the test context's assert", `${TEST}it('works', (t) => t.assert.ok(true));`],
     ['an awaited assertion', `${STRICT}const check = async () => await assert.rejects(Promise.reject(new Error('x')));`],
   ])("makes %s that is an arrow function's body a call that throws", async (_title, source) => {
-    assert.deepEqual(await mutantsOf(assertLiveness, source), [THROWING_CALL]);
+    assert.deepEqual(await mutantsOf(assertCall, source), [THROWING_CALL]);
   });
 
   testEach([
@@ -46,7 +46,7 @@ describe('AssertLiveness', () => {
     ["the test context's fail", `${TEST}it('works', (t) => {\n  t.assert.fail('never');\n});`],
     ["an arrow function's body", `${STRICT}[1].forEach(() => assert.fail('never'));`],
   ])('leaves %s, which fails already', async (_title, source) => {
-    assert.deepEqual(await mutantsOf(assertLiveness, source), []);
+    assert.deepEqual(await mutantsOf(assertCall, source), []);
   });
 
   testEach([
@@ -63,6 +63,6 @@ describe('AssertLiveness', () => {
     ['an assertion reached through an array', `${STRICT}[assert][0].ok(true);`],
     ["another call that is an arrow function's body", '[1].forEach((n) => console.log(n));'],
   ])('leaves %s alone', async (_title, source) => {
-    assert.deepEqual(await mutantsOf(assertLiveness, source), []);
+    assert.deepEqual(await mutantsOf(assertCall, source), []);
   });
 });

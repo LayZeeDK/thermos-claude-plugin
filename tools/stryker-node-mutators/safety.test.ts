@@ -89,7 +89,7 @@ describe('safety', () => {
       [['process.kill']],
     ],
     [
-      "the first design of AssertLiveness's arrow body, which fails through node:assert",
+      "the first design of AssertCall's arrow body, which fails through node:assert",
       "import assert from 'node:assert/strict';\n[1].forEach((n) => assert.ok(n));",
       (t: Parameters<Operator['mutate']>[1]) =>
         t.callExpression(
