@@ -7,15 +7,16 @@ const MESSAGE = 'Stryker: assertion reached';
 
 /**
  * Makes an assertion of a test fail where it stands, so that a mutant that survives is a check that never runs or
- * whose failure nothing sees. An assertion statement becomes a `throw`; an assertion that is an arrow function's body
- * becomes a call of a function that throws. `fail` is left alone: it fails already, where a test meant it never to run.
+ * whose failure nothing sees. An assertion statement gets a `throw` after it, so the code after it keeps the types the
+ * assertion narrows; an assertion that is an arrow function's body becomes a call of a function that throws. `fail`
+ * is left alone: it fails already, where a test meant it never to run.
  */
 export const assertLiveness: Operator = {
   name: 'AssertLiveness',
   sample: 'export function check(t: any) {\n  t.assert.ok(true);\n}\n',
   *mutate(path, t) {
     if (path.isExpressionStatement() && isAssertion(path, awaited(path.node.expression))) {
-      yield t.throwStatement(error(t));
+      yield t.blockStatement([t.cloneNode(path.node), t.throwStatement(error(t))]);
     }
 
     if (path.isCallExpression() && isArrowBody(path) && isAssertion(path, path.node)) {

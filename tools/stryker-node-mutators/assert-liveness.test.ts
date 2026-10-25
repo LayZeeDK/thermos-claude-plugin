@@ -21,8 +21,13 @@ describe('AssertLiveness', () => {
     ['a method of the strict member', "import assert from 'node:assert';\nassert.strict.equal(1, 1);"],
     ['an awaited assertion', `${STRICT}await assert.rejects(Promise.reject(new Error('x')));`],
     ["the test context's assert", `${TEST}it('works', (t) => {\n  t.assert.ok(true);\n});`],
-  ])('makes the statement of %s throw', async (_title, source) => {
-    assert.deepEqual(await mutantsOf(assertLiveness, source), [THROW]);
+  ])('makes the statement of %s throw once it has run', async (_title, source) => {
+    const statement = source
+      .split('\n')
+      .findLast((line) => !line.startsWith('}'))
+      ?.trim();
+
+    assert.deepEqual(await mutantsOf(assertLiveness, source), [`{ ${statement} ${THROW} }`]);
   });
 
   testEach([
