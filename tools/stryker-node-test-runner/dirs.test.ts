@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { testEach } from '../test-each/test-each.ts';
 import { isOwn, isRunning, ownDir, removeDir, removeLeftDirs } from './dirs.ts';
 import { logger, NO_PROCESS } from './index.fixtures.ts';
 import { peakMemoryDir } from './memory-limits.ts';
@@ -89,7 +90,24 @@ describe('isRunning', () => {
     // The system process on Windows and init on POSIX run, and only an administrator may signal them.
     const system = process.platform === 'win32' ? 4 : 1;
 
-    assert.deepEqual([process.pid, system, NO_PROCESS].map(isRunning), [true, true, false]);
+    assert.deepEqual([process.pid, system, NO_PROCESS].map((pid) => isRunning(pid)), [true, true, false]);
+  });
+
+  // As root every signal is allowed, so the real processes above reach EPERM only for other users.
+  testEach([
+    ['signalled', true, undefined],
+    ['refused with EPERM', true, 'EPERM'],
+    ['gone with ESRCH', false, 'ESRCH'],
+  ])('takes a process %s as running: %s', (_title, expected, code) => {
+    const kill = (pid: number, signal: 0) => {
+      assert.deepEqual([pid, signal], [42, 0]);
+
+      if (code) {
+        throw Object.assign(new Error(code), { code });
+      }
+    };
+
+    assert.equal(isRunning(42, kill), expected);
   });
 });
 

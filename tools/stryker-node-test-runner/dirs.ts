@@ -60,9 +60,9 @@ export function removeDir(
 }
 
 /** Whether a process with this id runs; one that exists but may not be signalled runs too. */
-export function isRunning(pid: number): boolean {
+export function isRunning(pid: number, kill: (pid: number, signal: 0) => void = process.kill): boolean {
   try {
-    process.kill(pid, 0);
+    kill(pid, 0);
 
     return true;
   } catch (error) {
