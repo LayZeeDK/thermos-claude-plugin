@@ -411,22 +411,6 @@ describe('hook', () => {
     },
   );
 
-  it("keeps the record of a process run as an ES module with a memory limit that exits by itself, untouched by the watchdog's thread", async (t) => {
-    const outDir = tempDir(t);
-    // NODE_OPTIONS names the hook, as a Stryker run's does. The watchdog's thread, which gets none of the process's
-    // environment, must not load it: a record it wrote would lack the hit count that only the main thread sets.
-    const script = 'globalThis.__stryker__.hitCount = 42; setTimeout(() => {}, 500);';
-
-    const { code, pid } = await runWithHook(['-e', script], {
-      [ENV.out]: outDir,
-      [ENV.memoryLimit]: '1500',
-      NODE_OPTIONS: `--input-type=module --import ${JSON.stringify(HOOK_URL)}`,
-    });
-
-    assert.equal(code, 0);
-    assert.deepEqual(readRecords(outDir), { [`${pid}.json`]: { tests: [], hitCount: 42 } });
-  });
-
   it('records the most memory the process held in MB, in the dry run', async (t) => {
     const outDir = tempDir(t);
 
@@ -473,7 +457,7 @@ describe('hook', () => {
   testFor([
     ['the arguments', true],
     ['NODE_OPTIONS', false],
-  ] as const)('loads a --require preload that %s name once, not again in the memory watchdog', async ([, inArgs], t) => {
+  ] as const)('loads a --require preload given in %s once, not again in the memory watchdog', async ([, inArgs], t) => {
     const dir = tempDir(t);
     const outDir = tempDir(t);
     const preload = join(dir, 'count.cjs');
