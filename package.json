@@ -9,6 +9,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\"",
+    "test:linux": "docker run --rm --init -v .:/src:ro node:24-bookworm bash -c \"mkdir /w && tar -C /src --exclude=./node_modules --exclude=./.stryker-tmp --exclude=./.claude/worktrees -cf - . | tar -C /w -xf - && cd /w && npm ci --no-audit --no-fund && npm test\"",
     "mutate": "stryker run && stryker run stryker.test-each.config.mjs && stryker run stryker.test-code.config.mjs",
     "bench": "node tools/stryker-node-test-runner/runner.bench.ts",
     "lint": "eslint ."
