@@ -8,9 +8,12 @@ import { isMainThread, Worker } from 'node:worker_threads';
 import { install, type HookDependencies, type NodeTestModule } from './hook-core.ts';
 import { workersAllowed } from './watchdog.ts';
 
-// The memory watchdog's thread loads watchdog-worker.ts, whose code TypeScript, the linter and Stryker all reach. The
-// eval script only imports it: a worker's `eval` takes code, not a file URL.
-const WATCHDOG = `import(${JSON.stringify(new URL('./watchdog-worker.ts', import.meta.url).href)});`;
+// The memory watchdog's thread runs this script, where Stryker sees no coverage, so it only starts watchdog.ts's watch,
+// whose code this process's tests reach.
+const WATCHDOG = `Promise.all([
+  import('node:worker_threads'),
+  import(${JSON.stringify(new URL('./watchdog.ts', import.meta.url).href)}),
+]).then(([{ workerData }, { watch }]) => watch(workerData));`;
 
 install({
   env: process.env,

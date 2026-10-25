@@ -504,6 +504,20 @@ describe('install', () => {
     assert.equal(deps.global[watchdog], 'the watchdog');
   });
 
+  testFor([
+    ['', {}, {}],
+    [', except the compile cache when the process has one', { NODE_COMPILE_CACHE: 'cache' }, { NODE_COMPILE_CACHE: 'cache' }],
+  ] as const)("starts the memory watchdog without the process's environment%s", ([, env, expected]) => {
+    const started: unknown[] = [];
+    const { deps } = harness(
+      { [ENV.out]: OUT, [ENV.memoryLimit]: '1500', NODE_OPTIONS: '--require x.cjs', ...env },
+      { watchMemory: (options) => started.push(options.env) },
+    );
+    install(deps);
+
+    assert.deepEqual(started, [expected]);
+  });
+
   it('watches no memory in a thread that may not start the watchdog', () => {
     const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.memoryLimit]: '1500' }, { canWatchMemory: false });
     install(deps);

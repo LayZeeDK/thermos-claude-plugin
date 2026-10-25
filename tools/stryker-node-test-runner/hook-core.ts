@@ -229,14 +229,16 @@ export function install(deps: HookDependencies): boolean {
   const memoryLimit = Number(deps.env[ENV.memoryLimit]);
 
   if (memoryLimit > 0 && deps.canWatchMemory) {
+    const { NODE_COMPILE_CACHE } = deps.env;
     deps.global[watchdog] = deps.watchMemory({
       // A file of the watchdog's own, which the exit listener cannot be writing at the same time.
       workerData: { limitMB: memoryLimit, recordPath: join(outDir, `${deps.pid}.memory.json`) },
       // Without the process's options, such as --require ts-node/register, which would load in the thread again, and
-      // without its environment, whose NODE_OPTIONS Node.js would read for the thread: its preloads, the hook among
-      // them, would run there too, and --input-type=module would make the thread an ES module.
+      // without its environment, whose NODE_OPTIONS Node.js would read for the thread: its --require preloads would
+      // run there too, and --input-type=module would make the thread an ES module, which also loads the --import
+      // preloads, the hook among them. Only the compile cache comes along, so the thread compiles watchdog.ts once.
       execArgv: [],
-      env: {},
+      env: NODE_COMPILE_CACHE === undefined ? {} : { NODE_COMPILE_CACHE },
     });
   }
 
