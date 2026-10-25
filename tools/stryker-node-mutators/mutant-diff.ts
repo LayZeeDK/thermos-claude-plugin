@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
+import { relative, sep } from 'node:path';
 
 import { resolveFromCore, type Instrumenter, type InstrumentedMutant } from './install.ts';
 import { toNodeMutator, type Operator } from './operator.ts';
@@ -41,7 +41,7 @@ export async function corpusDiff(
     const lines = [...added.map((mutant) => `    + ${mutant}`), ...removed.map((mutant) => `    - ${mutant}`)];
 
     sections.push(
-      `### ${relative(process.cwd(), name).replaceAll('\\', '/')}\n\n` +
+      `### ${relative(process.cwd(), name).split(sep).join('/')}\n\n` +
         `${before.length} mutants without the operators, ${after.length} with them.\n\n` +
         `${lines.length > 0 ? lines.join('\n') : '    (no difference)'}\n`,
     );
