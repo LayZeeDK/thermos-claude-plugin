@@ -9,7 +9,10 @@ export interface ImportOf {
   readonly imported: string | undefined;
 }
 
-/** The import that binds `name` in the scope of `path`, or `undefined` when no import binds it. */
+/**
+ * The import that binds `name` in the scope of `path`, or `undefined` when no import binds it. Only ES module `import`
+ * declarations count: the operators support ES modules, not CommonJS's `require`.
+ */
 export function importOf(path: NodePath, name: string): ImportOf | undefined {
   const bound = path.scope.getBinding(name)?.path;
   const declaration = bound?.parent;
