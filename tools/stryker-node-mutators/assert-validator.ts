@@ -10,8 +10,7 @@ const MESSAGE = 'Stryker';
  */
 export const assertValidator: Operator = {
   name: 'AssertValidator',
-  // A statement whose value is discarded with void, which AssertLiveness leaves.
-  sample: "import assert from 'node:assert/strict';\n\nvoid assert.throws(() => {}, /x/);\n",
+  sample: "import assert from 'node:assert/strict';\n\nassert.throws(() => {}, /x/);\n",
   *mutate(path, t) {
     const call = path.parent;
 
