@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { testFor } from '../test-each/test-for.ts';
 import { checkMemory, watch } from './watchdog.ts';
 
-const DATA = { limitMB: 200, recordPath: '/out/4321.json' };
+const DATA = { limitMB: 200, recordPath: '/out/4321.memory.json' };
 const MB = 1048576;
 
 /** checkMemory at `rssBytes`, with the writes and kills it made. */

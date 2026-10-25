@@ -391,7 +391,7 @@ describe('hook', () => {
     // The watchdog's thread then runs as an ES module, which has no require.
     [' run as an ES module', { NODE_OPTIONS: '--input-type=module' }],
   ] as const)(
-    'ends a process%s that holds more memory than the memory limit, leaving its record with both numbers',
+    "ends a process%s that holds more memory than the memory limit, leaving the watchdog's record with both numbers",
     async ([, env], t) => {
       const outDir = tempDir(t);
 
@@ -403,8 +403,8 @@ describe('hook', () => {
 
       assert.notEqual(code, 0);
       const records = readRecords(outDir);
-      assert.deepEqual(Object.keys(records), [`${pid}.json`]);
-      const { tests, memoryLimitReached } = records[`${pid}.json`] as ProcessRecord;
+      assert.deepEqual(Object.keys(records), [`${pid}.memory.json`]);
+      const { tests, memoryLimitReached } = records[`${pid}.memory.json`] as ProcessRecord;
       assert.deepEqual(tests, []);
       assert.equal(memoryLimitReached?.limitMB, 200);
       assert.ok(memoryLimitReached.rssMB > 200 && memoryLimitReached.rssMB < 400, String(memoryLimitReached.rssMB));

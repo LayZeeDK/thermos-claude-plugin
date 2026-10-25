@@ -239,7 +239,8 @@ export function install(deps: HookDependencies): boolean {
 
   if (memoryLimit > 0 && deps.canWatchMemory) {
     deps.global[watchdog] = deps.watchMemory({
-      workerData: { limitMB: memoryLimit, recordPath: join(outDir, recordName(deps.pid)) },
+      // A file of the watchdog's own, which the exit listener cannot be writing at the same time.
+      workerData: { limitMB: memoryLimit, recordPath: join(outDir, `${deps.pid}.memory.json`) },
       // Without the process's options, such as --require ts-node/register, which would load in the thread again.
       execArgv: [],
     });

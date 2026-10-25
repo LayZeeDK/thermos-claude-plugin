@@ -7,7 +7,7 @@ import type { ProcessRecord } from './hook-core.ts';
 
 export interface WatchdogData {
   limitMB: number;
-  /** Where the process's record goes, which the process cannot write once the watchdog ends it. */
+  /** Where the record of the process the watchdog ends goes, as the process cannot write its own once ended. */
   recordPath: string;
 }
 

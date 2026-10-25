@@ -491,11 +491,11 @@ describe('install', () => {
     assert.equal(deps.global.__stryker__?.hitCount, 0);
   });
 
-  it("watches the process's memory when the memory limit is positive, with the process's record in the out directory", () => {
+  it("watches the process's memory when the memory limit is positive, with a record of its own in the out directory", () => {
     const { deps, calls } = harness({ [ENV.out]: OUT, [ENV.memoryLimit]: '1500' });
     install(deps);
 
-    const options = { workerData: { limitMB: 1500, recordPath: join(OUT, '4321.json') }, execArgv: [] };
+    const options = { workerData: { limitMB: 1500, recordPath: join(OUT, '4321.memory.json') }, execArgv: [] };
     assert.deepEqual(calls, [`watchMemory ${JSON.stringify(options)}`, 'onExit']);
     assert.equal(deps.global[watchdog], 'the watchdog');
   });
