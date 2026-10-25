@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { DryRunStatus, MutantRunStatus, TestStatus } from '@stryker-mutator/api/test-runner';
 
@@ -53,7 +54,17 @@ describe('NodeTestRunner endings', () => {
     const runner = await initRunner(['a.test.mjs']);
 
     assert.equal((await settle(runner.mutantRun(mutantRunOptions()))).status, MutantRunStatus.Survived);
-    assert.equal(isRunning(Number(readFileSync(pidFile, 'utf8'))), false);
+
+    // SIGKILL returns before the kernel is done: on Linux the orphaned child stays a zombie, which kill(pid, 0) still
+    // finds, until its new parent reaps it. The child would otherwise run for 20 seconds.
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    const deadline = Date.now() + 5_000;
+
+    while (isRunning(pid) && Date.now() < deadline) {
+      await delay(20);
+    }
+
+    assert.equal(isRunning(pid), false);
   });
 
   it('reports no tests for a test file that declares none', async (t) => {
