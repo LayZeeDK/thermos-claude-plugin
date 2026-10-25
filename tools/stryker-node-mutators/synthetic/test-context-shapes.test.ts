@@ -12,6 +12,13 @@ function checkShare(t: TestContext, part: number, whole: number, expected: numbe
   t.assert.equal(share(part, whole), expected);
 }
 
+// fastify/test/register.test.js:122
+function thenableRejects(t: TestContext, promise: Promise<unknown>, error: object) {
+  return t.assert.rejects(async () => {
+    await promise;
+  }, error);
+}
+
 describe('assertions of the test context', () => {
   // pino-pretty/lib/utils/create-date.test.js:10
   it('checks in its own body', (t) => {
@@ -20,6 +27,11 @@ describe('assertions of the test context', () => {
 
   it('checks through a helper that takes it', (t) => {
     checkShare(t, 1, 2, 0.5);
+  });
+
+  // fastify/test/register.test.js:131
+  it('checks through a helper that returns its rejects', async (t) => {
+    await thenableRejects(t, Promise.resolve().then(() => share(1, 0)), { name: 'AssertionError' });
   });
 
   // fastify/test/listen.1.test.js:86

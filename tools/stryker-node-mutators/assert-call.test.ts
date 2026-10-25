@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { describe } from 'node:test';
+import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+import ts from 'typescript';
 
 import { testEach } from '../test-each/test-each.ts';
 import { assertCall } from './assert-call.ts';
@@ -7,8 +10,40 @@ import { mutantsOf } from './mutants-of.fixtures.ts';
 
 const THROW = 'throw new Error("Stryker: assertion reached");';
 const THROWING_CALL = '(() => { throw new Error("Stryker: assertion reached"); })()';
+const THROWING = `true ? ${THROWING_CALL}`;
+const REJECTED = 'true ? Promise.reject(new Error("Stryker: assertion reached"))';
 const STRICT = "import assert from 'node:assert/strict';\n";
 const TEST = "import { it } from 'node:test';\n";
+const CHAINED = [
+  "import type { TestContext } from 'node:test';",
+  'function check(t: TestContext, p: Promise<void>) {',
+  '  return t.assert.rejects(p);',
+  '}',
+  'export const chained = (t: TestContext) => check(t, Promise.resolve()).then(() => 1);',
+].join('\n');
+const SAMPLE = fileURLToPath(new URL('./type-check.sample.ts', import.meta.url)).replaceAll('\\', '/');
+
+/** The messages of the errors that type checking `source` with the repository's compiler options reports. */
+function typeErrors(source: string): string[] {
+  const config = ts.getParsedCommandLineOfConfigFile(fileURLToPath(new URL('../../tsconfig.json', import.meta.url)), {}, {
+    ...ts.sys,
+    onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+      throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+    },
+  });
+  assert.ok(config);
+  const { options } = config;
+  const host = ts.createCompilerHost(options);
+  const { fileExists, getSourceFile, readFile } = host;
+  host.fileExists = (name) => name === SAMPLE || fileExists(name);
+  host.readFile = (name) => (name === SAMPLE ? source : readFile(name));
+  host.getSourceFile = (name, ...rest) =>
+    name === SAMPLE ? ts.createSourceFile(name, source, ts.ScriptTarget.Latest) : getSourceFile(name, ...rest);
+
+  return ts
+    .getPreEmitDiagnostics(ts.createProgram([SAMPLE], options, host))
+    .map(({ messageText }) => ts.flattenDiagnosticMessageText(messageText, '\n'));
+}
 
 describe('AssertCall', () => {
   testEach([
@@ -31,11 +66,56 @@ describe('AssertCall', () => {
   });
 
   testEach([
-    ['an assertion', `${STRICT}[1].forEach((n) => assert.ok(n));`],
-    ["the test context's assert", `${TEST}it('works', (t) => t.assert.ok(true));`],
-    ['an awaited assertion', `${STRICT}const check = async () => await assert.rejects(Promise.reject(new Error('x')));`],
-  ])("makes %s that is an arrow function's body a call that throws", async (_title, source) => {
-    assert.deepEqual(await mutantsOf(assertCall, source), [THROWING_CALL]);
+    ["an arrow function's body", `${STRICT}[1].forEach((n) => assert.ok(n));`, `${THROWING} : assert.ok(n)`],
+    [
+      "the test context's assert as an arrow function's body",
+      `${TEST}it('works', (t) => t.assert.ok(true));`,
+      `${THROWING} : t.assert.ok(true)`,
+    ],
+    [
+      "rejects as an arrow function's body",
+      `${TEST}it('works', (t) => t.assert.rejects(load()));`,
+      `${REJECTED} : t.assert.rejects(load())`,
+    ],
+    [
+      "an awaited rejects as an arrow function's body",
+      `${STRICT}const check = async () => await assert.rejects(load());`,
+      `${REJECTED} : assert.rejects(load())`,
+    ],
+    ['a returned assertion', `${STRICT}function check(x: unknown) {\n  return assert.ok(x);\n}`, `${THROWING} : assert.ok(x)`],
+    // fastify/test/register.test.js:123
+    [
+      "the test context's returned rejects",
+      'function check(t: any, p: Promise<void>) {\n  return t.assert.rejects(p);\n}',
+      `${REJECTED} : t.assert.rejects(p)`,
+    ],
+    [
+      'a returned awaited doesNotReject',
+      `${STRICT}async function check(p: Promise<void>) {\n  return await assert.doesNotReject(p);\n}`,
+      `${REJECTED} : assert.doesNotReject(p)`,
+    ],
+  ])('makes %s fail in its place, keeping the call only for its type', async (_title, source, expected) => {
+    assert.deepEqual(await mutantsOf(assertCall, source), [expected]);
+  });
+
+  testEach([
+    ['a returned rejects whose caller chains it', CHAINED, 't.assert.rejects(p)'],
+    [
+      'a returned assertion whose caller keeps its value',
+      `${STRICT}function check(x: unknown) {\n  return assert.ok(x);\n}\nexport const kept: void = check(1);`,
+      'assert.ok(x)',
+    ],
+  ])('keeps the inferred return type of %s', async (_title, source, call) => {
+    const [replacement] = await mutantsOf(assertCall, source);
+
+    assert.deepEqual(typeErrors(source), []);
+    assert.deepEqual(typeErrors(source.replace(call, replacement)), []);
+  });
+
+  it('finds the type error of a returned call that only throws, which the conditional avoids', () => {
+    assert.deepEqual(typeErrors(CHAINED.replace('t.assert.rejects(p)', THROWING_CALL)), [
+      "Property 'then' does not exist on type 'never'.",
+    ]);
   });
 
   testEach([
@@ -45,6 +125,7 @@ describe('AssertCall', () => {
     ['an import of fail by a string name', "import { 'fail' as never } from 'node:assert';\nnever();"],
     ["the test context's fail", `${TEST}it('works', (t) => {\n  t.assert.fail('never');\n});`],
     ["an arrow function's body", `${STRICT}[1].forEach(() => assert.fail('never'));`],
+    ['a returned value', `${STRICT}function never() {\n  return assert.fail('never');\n}`],
   ])('leaves %s, which fails already', async (_title, source) => {
     assert.deepEqual(await mutantsOf(assertCall, source), []);
   });
