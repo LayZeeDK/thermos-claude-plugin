@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import type { Logger } from '@stryker-mutator/api/logging';
 
-/** How long a run waits for its directory to be removed. */
+/** How long the runner waits for a directory it made to be removed: a run's directory, or the compile cache. */
 const REMOVE_WAIT_MS = 2_000;
 
 /**

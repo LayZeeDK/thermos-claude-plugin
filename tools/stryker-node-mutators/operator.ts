@@ -5,8 +5,8 @@ export type BabelTypes = typeof types;
 /** A mutation operator, free of Stryker: it maps a Babel path to replacement nodes. */
 export interface Operator {
   /**
-   * PascalCase letters only, as Stryker's directives match no other character. Reports show it, and
-   * `excludedMutations` and `// Stryker disable` comments select the operator by it.
+   * Letters only, as Stryker's directives match no other character; PascalCase, like Stryker's own mutators. Reports
+   * show it, and `excludedMutations` and `// Stryker disable` comments select the operator by it.
    */
   readonly name: string;
   /** A whole TypeScript module in which the operator finds at least one mutant; install's self-check needs it. */

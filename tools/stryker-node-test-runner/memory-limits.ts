@@ -76,7 +76,8 @@ class DryRunPeaks implements MemoryLimits {
     if (peakMB === undefined && !this.#unmeasured.has(file)) {
       this.#unmeasured.add(file);
       this.#log.warn(
-        `The dry run left no memory peak for "${file}", so each process of its mutant runs may hold ${limitMB} MB. ` +
+        `The dry run left no readable memory peak for "${file}", ` +
+          `so each process of its mutant runs may hold ${limitMB} MB. ` +
           'Set nodeTest.maxMemoryMB to choose the limit.',
       );
     }
@@ -96,6 +97,6 @@ function storedPeak(path: string): number | undefined {
 
     return /^\d+$/.test(stored) ? Number(stored) : undefined;
   } catch {
-    // The dry run did not run the file.
+    // The dry run did not run the file, or its peak cannot be read.
   }
 }

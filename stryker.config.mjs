@@ -11,8 +11,8 @@ export default {
     '!tools/**/*.fixtures.ts',
     '!tools/**/*.bench.ts',
     '!tools/**/*.types.ts',
-    // Test files call testEach and testFor while they load, so their mutants are static and each would run the whole
-    // suite. stryker.test-each.config.mjs mutation-tests them against their own tests instead.
+    // Test files call testEach and testFor while they load, so the mutants of tools/test-each/ are static and each
+    // would run the whole suite. stryker.test-each.config.mjs mutation-tests them against their own tests instead.
     '!tools/test-each/**',
   ],
   plugins: ['@stryker-mutator/*', './tools/stryker-node-test-runner/index.ts'],

@@ -194,8 +194,8 @@ type FileOutcome =
 
 /**
  * Runs `work` on the items, at most `limit` at a time and starting them in order, and starts no more once a result
- * `stops` the run or `work` rejects. Returns the results of the first items, in order, up to the first that `stops`
- * the run. A rejection comes once the items already started have settled, so no work outlives the call.
+ * `stops` the run or `work` rejects. Returns the results of the first items, in order, up to and including the first
+ * that `stops` the run. A rejection comes once the items already started have settled, so no work outlives the call.
  */
 export async function runInPool<T, R>(
   items: T[],
@@ -589,8 +589,8 @@ export class NodeTestRunner implements TestRunner {
         try {
           return [parseRecord(readFileSync(join(outDir, name), 'utf8'))];
         } catch (error) {
-          // A process that the tests started can still be writing its record when the grace period ends; the test
-          // file's own process writes its record before it exits.
+          // A process that the tests started can still be writing its record when the grace period ends. The test
+          // file's own process writes its record before it exits, unless the memory watchdog ends it mid-write.
           if (name === mainRecord) {
             unreadable = (error as Error).message;
           }

@@ -80,8 +80,8 @@ describe('memoryLimits', () => {
 
     assert.deepEqual([mutantRuns.forMutantRun('a.test.ts'), mutantRuns.forMutantRun('a.test.ts')], [1024, 1024]);
     assert.deepEqual(warnings, [
-      'The dry run left no memory peak for "a.test.ts", so each process of its mutant runs may hold 1024 MB. ' +
-        'Set nodeTest.maxMemoryMB to choose the limit.',
+      'The dry run left no readable memory peak for "a.test.ts", ' +
+        'so each process of its mutant runs may hold 1024 MB. Set nodeTest.maxMemoryMB to choose the limit.',
     ]);
   });
 });
