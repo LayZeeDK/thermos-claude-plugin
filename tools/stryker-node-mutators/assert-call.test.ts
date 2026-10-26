@@ -95,7 +95,7 @@ describe('AssertCall', () => {
       `${REJECTED} : assert.doesNotReject(p)`,
     ],
   ])('makes %s fail in its place, keeping the call only for its type', async (_title, source, expected) => {
-    assert.deepEqual(await mutantsOf(assertCall, source), [expected]);
+    assert.deepEqual(await mutantsOf(assertCall, source), [`(${expected})`]);
   });
 
   testEach([

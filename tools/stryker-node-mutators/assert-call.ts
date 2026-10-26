@@ -26,7 +26,9 @@ export const assertCall: Operator = {
       const method = assertion(path, path.node);
 
       if (method !== undefined) {
-        yield t.conditionalExpression(t.booleanLiteral(true), failure(t, method), t.cloneNode(path.node));
+        yield t.parenthesizedExpression(
+          t.conditionalExpression(t.booleanLiteral(true), failure(t, method), t.cloneNode(path.node)),
+        );
       }
     }
   },
