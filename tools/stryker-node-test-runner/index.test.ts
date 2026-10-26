@@ -128,11 +128,22 @@ describe('fileError', () => {
       [{ diagnostics: ['late 1'] }, {}, { diagnostics: ['late 2'] }],
       ['Diagnostics:', 'late 1', 'late 2', 'Stderr:', 'out'],
     ],
+    [
+      'what held it open, which hid an error raised after a test ended',
+      1,
+      '',
+      [{ heldOpen: ['TCPServerWrap', 'Timeout'] }, { heldOpen: [] }],
+      [
+        'It stayed alive after its tests, held open by TCPServerWrap, Timeout, until the runner ended it; node:test ' +
+          'reports an error raised after a test ended only when its process ends by itself.',
+      ],
+    ],
   ] as const)('names the file, the exit code and the command, with %s', ([, exitCode, stderr, records, end]) => {
     const run = {
-      records: records.map((record: { diagnostics?: readonly string[] }) => ({
+      records: records.map((record: { diagnostics?: readonly string[]; heldOpen?: readonly string[] }) => ({
         tests: [],
         ...(record.diagnostics && { diagnostics: [...record.diagnostics] }),
+        ...(record.heldOpen && { heldOpen: [...record.heldOpen] }),
       })),
       exitCode,
       stderr,

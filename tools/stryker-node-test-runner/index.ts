@@ -147,11 +147,18 @@ function nodeCommand(args: string[]): string {
 /** Reports a test file that failed outside its tests as Stryker's tap runner does: command, diagnostics, stderr. */
 export function fileError(testFile: string, { records, exitCode, stderr, args, nodeOptions }: FileRun): string {
   const diagnostics = records.flatMap((record) => record.diagnostics ?? []);
+  const heldOpen = records.flatMap((record) => record.heldOpen ?? []);
   const output = stderr.trim();
 
   return [
     `Error running file "${testFile}": node exited with code ${exitCode} outside any test.`,
     `To reproduce it, run \`${nodeCommand(args)}\` in ${process.cwd()} with NODE_OPTIONS set to \`${nodeOptions}\`.`,
+    ...(heldOpen.length > 0
+      ? [
+          `It stayed alive after its tests, held open by ${heldOpen.join(', ')}, until the runner ended it; node:test ` +
+            'reports an error raised after a test ended only when its process ends by itself.',
+        ]
+      : []),
     ...(diagnostics.length > 0 ? ['Diagnostics:', ...diagnostics] : []),
     ...(output ? ['Stderr:', output] : []),
   ].join('\n');

@@ -90,7 +90,10 @@ describe('NodeTestRunner with a test file that its tests keep alive', () => {
     const result = await settle(runner.mutantRun(mutantRunOptions()));
 
     assert.equal(result.status, MutantRunStatus.Error);
-    assert.match('errorMessage' in result ? result.errorMessage : '', /node exited with code 1 outside any test/);
+    assert.match(
+      'errorMessage' in result ? result.errorMessage : '',
+      /node exited with code 1 outside any test\.\n.*\nIt stayed alive after its tests, held open by TCPServerWrap,/,
+    );
   });
 
   it("starts the held-open time once the test file's root after hooks end", async (t) => {
