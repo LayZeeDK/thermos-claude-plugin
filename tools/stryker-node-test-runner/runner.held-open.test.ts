@@ -99,6 +99,26 @@ describe('NodeTestRunner with a test file that its tests keep alive', () => {
     assert.equal((await settle(runner.mutantRun(mutantRunOptions()))).status, MutantRunStatus.Survived);
   });
 
+  it('reports a mutant killed at once when node:test times out a root after hook of a file whose test failed', async (t) => {
+    const dir = project(t, {
+      'a.test.mjs': fixture(
+        SERVER,
+        "import { after } from 'node:test';",
+        'after(() => new Promise(() => {}), { timeout: 100 });',
+        `it('fails', async () => { ${LISTEN} assert.fail('expected failure'); });`,
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    const result = await settle(runner.mutantRun(mutantRunOptions()));
+
+    assert.equal(result.status, MutantRunStatus.Killed);
+    assert.deepEqual('killedBy' in result && result.killedBy, [
+      `${join(dir, 'a.test.mjs')} > fails`,
+      `${join(dir, 'a.test.mjs')} > "after" hook`,
+    ]);
+  });
+
   it('runs a file past the held-open time when an after hook added inside a before hook ran early', async (t) => {
     heldOpenFor(t, 200);
     project(t, {

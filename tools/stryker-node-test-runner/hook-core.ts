@@ -456,6 +456,13 @@ export function ending(
         reportedTopLevel++;
       }
 
+      // Also a root `after` hook that node:test ended by its timeout, whose function never settles; node:test runs none
+      // after it.
+      if (finished && type === 'test:fail' && data.nesting === 0 && data.details?.type === undefined) {
+        threw = true;
+        settled();
+      }
+
       check();
     },
     outcome: () => ended,

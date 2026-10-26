@@ -1089,6 +1089,42 @@ describe('install', () => {
       assert.equal(h.timers.length, 1);
     });
 
+    const fileFailure = { type: 'test:fail', data: { name: TEST_FILE, nesting: 0, details: { duration_ms: 1 } } } as const;
+
+    testFor([
+      ['starts', 'node:test reports the file failed once the tests finished', false, fileFailure, 1],
+      ['does not start', 'node:test reports the file failed before the tests finished', true, fileFailure, 0],
+      ['does not start', 'a nested failure has no type', false, { ...fileFailure, data: { ...fileFailure.data, nesting: 1 } }, 0],
+      ['does not start', 'the file passed', false, { ...fileFailure, type: 'test:pass' }, 0],
+      [
+        'does not start',
+        'a top-level test failed',
+        false,
+        { ...fileFailure, data: { ...fileFailure.data, details: { type: 'test', duration_ms: 1 } } },
+        0,
+      ],
+    ] as const)(
+      '%s the grace at a root `after` hook that never settles when %s, as node:test times out such a hook',
+      ([, , early, event, timers]) => {
+        const h = harness(env);
+        install(h.deps);
+        h.wrapped().after(() => new Promise(() => {}));
+        const [finished] = afterHooks(h.fake);
+
+        if (early) {
+          h.deps.global[reporting]?.(event);
+        }
+
+        finished?.();
+
+        if (!early) {
+          h.deps.global[reporting]?.(event);
+        }
+
+        assert.equal(h.timers.length, timers);
+      },
+    );
+
     it('starts the grace once, whatever settles after it started', () => {
       const h = harness(env);
       install(h.deps);
