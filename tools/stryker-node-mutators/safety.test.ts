@@ -30,6 +30,7 @@ const CORPUS = [
     'assert.equal(compute(), 1);',
     '[1].forEach((n) => assert.ok(check(n)));',
     'await assert.rejects(load());',
+    'const settled = async () => await assert.rejects(load());',
     "assert.throws(() => parse(''), /empty/);",
   ].join('\n'),
   "import { it } from 'node:test';\nit('works', (t) => {\n  t.assert.deepEqual(run(), []);\n});",

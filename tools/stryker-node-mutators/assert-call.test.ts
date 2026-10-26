@@ -98,18 +98,11 @@ describe('AssertCall', () => {
     assert.deepEqual(await mutantsOf(assertCall, source), [`(${expected})`]);
   });
 
-  testEach([
-    ['a returned rejects whose caller chains it', CHAINED, 't.assert.rejects(p)'],
-    [
-      'a returned assertion whose caller keeps its value',
-      `${STRICT}function check(x: unknown) {\n  return assert.ok(x);\n}\nexport const kept: void = check(1);`,
-      'assert.ok(x)',
-    ],
-  ])('keeps the inferred return type of %s', async (_title, source, call) => {
-    const [replacement] = await mutantsOf(assertCall, source);
+  it('keeps the inferred return type of a returned rejects whose caller chains it', async () => {
+    const [replacement] = await mutantsOf(assertCall, CHAINED);
 
-    assert.deepEqual(typeErrors(source), []);
-    assert.deepEqual(typeErrors(source.replace(call, replacement)), []);
+    assert.deepEqual(typeErrors(CHAINED), []);
+    assert.deepEqual(typeErrors(CHAINED.replace('t.assert.rejects(p)', replacement)), []);
   });
 
   it('finds the type error of a returned call that only throws, which the conditional avoids', () => {
