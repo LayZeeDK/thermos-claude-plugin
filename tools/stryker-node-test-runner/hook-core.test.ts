@@ -1075,6 +1075,20 @@ describe('install', () => {
       assert.deepEqual([h.timers.length, passed], [error ? 1 : 0, [error]]);
     });
 
+    it("starts the grace only once its own root `after` hook has run, as one added inside another hook runs earlier", async () => {
+      const h = harness(env);
+      install(h.deps);
+      h.wrapped().after(() => {});
+      const [finished, early] = afterHooks(h.fake);
+      await early?.();
+
+      assert.equal(h.timers.length, 0);
+
+      finished?.();
+
+      assert.equal(h.timers.length, 1);
+    });
+
     it('starts the grace once, whatever settles after it started', () => {
       const h = harness(env);
       install(h.deps);

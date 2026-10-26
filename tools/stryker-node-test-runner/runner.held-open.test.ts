@@ -98,4 +98,18 @@ describe('NodeTestRunner with a test file that its tests keep alive', () => {
 
     assert.equal((await settle(runner.mutantRun(mutantRunOptions()))).status, MutantRunStatus.Survived);
   });
+
+  it('runs a file past the held-open time when an after hook added inside a before hook ran early', async (t) => {
+    heldOpenFor(t, 200);
+    project(t, {
+      'a.test.mjs': fixture(
+        "import { after, before } from 'node:test';",
+        'before(() => { after(() => {}); });',
+        "it('passes slowly', async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });",
+      ),
+    });
+    const runner = await initRunner(['a.test.mjs']);
+
+    assert.equal((await settle(runner.mutantRun(mutantRunOptions()))).status, MutantRunStatus.Survived);
+  });
 });

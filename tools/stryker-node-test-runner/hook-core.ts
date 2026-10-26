@@ -356,6 +356,7 @@ export function ending(
   let declared = 0;
   let reportedTopLevel = 0;
   let hooked = false;
+  let finished = false;
   let pending = 0;
   let threw = false;
   let armed = false;
@@ -387,9 +388,10 @@ export function ending(
       end(1);
     }
   };
-  // The ending's own root `after` hook runs before the file's, so every call comes once node:test has finished.
+  // An `after` hook added inside another hook counts as a root one but runs when that hook ends, before the ending's own
+  // root `after` hook says that node:test has finished the tests.
   const settled = () => {
-    if (armed || (pending > 0 && !threw)) {
+    if (!finished || armed || (pending > 0 && !threw)) {
       return;
     }
 
@@ -407,7 +409,10 @@ export function ending(
     registering: (topLevel) => {
       if (!hooked) {
         hooked = true;
-        rootAfter(settled);
+        rootAfter(() => {
+          finished = true;
+          settled();
+        });
       }
 
       if (topLevel) {
