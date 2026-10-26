@@ -17,32 +17,32 @@ function validator() {
 }
 
 describe('plugin declaration', () => {
-  it('declares the node-test test runner', () => {
+  it('declares the lz-node-test test runner', () => {
     assert.deepEqual(strykerPlugins, [
-      { kind: PluginKind.TestRunner, name: 'node-test', injectableClass: NodeTestRunner },
+      { kind: PluginKind.TestRunner, name: 'lz-node-test', injectableClass: NodeTestRunner },
     ]);
   });
 
   testEach([
     {},
-    { nodeTest: {} },
-    { nodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } },
-    { nodeTest: { nodeArgs: ['--enable-source-maps', '--stack-size=900'] } },
-    { nodeTest: { maxMemoryMB: 1500 } },
+    { lzNodeTest: {} },
+    { lzNodeTest: { testFiles: ['a.test.ts', 'b/*.test.ts'] } },
+    { lzNodeTest: { nodeArgs: ['--enable-source-maps', '--stack-size=900'] } },
+    { lzNodeTest: { maxMemoryMB: 1500 } },
   ])('accepts the options %j', (options) => {
     assert.ok(validator()(options));
   });
 
   testEach([
-    { nodeTest: '*.test.ts' },
-    { nodeTest: { testFiles: '*.test.ts' } },
-    { nodeTest: { testFiles: [1] } },
-    { nodeTest: { testfiles: ['*.test.ts'] } },
-    { nodeTest: { nodeArgs: '--enable-source-maps' } },
-    { nodeTest: { nodeArgs: [1] } },
-    { nodeTest: { maxMemoryMB: '1500' } },
-    { nodeTest: { maxMemoryMB: 0 } },
-    { nodeTest: { maxMemoryMB: 1.5 } },
+    { lzNodeTest: '*.test.ts' },
+    { lzNodeTest: { testFiles: '*.test.ts' } },
+    { lzNodeTest: { testFiles: [1] } },
+    { lzNodeTest: { testfiles: ['*.test.ts'] } },
+    { lzNodeTest: { nodeArgs: '--enable-source-maps' } },
+    { lzNodeTest: { nodeArgs: [1] } },
+    { lzNodeTest: { maxMemoryMB: '1500' } },
+    { lzNodeTest: { maxMemoryMB: 0 } },
+    { lzNodeTest: { maxMemoryMB: 1.5 } },
   ])('rejects the options %j', (options) => {
     assert.ok(!validator()(options));
   });
@@ -56,9 +56,9 @@ describe('plugin declaration', () => {
   });
 
   testEach([
-    [{}, { nodeTest: { testFiles: ['**/*.test.ts'], nodeArgs: [] } }],
-    [{ nodeTest: { maxMemoryMB: 1500 } }, { nodeTest: { testFiles: ['**/*.test.ts'], nodeArgs: [], maxMemoryMB: 1500 } }],
-    [{ nodeTest: { testFiles: ['a.test.ts'], nodeArgs: ['--enable-source-maps'] } }, { nodeTest: { testFiles: ['a.test.ts'], nodeArgs: ['--enable-source-maps'] } }],
+    [{}, { lzNodeTest: { testFiles: ['**/*.test.ts'], nodeArgs: [] } }],
+    [{ lzNodeTest: { maxMemoryMB: 1500 } }, { lzNodeTest: { testFiles: ['**/*.test.ts'], nodeArgs: [], maxMemoryMB: 1500 } }],
+    [{ lzNodeTest: { testFiles: ['a.test.ts'], nodeArgs: ['--enable-source-maps'] } }, { lzNodeTest: { testFiles: ['a.test.ts'], nodeArgs: ['--enable-source-maps'] } }],
   ])('fills in the defaults of %j', (options, filled) => {
     assert.ok(validator()(options));
     assert.deepEqual(options, filled);

@@ -9,5 +9,5 @@ export default {
     '!tools/test-each/**/*.fixtures.ts',
     '!tools/test-each/**/*.types.ts',
   ],
-  nodeTest: { testFiles: ['tools/test-each/**/*.test.ts'] },
+  lzNodeTest: { testFiles: ['tools/test-each/**/*.test.ts'] },
 };

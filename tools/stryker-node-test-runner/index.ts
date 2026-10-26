@@ -33,14 +33,14 @@ import { memoryLimits, peakMemoryDir, type MemoryLimits } from './memory-limits.
 import { groupOptions, processEnd } from './process-end.ts';
 import schema from './schema/node-test-runner-options.json' with { type: 'json' };
 
-/** Options under `nodeTest` in the Stryker configuration, which `schema/node-test-runner-options.json` describes. */
+/** Options under `lzNodeTest` in the Stryker configuration, which `schema/node-test-runner-options.json` describes. */
 export interface NodeTestOptions {
   testFiles?: string[];
   nodeArgs?: string[];
   maxMemoryMB?: number;
 }
 
-const DEFAULTS = schema.properties.nodeTest.properties;
+const DEFAULTS = schema.properties.lzNodeTest.properties;
 
 /** The oldest Node.js the runner supports, as `engines` in package.json says, as major and minor version. */
 export const MIN_NODE_VERSION = [22, 18] as const;
@@ -228,8 +228,8 @@ function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOpt
 
     if (run.dryRun) {
       const errorMessage =
-        `A process of "${file}" held ${rssMB} MB in the dry run, more than nodeTest.maxMemoryMB (${limitMB} MB), so ` +
-        "its mutant runs would time out. Raise nodeTest.maxMemoryMB, or leave it out to derive each file's limit from " +
+        `A process of "${file}" held ${rssMB} MB in the dry run, more than lzNodeTest.maxMemoryMB (${limitMB} MB), so ` +
+        "its mutant runs would time out. Raise lzNodeTest.maxMemoryMB, or leave it out to derive each file's limit from " +
         'the dry run.';
 
       return { end: { status: DryRunStatus.Error, errorMessage } };
@@ -404,17 +404,17 @@ export class NodeTestRunner implements TestRunner {
   readonly #log: Logger;
 
   constructor(options: StrykerOptions, log: Logger) {
-    const nodeTest = (options as { nodeTest?: NodeTestOptions }).nodeTest;
-    const patterns = nodeTest?.testFiles ?? DEFAULTS.testFiles.default;
+    const lzNodeTest = (options as { lzNodeTest?: NodeTestOptions }).lzNodeTest;
+    const patterns = lzNodeTest?.testFiles ?? DEFAULTS.testFiles.default;
     // Only the dry run gets Stryker's --testFiles; the mutant runs of other workers must find those files too.
     this.#patterns = [...patterns, ...options.testFiles];
-    this.#nodeArgs = withoutReporters(nodeTest?.nodeArgs ?? DEFAULTS.nodeArgs.default);
+    this.#nodeArgs = withoutReporters(lzNodeTest?.nodeArgs ?? DEFAULTS.nodeArgs.default);
     this.#dryRunConcurrency = testRunnerConcurrency(
       options.concurrency,
       options.checkers.length > 0,
       availableParallelism(),
     );
-    this.#memoryLimits = memoryLimits(nodeTest?.maxMemoryMB, peakMemoryDir(process.ppid), log);
+    this.#memoryLimits = memoryLimits(lzNodeTest?.maxMemoryMB, peakMemoryDir(process.ppid), log);
     this.#allowEmpty = options.allowEmpty;
     this.#log = log;
   }
@@ -428,7 +428,7 @@ export class NodeTestRunner implements TestRunner {
 
     if (!supportsNode(node)) {
       throw new Error(
-        `The node-test test runner needs Node.js ${MIN_NODE_VERSION.join('.')} or later, and this is Node.js ${node}.`,
+        `The lz-node-test test runner needs Node.js ${MIN_NODE_VERSION.join('.')} or later, and this is Node.js ${node}.`,
       );
     }
 
@@ -588,6 +588,6 @@ export class NodeTestRunner implements TestRunner {
   }
 }
 
-export const strykerPlugins = [declareClassPlugin(PluginKind.TestRunner, 'node-test', NodeTestRunner)];
+export const strykerPlugins = [declareClassPlugin(PluginKind.TestRunner, 'lz-node-test', NodeTestRunner)];
 
 export const strykerValidationSchema = schema;

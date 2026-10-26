@@ -1,5 +1,5 @@
 // The memory watchdog: a worker thread that ends its process once the process holds more memory than its limit. It
-// guards mutant runs, and a dry run under nodeTest.maxMemoryMB, against Node.js's assertion diff, which grows with the
+// guards mutant runs, and a dry run under lzNodeTest.maxMemoryMB, against Node.js's assertion diff, which grows with the
 // square of the lines it compares (nodejs/node#62792). node-assert-diff.test.ts fails once a Node.js release fixes it.
 import { writeFileSync } from 'node:fs';
 

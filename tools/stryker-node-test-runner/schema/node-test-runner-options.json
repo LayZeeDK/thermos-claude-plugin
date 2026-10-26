@@ -3,8 +3,8 @@
   "type": "object",
   "title": "StrykerNodeTestRunnerOptions",
   "properties": {
-    "nodeTest": {
-      "description": "Configuration for the node-test test runner, which runs each test file with node and node:test.",
+    "lzNodeTest": {
+      "description": "Configuration for the lz-node-test test runner, which runs each test file with node and node:test.",
       "title": "NodeTestRunnerOptions",
       "type": "object",
       "additionalProperties": false,

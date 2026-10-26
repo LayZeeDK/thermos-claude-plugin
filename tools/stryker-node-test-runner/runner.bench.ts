@@ -157,7 +157,7 @@ async function round(tasks: [name: string, fn: () => unknown][]): Promise<Map<st
 
 async function loadRunner(path: string, dir: string): Promise<NodeTestRunner> {
   const module = (await import(pathToFileURL(resolve(path)).href)) as RunnerModule;
-  const options = { nodeTest: { testFiles: [join(dir, '*.test.mjs').replaceAll('\\', '/')] } };
+  const options = { lzNodeTest: { testFiles: [join(dir, '*.test.mjs').replaceAll('\\', '/')] } };
   const runner = new module.NodeTestRunner(strykerOptions(options), logger([], false));
   await runner.init();
 

@@ -55,7 +55,7 @@ describe('NodeTestRunner timing', () => {
         '});',
       );
     const dir = project(t, { 'a.test.mjs': meets('a', 'b'), 'b.test.mjs': meets('b', 'a') });
-    const options = { nodeTest: { testFiles: ['*.test.mjs'] }, concurrency, checkers };
+    const options = { lzNodeTest: { testFiles: ['*.test.mjs'] }, concurrency, checkers };
     const runner = new NodeTestRunner(strykerOptions(options), logger());
     await runner.init();
 

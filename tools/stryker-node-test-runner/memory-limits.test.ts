@@ -19,7 +19,7 @@ function setup(t: TestContext, maxMemoryMB?: number) {
 }
 
 describe('memoryLimits', () => {
-  it('runs the dry run and every mutant run under nodeTest.maxMemoryMB, and keeps no peaks', (t) => {
+  it('runs the dry run and every mutant run under lzNodeTest.maxMemoryMB, and keeps no peaks', (t) => {
     const { dir, warnings, limits } = setup(t, 1500);
     const dryRun = limits();
 
@@ -80,7 +80,7 @@ describe('memoryLimits', () => {
     assert.deepEqual([mutantRuns.forMutantRun('a.test.ts'), mutantRuns.forMutantRun('a.test.ts')], [1024, 1024]);
     assert.deepEqual(warnings, [
       'The dry run left no readable memory peak for "a.test.ts", ' +
-        'so each process of its mutant runs may hold 1024 MB. Set nodeTest.maxMemoryMB to choose the limit.',
+        'so each process of its mutant runs may hold 1024 MB. Set lzNodeTest.maxMemoryMB to choose the limit.',
     ]);
   });
 });
