@@ -12,7 +12,8 @@ const ASYNC_METHODS: ReadonlySet<string> = new Set(['rejects', 'doesNotReject'])
  * An assertion statement keeps its call ahead of the `throw`, so it fails right after it runs and the code after it
  * keeps the types it narrows. An assertion that is an arrow function's body or a returned value fails in its place
  * instead, through the channel the real check uses: a rejected promise for `rejects` and `doesNotReject`, a throw for
- * the others. There the original call is kept only for its type and never runs.
+ * the others, a custom assertion added with `assert.register` included. There the original call is kept only for its
+ * type and never runs.
  */
 export const assertCall: Operator = {
   name: 'AssertCall',
