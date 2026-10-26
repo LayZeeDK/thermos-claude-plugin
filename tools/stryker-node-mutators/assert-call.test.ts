@@ -142,6 +142,12 @@ describe('AssertCall', () => {
     ['an assertion whose value is used', `${STRICT}const result = assert.ok(true);`],
     ['an assertion that is named but not called', `${STRICT}assert.ok;`],
     ['an assertion reached through an array', `${STRICT}[assert][0].ok(true);`],
+    ['a computed method of node:assert', `${STRICT}assert[method](true);`],
+    [
+      "a computed method of the test context's assert",
+      'function check(t: any, p: Promise<void>) {\n  return t.assert[method](p);\n}',
+    ],
+    ['a computed assert of the test context', `${TEST}it('works', (t) => {\n  t[assert].ok(true);\n});`],
     ["another call that is an arrow function's body", '[1].forEach((n) => console.log(n));'],
     // pino-pretty/test/cli.test.js:20
     ["the test context's fail passed as a value", `${TEST}it('works', (t) => {\n  child.on('error', t.assert.fail);\n});`],

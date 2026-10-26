@@ -59,7 +59,9 @@ function isTestContextAssert(path: NodePath, callee: types.Node, root: types.Ide
 }
 
 function propertyName(member: types.Node): string | undefined {
-  return member.type === 'MemberExpression' && member.property.type === 'Identifier' ? member.property.name : undefined;
+  return member.type === 'MemberExpression' && !member.computed && member.property.type === 'Identifier'
+    ? member.property.name
+    : undefined;
 }
 
 export function calleeRoot(callee: types.Node): types.Identifier | undefined {
