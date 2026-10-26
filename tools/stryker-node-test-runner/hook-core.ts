@@ -129,7 +129,10 @@ export const ENV = {
   heldOpen: 'STRYKER_NODE_TEST_HELD_OPEN_MS',
 } as const;
 
-/** How long the test file's process may stay alive after its tests and root `after` hooks, unless ENV.heldOpen says. */
+/**
+ * How long a test file's process with no failed test may stay alive after its tests and root `after` hooks. The tests
+ * shorten it through ENV.heldOpen; it is not an option.
+ */
 export const HELD_OPEN_MS = 30_000;
 
 /** Stryker's variable for the active mutant, which instrumented code reads when it loads. */
@@ -339,8 +342,8 @@ export interface Ending {
 
 /**
  * Ends a test file's process that outlives its tests, as a server left listening makes it. Once node:test has
- * finished every top-level suite and test and the file's root `after` hooks have settled, or one of them threw, which
- * stops the rest, a file with a failed test ends at once with exit code 1, as nothing later changes its outcome. Any
+ * finished every top-level suite and test and the file's root `after` hooks have settled, or one of them threw or timed
+ * out, which stops the rest, a file with a failed test ends at once with exit code 1, as nothing later changes its outcome. Any
  * other file still alive `graceMs` later ends with node:test's exit code.
  *
  * node:test runs root `after` hooks in the order they were added, once every top-level suite and test has finished.
