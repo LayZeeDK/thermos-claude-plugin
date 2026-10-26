@@ -27,7 +27,7 @@ import {
   type RecordedTest,
   type TestEvent,
 } from './hook-core.ts';
-import { bodyOf, fakeNodeTest, TEST_FILE, testContext } from './hook-core.fixtures.ts';
+import { bodyOf, fakeNodeTest, TEST_FILE, testContext, type Fn } from './hook-core.fixtures.ts';
 
 function reported(
   name: string,
@@ -362,6 +362,12 @@ interface Harness {
   onExit: (listener: () => void) => void;
   /** Runs the listeners as Node.js does: `beforeExit` on a natural end, then the exit listeners there are then. */
   exit: (options?: { natural: boolean }) => void;
+  /** The codes the hook ended the process with, `undefined` for node:test's own. */
+  exits: (number | undefined)[];
+  /** The timers the hook set, by delay, which a test fires by calling them. */
+  timers: { ms: number; fire: () => void }[];
+  /** What `process.getActiveResourcesInfo()` lists, to which a test adds what its tests open. */
+  resources: string[];
 }
 
 function harness(env: Record<string, string | undefined>, overrides: Partial<HookDependencies> = {}): Harness {
@@ -371,6 +377,9 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
   const hooks: ModuleHooks[] = [];
   const listeners: (() => void)[] = [];
   const beforeExitListeners: (() => void)[] = [];
+  const exits: Harness['exits'] = [];
+  const timers: Harness['timers'] = [];
+  const resources = ['PipeWrap'];
   const deps: HookDependencies = {
     env,
     mainFile: TEST_FILE,
@@ -400,6 +409,13 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     writeRecord: (path, record) => {
       records.push({ path, record: JSON.parse(JSON.stringify(record)) as ProcessRecord });
     },
+    exit: (code) => {
+      exits.push(code);
+    },
+    activeResources: () => [...resources],
+    later: (fire, ms) => {
+      timers.push({ ms, fire });
+    },
     canWriteRecords: true,
     peakMemoryMB: () => 123,
     canWatchMemory: true,
@@ -418,6 +434,9 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
     records,
     calls,
     hooks,
+    exits,
+    timers,
+    resources,
     wrapped: () => {
       const wrapped = deps.global[wrappedNodeTest];
       assert.ok(wrapped, 'the hook published no wrapped node:test');
@@ -440,6 +459,18 @@ function harness(env: Record<string, string | undefined>, overrides: Partial<Hoo
 }
 
 const OUT = join('/tmp', 'out');
+
+/** The `after` hooks registered with node:test, in order; the hook's own comes first. */
+function afterHooks(fake: ReturnType<typeof fakeNodeTest>): Fn[] {
+  return fake.registrations.filter(({ kind }) => kind === 'after').map(({ rest }) => rest[0] as Fn);
+}
+
+/** A test file whose test, `name`, has run its body and been reported. */
+async function ranAndReported(h: Harness, name: string, outcome: 'pass' | 'fail'): Promise<void> {
+  h.wrapped().it(name, () => {});
+  await bodyOf(h.fake.registrations, name)(testContext());
+  report(h.deps, name, outcome);
+}
 
 function report(deps: HookDependencies, name: string, outcome: 'pass' | 'fail'): void {
   const recordEvent = deps.global[reporting];
@@ -801,7 +832,9 @@ describe('install', () => {
     wrapped().it('unwanted', () => {});
 
     assert.deepEqual(
-      fake.registrations.map(({ name, rest }) => [name, (rest[0] as { skip?: true }).skip]),
+      fake.registrations
+        .filter(({ kind }) => kind === 'test')
+        .map(({ name, rest }) => [name, (rest[0] as { skip?: true }).skip]),
       [
         ['wanted', undefined],
         ['unwanted', true],
@@ -824,6 +857,252 @@ describe('install', () => {
 
     assert.deepEqual(ran, bail === 'true' ? [] : ['later']);
     assert.ok(!(ENV.bail in env));
+  });
+
+  describe('a process that outlives its tests', () => {
+    const env = { [ENV.out]: OUT, [ENV.file]: TEST_FILE };
+
+    it("registers a root `after` hook with node:test itself at the test file's first registration, before it", () => {
+      const h = harness(env);
+      install(h.deps);
+
+      assert.deepEqual(h.fake.registrations, []);
+
+      h.wrapped().after(() => {});
+      h.wrapped().it('passes', () => {});
+
+      assert.deepEqual(
+        h.fake.registrations.map(({ kind, self }) => [kind, self === h.fake.module]),
+        [
+          ['after', true],
+          ['after', false],
+          ['test', false],
+        ],
+      );
+    });
+
+    it('ends a file whose test failed with exit code 1 once its tests finish, and does not mark it unfinished', async () => {
+      const h = harness(env);
+      install(h.deps);
+      await ranAndReported(h, 'passes', 'pass');
+      await ranAndReported(h, 'fails', 'fail');
+
+      assert.deepEqual(h.exits, []);
+
+      afterHooks(h.fake)[0]?.();
+      h.exit({ natural: false });
+
+      assert.deepEqual(h.exits, [1]);
+      assert.deepEqual(h.records[0]?.record, {
+        main: true,
+        tests: [
+          { id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 2 },
+          { id: `${TEST_FILE} > fails`, status: 'failed', failureMessage: 'fails failed', timeSpentMs: 2 },
+        ],
+      });
+    });
+
+    it('ends a failed file only once node:test has reported each top-level suite and test, which comes last', () => {
+      const h = harness(env);
+      install(h.deps);
+      h.wrapped().it('fails', () => {});
+      h.wrapped().describe('suite', () => {
+        h.wrapped().it('inner', () => {});
+      });
+      afterHooks(h.fake)[0]?.();
+      report(h.deps, 'fails', 'fail');
+      h.deps.global[reporting]?.({
+        type: 'test:pass',
+        data: { name: 'inner', nesting: 1, details: { type: 'test', duration_ms: 1 } },
+      });
+      // A failing root hook, reported as a failure of the file itself.
+      h.deps.global[reporting]?.({
+        type: 'test:fail',
+        data: { name: TEST_FILE, nesting: 0, details: { duration_ms: 1, error: { message: 'hook failed' } } },
+      });
+      // node:test reports that a suite completed before it reports its result.
+      h.deps.global[reporting]?.({
+        type: 'test:complete',
+        data: { name: 'suite', nesting: 0, details: { type: 'suite', duration_ms: 1 } },
+      });
+
+      assert.deepEqual(h.exits, []);
+
+      h.deps.global[reporting]?.({
+        type: 'test:pass',
+        data: { name: 'suite', nesting: 0, details: { type: 'suite', duration_ms: 1 } },
+      });
+
+      assert.deepEqual(h.exits, [1]);
+    });
+
+    it('ends no file whose tests all passed before the grace ends', async () => {
+      const h = harness(env);
+      install(h.deps);
+      await ranAndReported(h, 'passes', 'pass');
+      afterHooks(h.fake)[0]?.();
+      report(h.deps, 'passes', 'pass');
+
+      assert.deepEqual(h.exits, []);
+      assert.deepEqual(
+        h.timers.map(({ ms }) => ms),
+        [30_000],
+      );
+    });
+
+    testFor([
+      ['the default of', undefined, 30_000],
+      ['the default of, for 0,', '0', 30_000],
+      ['250 ms, as set in', '250', 250],
+    ] as const)('waits %s the held-open variable', ([, heldOpen, ms]) => {
+      const h = harness({ ...env, [ENV.heldOpen]: heldOpen });
+      install(h.deps);
+      h.wrapped().it('passes', () => {});
+      afterHooks(h.fake)[0]?.();
+
+      assert.deepEqual(
+        h.timers.map((timer) => timer.ms),
+        [ms],
+      );
+    });
+
+    testFor([
+      ['node:test reported every top-level test', true, { heldOpen: ['TCPServerWrap', 'PipeWrap'] }],
+      ['a top-level test was not reported', false, { unfinished: true, heldOpen: ['TCPServerWrap', 'PipeWrap'] }],
+    ] as const)(
+      "ends a file still alive when the grace ends with node:test's exit code, naming what its tests opened, when %s",
+      async ([, reported, marks]) => {
+        const h = harness(env);
+        install(h.deps);
+        h.wrapped().it('passes', () => {});
+        await bodyOf(h.fake.registrations, 'passes')(testContext());
+
+        if (reported) {
+          report(h.deps, 'passes', 'pass');
+        }
+
+        afterHooks(h.fake)[0]?.();
+        h.resources.push('TCPServerWrap', 'PipeWrap');
+        h.timers[0]?.fire();
+        h.exit({ natural: false });
+
+        assert.deepEqual(h.exits, [undefined]);
+        assert.deepEqual(h.records[0]?.record, {
+          main: true,
+          tests: reported ? [{ id: `${TEST_FILE} > passes`, status: 'passed', timeSpentMs: 2 }] : [],
+          ...marks,
+        });
+      },
+    );
+
+    it('names only what the tests opened, also when something the process had before is gone', () => {
+      const h = harness(env);
+      install(h.deps);
+      h.wrapped().it('passes', () => {});
+      afterHooks(h.fake)[0]?.();
+      h.resources.splice(0, h.resources.length, 'TCPServerWrap', 'Timeout');
+      h.timers[0]?.fire();
+      h.exit({ natural: false });
+
+      assert.deepEqual(h.records[0]?.record.heldOpen, ['TCPServerWrap', 'Timeout']);
+    });
+
+    it("starts the grace once the test file's root `after` hooks have settled, also one added while they run", async () => {
+      const h = harness(env);
+      install(h.deps);
+      let resolveFirst = () => {};
+      h.wrapped().after(() => new Promise<void>((resolve) => (resolveFirst = resolve)));
+      h.wrapped().after(() => {});
+      const [finished, first, second] = afterHooks(h.fake);
+      await ranAndReported(h, 'fails', 'fail');
+
+      finished?.();
+      const firstDone = first?.() as Promise<unknown>;
+      h.wrapped().after(() => {});
+      const [, , , added] = afterHooks(h.fake);
+      resolveFirst();
+      await firstDone;
+      await second?.();
+
+      assert.deepEqual([h.timers.length, h.exits], [0, []]);
+
+      await added?.();
+
+      assert.deepEqual([h.timers.length, h.exits], [1, [1]]);
+    });
+
+    testFor([
+      ['throws', (): unknown => {
+        throw new Error('after failed');
+      }],
+      ['rejects', (): unknown => Promise.reject(new Error('after failed'))],
+    ] as const)('stops waiting at a root `after` hook that %s, as node:test runs none after it', async ([, hook]) => {
+      const h = harness(env);
+      install(h.deps);
+      h.wrapped().after(hook);
+      h.wrapped().after(() => {});
+      const [finished, failing] = afterHooks(h.fake);
+
+      finished?.();
+      await assert.rejects(async () => failing?.(), { message: 'after failed' });
+
+      assert.equal(h.timers.length, 1);
+    });
+
+    testFor([
+      ['with no error, once it calls back', undefined],
+      ['with an error, stopping the wait', new Error('after failed')],
+    ] as const)('passes a callback hook its `done` and settles %s', ([, error]) => {
+      const h = harness(env);
+      install(h.deps);
+      const passed: unknown[] = [];
+      let callBack = () => {};
+      h.wrapped().after(((_context: unknown, done: (error?: unknown) => void) => {
+        callBack = () => done(error);
+      }) as Fn);
+      h.wrapped().after(() => {});
+      const [finished, callbackHook] = afterHooks(h.fake);
+
+      assert.equal(callbackHook?.length, 2);
+
+      finished?.();
+      callbackHook?.({}, (given: unknown) => passed.push(given));
+
+      assert.equal(h.timers.length, 0);
+
+      callBack();
+
+      assert.deepEqual([h.timers.length, passed], [error ? 1 : 0, [error]]);
+    });
+
+    it('starts the grace once, whatever settles after it started', () => {
+      const h = harness(env);
+      install(h.deps);
+      h.wrapped().after(() => {
+        throw new Error('after failed');
+      });
+      h.wrapped().after(() => {});
+      const [finished, failing, later] = afterHooks(h.fake);
+
+      finished?.();
+      assert.throws(() => failing?.());
+      later?.();
+      finished?.();
+
+      assert.equal(h.timers.length, 1);
+    });
+
+    it('waits for no `after` hook of a suite, nor one registered without a function', () => {
+      const h = harness(env);
+      install(h.deps);
+      h.wrapped().describe('suite', () => {
+        h.wrapped().after(() => {});
+      });
+      h.wrapped().after();
+      afterHooks(h.fake)[0]?.();
+
+      assert.equal(h.timers.length, 1);
+    });
   });
 
   it('writes the hit count and, only in the dry run, the mutant coverage and the peak memory', () => {

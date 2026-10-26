@@ -61,9 +61,12 @@ export interface ProcessRecord {
   diagnostics?: string[];
   /**
    * Set when the test file's process exited before node:test's summary through process.exit() or an uncaught
-   * exception, which skip `beforeExit`.
+   * exception, which skip `beforeExit`, unless the hook ended it once node:test had reported every top-level suite and
+   * test.
    */
   unfinished?: true;
+  /** What kept the test file's process alive after its tests and root `after` hooks, when the hook ended it for that. */
+  heldOpen?: string[];
 }
 
 type Body = (this: unknown, ...args: unknown[]) => unknown;
@@ -123,7 +126,11 @@ export const ENV = {
   filter: 'STRYKER_NODE_TEST_FILTER',
   bail: 'STRYKER_NODE_TEST_BAIL',
   activeMutant: 'STRYKER_NODE_TEST_ACTIVE_MUTANT',
+  heldOpen: 'STRYKER_NODE_TEST_HELD_OPEN_MS',
 } as const;
+
+/** How long the test file's process may stay alive after its tests and root `after` hooks, unless ENV.heldOpen says. */
+export const HELD_OPEN_MS = 30_000;
 
 /** Stryker's variable for the active mutant, which instrumented code reads when it loads. */
 export const ACTIVE_MUTANT_ENV = '__STRYKER_ACTIVE_MUTANT__';
@@ -148,6 +155,12 @@ export interface HookDependencies {
   /** Registers a `beforeExit` listener, which a process that ends by itself calls and `process.exit()` skips. */
   onBeforeExit: (listener: () => void) => void;
   writeRecord: (path: string, record: ProcessRecord) => void;
+  /** Ends the process as `process.exit` does, with `process.exitCode` when no code is given. */
+  exit: (code?: number) => void;
+  /** `process.getActiveResourcesInfo`, a new array on every call. */
+  activeResources: () => string[];
+  /** Calls `callback` after `ms` without keeping the process alive. */
+  later: (callback: () => void, ms: number) => void;
   /** Under the permission model without write access, the process runs as it would outside Stryker, with no record. */
   canWriteRecords: boolean;
   peakMemoryMB: () => number;
@@ -231,9 +244,13 @@ export function install(deps: HookDependencies): boolean {
   const main = testFile !== undefined && deps.threadId === 0 && deps.mainFile === testFile;
   let summarized = false;
   let natural = false;
+  let end: Ending | undefined;
 
   if (main) {
     const positions = new Map<string, Position>();
+    const nodeTest = deps.nodeTest();
+    const ends = ending(deps, tests, (hook) => nodeTest.after(hook), Number(deps.env[ENV.heldOpen]) || HELD_OPEN_MS);
+    end = ends;
     // ES modules are named by their URL, CommonJS modules by their path.
     const callSites = (sourceMap: boolean) =>
       deps.callSites(CALL_SITE_FRAMES, { sourceMap }).map(({ scriptName, lineNumber, columnNumber }) => ({
@@ -248,6 +265,7 @@ export function install(deps: HookDependencies): boolean {
       }
 
       recordEvent(event);
+      ends.reported(event);
     };
     const filterJson = deps.env[ENV.filter];
     const filter = filterJson ? new Set<string>(JSON.parse(filterJson) as string[]) : undefined;
@@ -267,7 +285,9 @@ export function install(deps: HookDependencies): boolean {
 
         return mapped.some(({ file }) => file === testFile) ? mapped : callSites(false);
       },
-      nodeTest: deps.nodeTest(),
+      nodeTest,
+      registering: ends.registering,
+      rootAfter: ends.track,
     });
     deps.global[wrappedNodeTest] = wrapped;
     deps.registerHooks(redirectNodeTest(Object.keys(wrapped)));
@@ -278,6 +298,7 @@ export function install(deps: HookDependencies): boolean {
       return;
     }
 
+    const outcome = end?.outcome();
     deps.writeRecord(join(outDir, recordName(deps.pid, deps.threadId)), {
       ...(main && { main }),
       tests,
@@ -285,7 +306,8 @@ export function install(deps: HookDependencies): boolean {
       mutantCoverage: dryRun ? ns.mutantCoverage : undefined,
       peakMemoryMB: dryRun ? deps.peakMemoryMB() : undefined,
       ...(diagnostics.length > 0 && { diagnostics }),
-      ...(main && !summarized && !natural && { unfinished: true }),
+      ...(main && !summarized && !natural && !outcome?.complete && { unfinished: true }),
+      ...(outcome?.heldOpen && { heldOpen: outcome.heldOpen }),
     });
   };
 
@@ -299,6 +321,140 @@ export function install(deps: HookDependencies): boolean {
   deps.onExit(write);
 
   return true;
+}
+
+export interface Ending {
+  /**
+   * The test file registers a suite, test or hook through node:test, `topLevel` when it is a suite or test outside any
+   * other. The first registration also registers a root `after` hook of the ending's own, ahead of the file's.
+   */
+  registering: (topLevel: boolean) => void;
+  /** Makes the ending wait for a root `after` hook of the test file to settle. */
+  track: (hook: Body) => Body;
+  /** node:test has reported another event. */
+  reported: (event: TestEvent) => void;
+  /** Whether node:test had reported every top-level suite and test when the hook ended the process, and what held it open. */
+  outcome: () => { complete: boolean; heldOpen?: string[] };
+}
+
+/**
+ * Ends a test file's process that outlives its tests, as a server left listening makes it. Once node:test has
+ * finished every top-level suite and test and the file's root `after` hooks have settled, or one of them threw, which
+ * stops the rest, a file with a failed test ends at once with exit code 1, as nothing later changes its outcome. Any
+ * other file still alive `graceMs` later ends with node:test's exit code.
+ *
+ * node:test runs root `after` hooks in the order they were added, once every top-level suite and test has finished.
+ * The ending adds its own at the file's first registration, not earlier: node:test sets itself up on its first use, and
+ * an error thrown before that, while the file loads, must stay an ordinary uncaught exception.
+ */
+export function ending(
+  deps: Pick<HookDependencies, 'exit' | 'activeResources' | 'later'>,
+  tests: RecordedTest[],
+  rootAfter: (hook: () => void) => void,
+  graceMs: number,
+): Ending {
+  let declared = 0;
+  let reportedTopLevel = 0;
+  let hooked = false;
+  let pending = 0;
+  let threw = false;
+  let armed = false;
+  let ended: ReturnType<Ending['outcome']> = { complete: false };
+  const before = deps.activeResources();
+  // What the tests opened, not what the process had before they ran, such as the pipe the runner reads stderr from.
+  const opened = () => {
+    const resources = deps.activeResources();
+
+    for (const resource of before) {
+      const index = resources.indexOf(resource);
+
+      if (index !== -1) {
+        resources.splice(index, 1);
+      }
+    }
+
+    return resources;
+  };
+  // node:test reports a test a little after it ends, so a failure can arrive after the hooks have settled. It reports a
+  // suite after everything inside it, so once each top-level one is reported, everything is.
+  const allReported = () => reportedTopLevel >= declared;
+  const end = (code: number | undefined, heldOpen?: string[]) => {
+    ended = { complete: allReported(), ...(heldOpen && { heldOpen }) };
+    deps.exit(code);
+  };
+  const check = () => {
+    if (armed && allReported() && tests.some((test) => test.status === 'failed')) {
+      end(1);
+    }
+  };
+  // The ending's own root `after` hook runs before the file's, so every call comes once node:test has finished.
+  const settled = () => {
+    if (armed || (pending > 0 && !threw)) {
+      return;
+    }
+
+    armed = true;
+    deps.later(() => end(undefined, opened()), graceMs);
+    check();
+  };
+  const settle = (failed: boolean) => {
+    pending--;
+    threw ||= failed;
+    settled();
+  };
+
+  return {
+    registering: (topLevel) => {
+      if (!hooked) {
+        hooked = true;
+        rootAfter(settled);
+      }
+
+      if (topLevel) {
+        declared++;
+      }
+    },
+    track: (hook) => {
+      pending++;
+      const callback = hook.length >= 2;
+      const wrapped = function (this: unknown, ...args: unknown[]) {
+        try {
+          if (!callback) {
+            return Promise.resolve(hook.apply(this, args)).then(
+              () => settle(false),
+              (error: unknown) => {
+                settle(true);
+                throw error;
+              },
+            );
+          }
+
+          const done = args[1] as (error?: unknown) => void;
+          args[1] = (error?: unknown) => {
+            settle(Boolean(error));
+            done(error);
+          };
+
+          return hook.apply(this, args);
+        } catch (error) {
+          settle(true);
+          throw error;
+        }
+      };
+      Object.defineProperty(wrapped, 'length', { value: hook.length });
+
+      return wrapped;
+    },
+    reported: ({ type, data }) => {
+      // A failing root hook is reported as a failure of the file itself, which has no type.
+      if ((type === 'test:pass' || type === 'test:fail') && data.nesting === 0 && data.details?.type !== undefined) {
+        reportedTopLevel++;
+      }
+
+      check();
+    },
+    outcome: () => ended,
+  };
 }
 
 /**
@@ -379,6 +535,10 @@ export interface WrapOptions {
   positions: Map<string, Position>;
   callSites: () => CallSite[];
   nodeTest: NodeTestModule;
+  /** Called before each suite, test or hook goes to node:test, `topLevel` for a suite or test outside any other. */
+  registering: (topLevel: boolean) => void;
+  /** Wraps a function registered as an `after` hook outside any suite, a root `after` hook of the test file. */
+  rootAfter: (hook: Body) => Body;
 }
 
 /**
@@ -387,7 +547,8 @@ export interface WrapOptions {
  * once its reporters start, so a few quick tests can still run after the first failure.
  */
 export function wrapNodeTest(options: WrapOptions): NodeTestModule {
-  const { ns, testFile, tests, filter, bail, activeMutant, env, positions, callSites, nodeTest } = options;
+  const { ns, testFile, tests, filter, bail, activeMutant, env, positions, callSites, nodeTest, registering, rootAfter } =
+    options;
   const idOf = uniqueIds();
   /**
    * node:test makes the suite or test whose body runs, followed through asynchronous calls, the parent of the suites
@@ -430,6 +591,8 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
       if (suite !== undefined && !selected(suite)) {
         return undefined;
       }
+
+      registering(false);
 
       return register.call(this, prepare(hook, suite), ...rest);
     };
@@ -508,6 +671,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     }
   };
   const named = (parent: string, name: string, test: boolean) => {
+    registering(parent === testFile);
     const id = idOf(parent, name);
     const fullName = parent === testFile ? name : `${fullNames.get(parent)} > ${name}`;
     fullNames.set(id, fullName);
@@ -634,6 +798,7 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
   // The bodies of skipped suites and tests never run, so `skip` only notes where they are declared.
   const declareSkipped = (register: Registrar): Registrar =>
     function (this: unknown, ...args: unknown[]) {
+      registering(parentId() === testFile);
       declare(idOf(parentId(), parse(args).name));
 
       return register.apply(this, args as Parameters<Registrar>);
@@ -660,11 +825,15 @@ export function wrapNodeTest(options: WrapOptions): NodeTestModule {
     after: wrapHook(nodeTest.after, (hook, suite) => {
       // node:test reports a failing `after` hook outside any suite as a failure of the test file, at the position it
       // takes from its caller, which is this wrapper.
-      if (suite === undefined) {
-        declare(testId(testFile, AFTER_HOOK));
+      const attributed = attributing(hook, testOf);
+
+      if (suite !== undefined) {
+        return attributed;
       }
 
-      return attributing(hook, testOf);
+      declare(testId(testFile, AFTER_HOOK));
+
+      return typeof attributed === 'function' ? rootAfter(attributed) : attributed;
     }),
     afterEach: wrapHook(nodeTest.afterEach),
   });

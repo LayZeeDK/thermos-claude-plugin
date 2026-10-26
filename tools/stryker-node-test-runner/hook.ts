@@ -14,6 +14,21 @@ const WATCHDOG = `Promise.all([
   import(${JSON.stringify(new URL('./watchdog.ts', import.meta.url).href)}),
 ]).then(([{ workerData }, { watch }]) => watch(workerData));`;
 
+// Exported so the tests can call them in their own process: those of the test files they start report no coverage.
+// process.exit(undefined) sets the exit code to undefined, so it would exit with 0.
+export const exit: HookDependencies['exit'] = (code) => process.exit(code ?? process.exitCode);
+
+export const activeResources: HookDependencies['activeResources'] = () => {
+  // The runner reads stderr through a pipe, which Node.js lists from the first time process.stderr is read.
+  void process.stderr;
+
+  return process.getActiveResourcesInfo();
+};
+
+export const later: HookDependencies['later'] = (callback, ms) => {
+  setTimeout(callback, ms).unref();
+};
+
 install({
   env: process.env,
   mainFile: process.argv[1] ? resolve(process.argv[1]) : undefined,
@@ -26,6 +41,9 @@ install({
   offExit: (listener) => process.off('exit', listener),
   onBeforeExit: (listener) => process.on('beforeExit', listener),
   writeRecord: (path, record) => writeFileSync(path, JSON.stringify(record)),
+  exit,
+  activeResources,
+  later,
   canWriteRecords: writesAllowed(process.permission, process.env[ENV.out]),
   peakMemoryMB: () => Math.round(process.resourceUsage().maxRSS / 1024),
   canWatchMemory: isMainThread && workersAllowed(process.permission),

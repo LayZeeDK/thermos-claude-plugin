@@ -32,6 +32,9 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
   const seen: (string | undefined)[] = [];
   const positions = new Map<string, Position>();
   const sites: CallSite[] = [];
+  /** Each call of `registering`: whether top-level, and how many registrations node:test had then. */
+  const registering: [boolean, number][] = [];
+  const rootAfters: Fn[] = [];
   const module = wrapNodeTest({
     ns,
     testFile: TEST_FILE,
@@ -43,11 +46,19 @@ function wrapped(filter?: string[], bail = false, activeMutant?: string) {
     positions,
     callSites: () => sites,
     nodeTest: fake.module,
+    registering: (topLevel) => {
+      registering.push([topLevel, fake.registrations.length]);
+    },
+    rootAfter: (hook) => {
+      rootAfters.push(hook);
+
+      return hook;
+    },
   });
 
   const see = () => seen.push(ns.currentTestId);
 
-  return { ...fake, original: fake.module, module, ns, env, tests, positions, sites, seen, see };
+  return { ...fake, original: fake.module, module, ns, env, tests, positions, sites, seen, see, registering, rootAfters };
 }
 
 describe('wrapNodeTest', () => {
@@ -416,6 +427,51 @@ describe('wrapNodeTest', () => {
     assert.deepEqual(seen, [`${TEST_FILE} > parent`, `${TEST_FILE} > parent > wanted`]);
   });
 
+  it('tells before each suite, test and hook goes to node:test, and whether it is a top-level suite or test', async () => {
+    const { module, registrations, registering } = wrapped([`${TEST_FILE} > runs`]);
+    module.after(() => {});
+    module.describe('suite', () => {
+      module.it('nested', () => {});
+      module.it.skip('nested skipped');
+    });
+    module.it.skip('skipped');
+    module.it('runs', async (t: Subtests) => {
+      module.it('registered while it runs', () => {});
+      await t.test('subtest', () => {});
+    });
+    module.it('filtered out', () => {});
+    await bodyOf(registrations, 'runs')(testContext(registrations));
+
+    // The hook, the suite, its two tests, the skipped test, `runs`, the filtered test, and the two that `runs` registers.
+    assert.deepEqual(registering, [
+      [false, 0],
+      [true, 1],
+      [false, 2],
+      [false, 3],
+      [true, 4],
+      [true, 5],
+      [true, 6],
+      [false, 7],
+      [false, 8],
+    ]);
+  });
+
+  it('hands each root `after` hook with a function, and none other, to rootAfter, and registers what it returns', () => {
+    const { module, registrations, rootAfters } = wrapped();
+    const root = () => {};
+    module.after(root);
+    module.after();
+    module.describe('suite', () => {
+      module.after(() => {});
+    });
+
+    assert.equal(rootAfters.length, 1);
+    assert.deepEqual(
+      registrations.filter(({ kind }) => kind === 'after').map(({ rest }) => rest[0] === rootAfters[0]),
+      [true, false, false],
+    );
+  });
+
   it('wraps expectFailure on Node.js 24, where tests have it', async () => {
     const { module, registrations, seen, see } = wrapped();
     module.it.expectFailure?.('it.expectFailure', see);
@@ -437,6 +493,8 @@ describe('wrapNodeTest', () => {
       positions: new Map(),
       callSites: () => [],
       nodeTest: fakeNodeTest(false).module,
+      registering: () => {},
+      rootAfter: (hook) => hook,
     });
 
     assert.deepEqual([node22.it.expectFailure, node22.expectFailure], [undefined, undefined]);

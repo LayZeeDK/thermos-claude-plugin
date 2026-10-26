@@ -24,7 +24,7 @@ import reporter from './reporter.ts';
 
 // Loaded here, outside any test, the hook stays inactive (the runner did not start this process, or its own hook is
 // installed), and Stryker counts the hook's mutants as covered by every test, including those that run it in a child.
-await import('./hook.ts');
+const { activeResources, exit, later } = await import('./hook.ts');
 
 shareCompileCache();
 
@@ -204,6 +204,96 @@ describe('hook', () => {
       workers.map((name) => [/^\d+\.[1-9]\d*\.json$/.test(name), records[name]?.main, records[name]?.hitCount]),
       [[true, undefined, 999]],
     );
+  });
+
+  it('ends the process with the code it is given, or else with the exit code set before', (t) => {
+    const codes: unknown[] = [];
+    t.mock.method(process, 'exit', ((code?: number) => {
+      codes.push(code);
+    }) as typeof process.exit);
+    const previous = process.exitCode;
+    t.after(() => {
+      process.exitCode = previous;
+    });
+    process.exitCode = 3;
+
+    exit(1);
+    exit();
+
+    assert.deepEqual(codes, [1, 3]);
+  });
+
+  it('calls back after the delay without keeping the process alive', (t) => {
+    const timers: unknown[] = [];
+    let unrefs = 0;
+    t.mock.method(globalThis, 'setTimeout', ((callback: () => void, ms: number) => {
+      timers.push([callback, ms]);
+
+      return { unref: () => unrefs++ };
+    }) as unknown as typeof setTimeout);
+    const callback = () => {};
+
+    later(callback, 250);
+
+    assert.deepEqual([timers, unrefs], [[[callback, 250]], 1]);
+  });
+
+  it("lists the process's active resources", () => {
+    assert.deepEqual(activeResources(), process.getActiveResourcesInfo());
+  });
+
+  const leavesServer = (name: string, then = '') =>
+    `it('${name}', async () => { await new Promise((resolve) => createServer().listen(0, resolve)); ${then} });`;
+
+  testFor([
+    ['with exit code 1 at once, when a test failed', 'fails', 'assert.fail();', '60000', 1, 'failed', {}],
+    [
+      "with node:test's exit code once the held-open time ends, naming the server, when its tests passed",
+      'passes',
+      '',
+      '200',
+      0,
+      'passed',
+      { heldOpen: ['TCPServerWrap'] },
+    ],
+  ] as const)(
+    'ends a test file whose test leaves a server listening %s',
+    { timeout: 30_000 },
+    async ([, name, then, heldOpenMs, exitCode, status, marks], t) => {
+      const dir = tempDir(t);
+      const outDir = tempDir(t);
+      const testFile = join(dir, 'fixture.test.mjs');
+      writeFileSync(testFile, fixture("import { createServer } from 'node:http';", leavesServer(name, then)));
+
+      const { code, pid } = await runWithHook([testFile], {
+        [ENV.out]: outDir,
+        [ENV.file]: testFile,
+        [ENV.heldOpen]: heldOpenMs,
+      });
+
+      assert.equal(code, exitCode);
+      const { main, tests, unfinished, heldOpen } = readRecords(outDir)[`${pid}.0.json`] ?? {};
+      assert.deepEqual(
+        { main, statuses: tests?.map((test) => test.status), unfinished, heldOpen },
+        { main: true, statuses: [status], unfinished: undefined, heldOpen: undefined, ...marks },
+      );
+    },
+  );
+
+  it('lets a test file whose tests leave nothing open end by itself, long before the held-open time', { timeout: 20_000 }, async (t) => {
+    const dir = tempDir(t);
+    const outDir = tempDir(t);
+    const testFile = join(dir, 'fixture.test.mjs');
+    writeFileSync(testFile, fixture("it('passes', () => {});"));
+
+    const { code, pid } = await runWithHook([testFile], {
+      [ENV.out]: outDir,
+      [ENV.file]: testFile,
+      [ENV.heldOpen]: '60000',
+    });
+
+    assert.equal(code, 0);
+    assert.equal(readRecords(outDir)[`${pid}.0.json`]?.heldOpen, undefined);
   });
 
   it('records the tests and coverage of the test file it runs in, in a file named after the process', async (t) => {

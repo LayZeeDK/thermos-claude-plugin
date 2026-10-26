@@ -279,6 +279,24 @@ function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOpt
     return { end: { status: DryRunStatus.Error, errorMessage } };
   }
 
+  // The hook ended a file that something its tests opened kept alive, which `node --test` would wait for forever: in
+  // the dry run an error to fix, and in a mutant run the timeout Stryker's own timer would report later.
+  if (!failed && main.heldOpen) {
+    const heldBy = main.heldOpen.join(', ');
+
+    if (run.dryRun) {
+      const errorMessage =
+        `Test file "${file}" stayed alive after its tests and root after hooks ended, held open by ${heldBy}, so ` +
+        'node --test would not end either. Close what its tests open in an after hook, or pass --test-force-exit in ' +
+        'lzNodeTest.nodeArgs, as for node --test (NODE_OPTIONS does not allow it); node:test then loses errors ' +
+        'raised after a test ended.';
+
+      return { end: { status: DryRunStatus.Error, errorMessage } };
+    }
+
+    return { end: { status: DryRunStatus.Timeout, reason: `Test file "${file}" stayed alive, held open by ${heldBy}` } };
+  }
+
   return { results, coverages: records.map((record) => record.mutantCoverage), failed };
 }
 
