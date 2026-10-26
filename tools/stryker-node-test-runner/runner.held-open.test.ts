@@ -49,7 +49,7 @@ describe('NodeTestRunner with a test file that its tests keep alive', () => {
         `Test file "${join(dir, 'a.test.mjs')}" stayed alive after its tests and root after hooks ended, held open ` +
         'by TCPServerWrap, so node --test would not end either. Close what its tests open in an after hook, or pass ' +
         '--test-force-exit in lzNodeTest.nodeArgs, as for node --test (NODE_OPTIONS does not allow it); node:test ' +
-        'then loses errors raised after a test ended.',
+        'then loses errors raised after the tests and root after hooks end.',
     });
   });
 

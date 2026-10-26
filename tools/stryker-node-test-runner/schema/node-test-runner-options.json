@@ -17,7 +17,7 @@
           "default": ["**/*.test.ts"]
         },
         "nodeArgs": {
-          "description": "Arguments for node ahead of the test file, such as --enable-source-maps. Options that add a node:test reporter or its destination are left out, as the runner uses its own reporter. Defaults to none. A test file whose tests leave something open, such as a listening server, ends once its tests and root after hooks have finished: at once if a test failed, else 30 seconds later, as a timeout in a mutant run and an error in the dry run. A failed test waits too when --test-name-pattern, --test-skip-pattern or --test-only filters out a top-level test. Close what the tests open in an after hook, or pass --test-force-exit here, as NODE_OPTIONS does not allow it; under it node:test loses errors raised after a test ended.",
+          "description": "Arguments for node ahead of the test file, such as --enable-source-maps. Options that add a node:test reporter or its destination are left out, as the runner uses its own reporter. Defaults to none. A test file whose tests leave something open, such as a listening server, ends once its tests and root after hooks have finished: at once if a test failed, else 30 seconds later, as a timeout in a mutant run and an error in the dry run. A failed test waits too when --test-name-pattern, --test-skip-pattern or --test-only filters out a top-level test. Close what the tests open in an after hook, or pass --test-force-exit here, as NODE_OPTIONS does not allow it; under it node:test loses errors raised after the tests and root after hooks end.",
           "type": "array",
           "items": { "type": "string" },
           "default": []

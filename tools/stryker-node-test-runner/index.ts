@@ -288,7 +288,7 @@ function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOpt
         `Test file "${file}" stayed alive after its tests and root after hooks ended, held open by ${heldBy}, so ` +
         'node --test would not end either. Close what its tests open in an after hook, or pass --test-force-exit in ' +
         'lzNodeTest.nodeArgs, as for node --test (NODE_OPTIONS does not allow it); node:test then loses errors ' +
-        'raised after a test ended.';
+        'raised after the tests and root after hooks end.';
 
       return { end: { status: DryRunStatus.Error, errorMessage } };
     }

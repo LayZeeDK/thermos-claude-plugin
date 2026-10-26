@@ -130,8 +130,8 @@ export const ENV = {
 } as const;
 
 /**
- * How long a test file's process with no failed test may stay alive after its tests and root `after` hooks. The tests
- * shorten it through ENV.heldOpen; it is not an option.
+ * How long a test file's process may stay alive after its tests and root `after` hooks when the ending does not end it
+ * at once for a failed test. The tests shorten it through ENV.heldOpen; it is not an option.
  */
 export const HELD_OPEN_MS = 30_000;
 
@@ -343,8 +343,9 @@ export interface Ending {
 /**
  * Ends a test file's process that outlives its tests, as a server left listening makes it. Once node:test has
  * finished every top-level suite and test and the file's root `after` hooks have settled, or one of them threw or timed
- * out, which stops the rest, a file with a failed test ends at once with exit code 1, as nothing later changes its outcome. Any
- * other file still alive `graceMs` later ends with node:test's exit code.
+ * out, which stops the rest, a file with a failed test ends with exit code 1 once node:test has reported each top-level
+ * suite and test, as nothing later changes its outcome. A top-level test that node:test filters out is never reported,
+ * so such a file waits like any other: one still alive `graceMs` later ends with node:test's exit code.
  *
  * node:test runs root `after` hooks in the order they were added, once every top-level suite and test has finished.
  * The ending adds its own at the file's first registration, not earlier: node:test sets itself up on its first use, and
