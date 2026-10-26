@@ -14,10 +14,10 @@ describe('testFor', () => {
         `('$a $b', (row, t) => report(row, t.name));
       },
       [
-        { name: '1 and 2', outcome: 'fail', error: '[[1,2],"1 and 2"]' },
-        { name: 'x and undefined', outcome: 'fail', error: '["x","x and undefined"]' },
-        { name: 'undefined and undefined', outcome: 'fail', error: '[null,"undefined and undefined"]' },
-        { name: '1 x', outcome: 'fail', error: '[{"a":1,"b":"x"},"1 x"]' },
+        { name: '1 and 2', outcome: 'fail', error: JSON.stringify([[1, 2], '1 and 2']) },
+        { name: 'x and undefined', outcome: 'fail', error: JSON.stringify(['x', 'x and undefined']) },
+        { name: 'undefined and undefined', outcome: 'fail', error: JSON.stringify([null, 'undefined and undefined']) },
+        { name: '1 x', outcome: 'fail', error: JSON.stringify([{ a: 1, b: 'x' }, '1 x']) },
       ],
     );
   });

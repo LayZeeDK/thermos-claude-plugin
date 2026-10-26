@@ -8,10 +8,21 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\""
+    "test": "node --test \".claude/skills/**/*.test.ts\" \"tools/**/*.test.ts\"",
+    "test:linux": "docker run --rm --init -v .:/src:ro node:24-bookworm bash -c \"mkdir /w && tar -C /src --exclude=./node_modules --exclude=./.stryker-tmp --exclude=./.claude/worktrees -cf - . | tar -C /w -xf - && cd /w && npm ci --no-audit --no-fund && npm test\"",
+    "mutate": "stryker run && stryker run stryker.test-each.config.mjs && stryker run stryker.test-code.config.mjs",
+    "bench": "node tools/stryker-node-test-runner/runner.bench.ts",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@stryker-mutator/api": "^10.1.1",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/typescript-checker": "^10.1.1",
     "@types/node": "^22.20.5",
+    "@typescript-eslint/parser": "^8.72.0",
+    "ajv": "^8.20.0",
+    "eslint": "^10.13.0",
+    "tinybench": "^6.2.2",
     "typescript": "^6.0.3"
   }
 }
