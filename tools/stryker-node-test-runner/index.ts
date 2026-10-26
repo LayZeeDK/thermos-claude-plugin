@@ -269,18 +269,10 @@ function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOpt
     return { end: { status: DryRunStatus.Error, errorMessage } };
   }
 
-  // Stryker treats a test runner that exits during a run as crashed, whatever its exit code, and so do its runners
-  // that run the tests in their own process; the tests that node:test did not report are unknown.
-  if (!failed && main.unfinished) {
-    const errorMessage =
-      `Unfinished test results for "${file}": its process exited before node:test reported every test, as when ` +
-      'a test calls process.exit().';
-
-    return { end: { status: DryRunStatus.Error, errorMessage } };
-  }
-
   // The hook ended a file that something its tests opened kept alive, which `node --test` would wait for forever: in
-  // the dry run an error to fix, and in a mutant run the timeout Stryker's own timer would report later.
+  // the dry run an error to fix, and in a mutant run a timeout, which Stryker's own timer reports first unless the
+  // file's tests take most of its budget. Top-level tests that node:test filters out never get reported, so such a
+  // file can also be unfinished.
   if (!failed && main.heldOpen) {
     const heldBy = main.heldOpen.join(', ');
 
@@ -295,6 +287,16 @@ function fileOutcome(file: string, fileRun: FileRun, fileMs: number, run: RunOpt
     }
 
     return { end: { status: DryRunStatus.Timeout, reason: `Test file "${file}" stayed alive, held open by ${heldBy}` } };
+  }
+
+  // Stryker treats a test runner that exits during a run as crashed, whatever its exit code, and so do its runners
+  // that run the tests in their own process; the tests that node:test did not report are unknown.
+  if (!failed && main.unfinished) {
+    const errorMessage =
+      `Unfinished test results for "${file}": its process exited before node:test reported every test, as when ` +
+      'a test calls process.exit().';
+
+    return { end: { status: DryRunStatus.Error, errorMessage } };
   }
 
   return { results, coverages: records.map((record) => record.mutantCoverage), failed };

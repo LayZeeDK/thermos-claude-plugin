@@ -53,6 +53,19 @@ describe('NodeTestRunner with a test file that its tests keep alive', () => {
     });
   });
 
+  it('ends the dry run of a held-open file as held open also when node:test filters out a top-level test', async (t) => {
+    heldOpenFor(t, 200);
+    project(t, {
+      'a.test.mjs': fixture(SERVER, `it('passes', async () => { ${LISTEN} });`, "it('filtered out', () => {});"),
+    });
+    const runner = await initRunner(['a.test.mjs'], { nodeArgs: ['--test-name-pattern=passes'] });
+
+    const result = await settle(runner.dryRun(DRY_RUN));
+
+    assert.equal(result.status, DryRunStatus.Error);
+    assert.match('errorMessage' in result ? result.errorMessage : '', /stayed alive .* held open by TCPServerWrap,/);
+  });
+
   it('reports a mutant whose passing test leaves servers listening as timed out, naming them', async (t) => {
     heldOpenFor(t, 200);
     const dir = project(t, { 'a.test.mjs': fixture(SERVER, `it('passes', async () => { ${LISTEN} ${LISTEN} });`) });
